@@ -181,7 +181,12 @@ def _check_github_release(
         exc.close()
         if status_code == 404:
             return _no_github_release(current_version)
-        fallback = _check_github_latest_page(repository, current_version, timeout)
+        fallback = _check_github_latest_page(
+            repository,
+            current_version,
+            edition,
+            timeout,
+        )
         if fallback is not None:
             return fallback
         return _github_connection_error(current_version, f"HTTP {status_code}")
@@ -193,7 +198,12 @@ def _check_github_release(
             message="استجابة GitHub Releases غير صالحة.",
         )
     except (OSError, urllib.error.URLError, ValueError) as exc:
-        fallback = _check_github_latest_page(repository, current_version, timeout)
+        fallback = _check_github_latest_page(
+            repository,
+            current_version,
+            edition,
+            timeout,
+        )
         if fallback is not None:
             return fallback
         return _github_connection_error(current_version, str(exc))
@@ -229,6 +239,7 @@ def _check_github_release(
 def _check_github_latest_page(
     repository: str,
     current_version: str,
+    edition: str,
     timeout: int,
 ) -> UpdateCheckResult | None:
     latest_url = f"https://github.com/{repository}/releases/latest"
@@ -260,12 +271,59 @@ def _check_github_latest_page(
     latest_version = _version_from_tag(tag)
     if not latest_version:
         return None
+    download_url = (
+        _find_public_installer(
+            repository,
+            tag,
+            latest_version,
+            edition,
+            current_version,
+            timeout,
+        )
+        or release_url
+    )
     return _result_for_release(
         current_version=current_version,
         latest_version=latest_version,
-        download_url=release_url,
+        download_url=download_url,
         notes="",
     )
+
+
+def _find_public_installer(
+    repository: str,
+    tag: str,
+    latest_version: str,
+    edition: str,
+    current_version: str,
+    timeout: int,
+) -> str:
+    if edition == EDITION_GMAIL_API_LIMITED:
+        prefix = "PowerAccessibleMailSetup"
+    else:
+        prefix = "PowerAccessibleMailFullSetup"
+    base_name = f"{prefix}-{latest_version}-win-x64"
+    candidate_names = [f"{base_name}.exe", f"{base_name}-UNSIGNED.exe"]
+    encoded_tag = urllib.parse.quote(tag, safe="")
+    for name in candidate_names:
+        encoded_name = urllib.parse.quote(name, safe="")
+        url = (
+            f"https://github.com/{repository}/releases/download/"
+            f"{encoded_tag}/{encoded_name}"
+        )
+        request = urllib.request.Request(
+            url,
+            method="HEAD",
+            headers={"User-Agent": f"PowerAccessibleMail/{current_version}"},
+        )
+        try:
+            with urllib.request.urlopen(request, timeout=timeout):
+                return url
+        except urllib.error.HTTPError as exc:
+            exc.close()
+        except (OSError, urllib.error.URLError):
+            continue
+    return ""
 
 
 def _read_json_response(request: urllib.request.Request, timeout: int) -> object:

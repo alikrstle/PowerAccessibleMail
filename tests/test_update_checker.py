@@ -167,15 +167,77 @@ class UpdateCheckerTests(unittest.TestCase):
         release_url = (
             "https://github.com/alikrstle/PowerAccessibleMail/releases/tag/v1.2.9"
         )
+        signed_asset_error = urllib.error.HTTPError(
+            "https://github.com/download/full.exe",
+            404,
+            "not found",
+            {},
+            None,
+        )
         urlopen.side_effect = [
             api_error,
             FakeResponse(b"", final_url=release_url),
+            signed_asset_error,
+            FakeResponse(b""),
         ]
 
         result = check_for_updates("1.2.8", edition=EDITION_FULL)
 
         self.assertTrue(result.available)
         self.assertEqual(result.latest_version, "1.2.9")
+        self.assertEqual(
+            result.download_url,
+            (
+                "https://github.com/alikrstle/PowerAccessibleMail/releases/"
+                "download/v1.2.9/"
+                "PowerAccessibleMailFullSetup-1.2.9-win-x64-UNSIGNED.exe"
+            ),
+        )
+
+    @patch("accessible_mail.update_checker.load_update_manifest_url", return_value="")
+    @patch(
+        "accessible_mail.update_checker.load_github_repository",
+        return_value="alikrstle/PowerAccessibleMail",
+    )
+    @patch("accessible_mail.update_checker.urllib.request.urlopen")
+    def test_rate_limit_uses_release_page_when_installer_checks_fail(
+        self,
+        urlopen,
+        _repository,
+        _manifest,
+    ) -> None:
+        release_url = (
+            "https://github.com/alikrstle/PowerAccessibleMail/releases/tag/v1.2.9"
+        )
+        errors = [
+            urllib.error.HTTPError(
+                "https://api.github.com/releases/latest",
+                403,
+                "rate limited",
+                {},
+                None,
+            ),
+            FakeResponse(b"", final_url=release_url),
+            urllib.error.HTTPError(
+                "https://github.com/download/full.exe",
+                404,
+                "not found",
+                {},
+                None,
+            ),
+            urllib.error.HTTPError(
+                "https://github.com/download/full-unsigned.exe",
+                404,
+                "not found",
+                {},
+                None,
+            ),
+        ]
+        urlopen.side_effect = errors
+
+        result = check_for_updates("1.2.8", edition=EDITION_FULL)
+
+        self.assertTrue(result.available)
         self.assertEqual(result.download_url, release_url)
 
     @patch("accessible_mail.update_checker.load_update_manifest_url", return_value="")
