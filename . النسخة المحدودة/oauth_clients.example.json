@@ -1,0 +1,6 @@
+{
+  "google_gmail_api": {
+    "client_id": "ضع Client ID الخاص بنسخة Gmail API المحدودة هنا",
+    "client_secret": "ضع Client Secret الخاص بنسخة Gmail API المحدودة هنا"
+  }
+}

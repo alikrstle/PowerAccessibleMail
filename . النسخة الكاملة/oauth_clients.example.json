@@ -1,0 +1,10 @@
+{
+  "google": {
+    "client_id": "ضع Client ID الخاص بالنسخة الكاملة هنا",
+    "client_secret": "ضع Client Secret الخاص بالنسخة الكاملة هنا"
+  },
+  "microsoft": {
+    "client_id": "ضع Microsoft Client ID هنا لاحقا",
+    "client_secret": ""
+  }
+}

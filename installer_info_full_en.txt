@@ -1,0 +1,17 @@
+Application information
+
+Application: Power Accessible Mail
+Version: 1.2.8
+Developer and owner: Ali Al-Amir
+Company: Soljan.AlSharq., owned by developer Ali Al-Amir
+Edition: Full IMAP and SMTP edition
+
+Privacy and ownership summary
+- The application and its rights are owned by developer Ali Al-Amir.
+- The application accesses email after OAuth consent or manual account configuration to provide the requested email features.
+- Accounts and cached data are stored locally. Sensitive local data is protected with Windows DPAPI for the current Windows account.
+- User data is not sold or used for advertising.
+- When the user requests message translation, the selected message text is sent to Google Translate only to perform that request.
+- The user can remove an account and its local cache from inside the application.
+
+Review this summary, then select the agreement check box at the bottom of this page to continue.
