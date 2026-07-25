@@ -198,6 +198,7 @@ class AppBehaviorTests(unittest.TestCase):
         source = inspect.getsource(MailPage._build)
 
         self.assertIn("self.list = wx.ListCtrl(self, style=wx.LC_REPORT)", source)
+        self.assertIn("self.list.EnableCheckBoxes(True)", source)
         self.assertNotIn("wx.LC_SINGLE_SEL", source)
 
     def test_ctrl_shift_space_toggles_multiple_selection_mode(self) -> None:
@@ -246,13 +247,75 @@ class AppBehaviorTests(unittest.TestCase):
         page = SimpleNamespace(
             multi_select_mode=True,
             _shift_pressed_alone=True,
-            announce_selection_count=Mock(),
+            schedule_selection_count_announcement=Mock(),
         )
 
         MailPage.on_list_key_up(page, event)
 
-        page.announce_selection_count.assert_called_once_with()
+        page.schedule_selection_count_announcement.assert_called_once_with()
         event.Skip.assert_not_called()
+
+    def test_shift_key_down_arms_selection_count_announcement(self) -> None:
+        event = SimpleNamespace(
+            GetKeyCode=lambda: wx.WXK_SHIFT,
+            Skip=Mock(),
+        )
+        page = SimpleNamespace(
+            multi_select_mode=True,
+            _shift_pressed_alone=False,
+        )
+
+        MailPage.on_list_key_down(page, event)
+
+        self.assertTrue(page._shift_pressed_alone)
+        event.Skip.assert_called_once_with()
+
+    def test_non_shift_key_down_cancels_shift_only_announcement(self) -> None:
+        event = SimpleNamespace(
+            GetKeyCode=lambda: wx.WXK_DOWN,
+            Skip=Mock(),
+        )
+        page = SimpleNamespace(
+            multi_select_mode=True,
+            _shift_pressed_alone=True,
+        )
+
+        MailPage.on_list_key_down(page, event)
+
+        self.assertFalse(page._shift_pressed_alone)
+        event.Skip.assert_called_once_with()
+
+    def test_checked_message_enters_multiple_selection_mode(self) -> None:
+        summary = object()
+        page = SimpleNamespace(
+            _suppress_selection_event=False,
+            multi_select_mode=False,
+            _multi_selected_keys=set(),
+            visible_messages=[summary],
+            message_key=Mock(return_value=("INBOX", "1")),
+            update_multi_selection_status=Mock(),
+            announce_accessible=Mock(),
+        )
+
+        MailPage.on_item_check_changed(page, 0, True)
+
+        self.assertTrue(page.multi_select_mode)
+        self.assertEqual(page._multi_selected_keys, {("INBOX", "1")})
+        page.update_multi_selection_status.assert_called_once_with()
+        page.announce_accessible.assert_called_once()
+
+    def test_multiple_selection_uses_checked_items_not_focused_row(self) -> None:
+        page = SimpleNamespace(
+            multi_select_mode=True,
+            checked_indices=Mock(return_value=[0, 2]),
+            row_selected_indices=Mock(return_value=[1]),
+        )
+
+        indices = MailPage.selected_indices(page)
+
+        self.assertEqual(indices, [0, 2])
+        page.checked_indices.assert_called_once_with()
+        page.row_selected_indices.assert_not_called()
 
     def test_delete_key_uses_bulk_delete_for_selected_messages(self) -> None:
         summaries = [object(), object()]

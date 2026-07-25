@@ -1028,6 +1028,7 @@ class MailPage(wx.Panel):
         self.multi_select_mode = False
         self._multi_selected_keys: set[tuple[str, str]] = set()
         self._shift_pressed_alone = False
+        self._shift_announce_call: wx.CallLater | None = None
         self.on_selected = on_selected
         self.on_toggle_read = on_toggle_read
         self.on_translate = on_translate
@@ -1051,6 +1052,7 @@ class MailPage(wx.Panel):
         root.Add(filter_row, 0, wx.EXPAND)
 
         self.list = wx.ListCtrl(self, style=wx.LC_REPORT)
+        self.list.EnableCheckBoxes(True)
         self.list.InsertColumn(0, tr("الحالة"), width=120)
         self.list.InsertColumn(1, tr("المرسل"), width=220)
         self.list.InsertColumn(2, tr("الموضوع"), width=300)
@@ -1058,11 +1060,14 @@ class MailPage(wx.Panel):
         set_accessible(
             self.list,
             f"قائمة {self.title}",
-            "استخدم الأسهم لاختيار رسالة، واضغط Space لتبديل حالة القراءة. اضغط Control وShift وSpace لتفعيل التحديد المتعدد.",
+            "تحتوي كل رسالة على مربع اختيار. اضغط Control وShift وSpace لتفعيل التحديد المتعدد، ثم استخدم Space لتحديد الرسالة أو إلغاء تحديدها.",
         )
         self.list.Bind(wx.EVT_LIST_ITEM_SELECTED, self.on_item_selected)
         self.list.Bind(wx.EVT_LIST_ITEM_DESELECTED, self.on_item_deselected)
+        self.list.Bind(wx.EVT_LIST_ITEM_CHECKED, self.on_item_checked)
+        self.list.Bind(wx.EVT_LIST_ITEM_UNCHECKED, self.on_item_unchecked)
         self.list.Bind(wx.EVT_CHAR_HOOK, self.on_list_key)
+        self.list.Bind(wx.EVT_KEY_DOWN, self.on_list_key_down)
         self.list.Bind(wx.EVT_KEY_UP, self.on_list_key_up)
         self.list.Bind(wx.EVT_SET_FOCUS, self.on_message_list_focus)
         root.Add(self.list, 2, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM, 8)
@@ -1256,20 +1261,11 @@ class MailPage(wx.Panel):
                 self.list.SetItem(row, 3, message.date)
                 key = self.message_key(message)
                 if self.multi_select_mode and key in self._multi_selected_keys:
-                    self.list.SetItemState(
-                        row,
-                        wx.LIST_STATE_SELECTED,
-                        wx.LIST_STATE_SELECTED,
-                    )
+                    self.list.CheckItem(row, True)
                 if preserve_key == key:
                     restore_index = index
             if restore_index >= 0:
-                state = wx.LIST_STATE_FOCUSED
-                if (
-                    not self.multi_select_mode
-                    or preserve_key in self._multi_selected_keys
-                ):
-                    state |= wx.LIST_STATE_SELECTED
+                state = wx.LIST_STATE_FOCUSED | wx.LIST_STATE_SELECTED
                 self.list.SetItemState(
                     restore_index,
                     state,
@@ -1279,8 +1275,8 @@ class MailPage(wx.Panel):
             elif self.multi_select_mode and self.visible_messages:
                 self.list.SetItemState(
                     0,
-                    wx.LIST_STATE_FOCUSED,
-                    wx.LIST_STATE_FOCUSED,
+                    wx.LIST_STATE_FOCUSED | wx.LIST_STATE_SELECTED,
+                    wx.LIST_STATE_FOCUSED | wx.LIST_STATE_SELECTED,
                 )
         finally:
             self.list.Thaw()
@@ -1362,12 +1358,19 @@ class MailPage(wx.Panel):
                 return
         event.Skip()
 
+    def on_list_key_down(self, event: wx.KeyEvent) -> None:
+        if event.GetKeyCode() == wx.WXK_SHIFT:
+            self._shift_pressed_alone = getattr(self, "multi_select_mode", False)
+        else:
+            self._shift_pressed_alone = False
+        event.Skip()
+
     def on_list_key_up(self, event: wx.KeyEvent) -> None:
         if event.GetKeyCode() == wx.WXK_SHIFT:
             should_announce = self._shift_pressed_alone and self.multi_select_mode
             self._shift_pressed_alone = False
             if should_announce:
-                self.announce_selection_count()
+                self.schedule_selection_count_announcement()
                 return
         event.Skip()
 
@@ -1380,23 +1383,29 @@ class MailPage(wx.Panel):
             return
         index = event.GetIndex()
         if 0 <= index < len(self.visible_messages):
-            selected_count = (
-                self.selected_count()
-                if hasattr(self, "selected_count")
-                else 1
+            row_indices = (
+                self.row_selected_indices()
+                if hasattr(self, "row_selected_indices")
+                else [index]
             )
+            selected_count = len(row_indices)
             multi_select_mode = getattr(self, "multi_select_mode", False)
             if selected_count > 1 and not multi_select_mode:
                 self.multi_select_mode = True
-                self._multi_selected_keys = self.selected_message_keys()
+                self._suppress_selection_event = True
+                try:
+                    for row_index in row_indices:
+                        self.list.CheckItem(row_index, True)
+                finally:
+                    self._suppress_selection_event = False
+                self._multi_selected_keys = {
+                    self.message_key(self.visible_messages[row_index])
+                    for row_index in row_indices
+                    if 0 <= row_index < len(self.visible_messages)
+                }
                 self.announce_accessible(
                     f"تم تفعيل وضع التحديد المتعدد. عدد الرسائل المحددة: {selected_count}."
                 )
-            elif multi_select_mode:
-                self._multi_selected_keys.add(
-                    self.message_key(self.visible_messages[index])
-                )
-                self.update_multi_selection_status()
             if (
                 not getattr(self, "multi_select_mode", False)
                 or not hasattr(self, "focused_index")
@@ -1405,22 +1414,54 @@ class MailPage(wx.Panel):
                 self.on_selected(self, self.visible_messages[index])
 
     def on_item_deselected(self, event: wx.ListEvent) -> None:
-        if self._suppress_selection_event or not self.multi_select_mode:
-            return
-        index = event.GetIndex()
-        if 0 <= index < len(self.visible_messages):
-            self._multi_selected_keys.discard(
-                self.message_key(self.visible_messages[index])
-            )
-        self.update_multi_selection_status()
+        if not self._suppress_selection_event:
+            event.Skip()
 
-    def selected_indices(self) -> list[int]:
+    def on_item_checked(self, event: wx.ListEvent) -> None:
+        self.on_item_check_changed(event.GetIndex(), True)
+
+    def on_item_unchecked(self, event: wx.ListEvent) -> None:
+        self.on_item_check_changed(event.GetIndex(), False)
+
+    def on_item_check_changed(self, index: int, checked: bool) -> None:
+        if self._suppress_selection_event:
+            return
+        if not 0 <= index < len(self.visible_messages):
+            return
+        if not self.multi_select_mode:
+            self.multi_select_mode = True
+            self._multi_selected_keys.clear()
+        key = self.message_key(self.visible_messages[index])
+        if checked:
+            self._multi_selected_keys.add(key)
+            action = "تم تحديد الرسالة."
+        else:
+            self._multi_selected_keys.discard(key)
+            action = "تم إلغاء تحديد الرسالة."
+        self.update_multi_selection_status()
+        self.announce_accessible(
+            f"{action} عدد الرسائل المحددة: {len(self._multi_selected_keys)}."
+        )
+
+    def row_selected_indices(self) -> list[int]:
         indices: list[int] = []
         index = self.list.GetFirstSelected()
         while index >= 0:
             indices.append(index)
             index = self.list.GetNextSelected(index)
         return indices
+
+    def checked_indices(self) -> list[int]:
+        return [
+            index
+            for index in range(len(self.visible_messages))
+            if self.list.IsItemChecked(index)
+        ]
+
+    def selected_indices(self) -> list[int]:
+        if self.multi_select_mode:
+            return self.checked_indices()
+        return self.row_selected_indices()
 
     def selected_summaries(self) -> list[MessageSummary]:
         return [
@@ -1477,13 +1518,20 @@ class MailPage(wx.Panel):
         self._multi_selected_keys.clear()
         self._suppress_selection_event = True
         try:
-            self.list.SetItemState(-1, 0, wx.LIST_STATE_SELECTED)
+            for index in range(len(self.visible_messages)):
+                if self.list.IsItemChecked(index):
+                    self.list.CheckItem(index, False)
+            self.list.SetItemState(
+                -1,
+                0,
+                wx.LIST_STATE_SELECTED | wx.LIST_STATE_FOCUSED,
+            )
             if focused_index >= 0:
-                self.list.SetItemState(-1, 0, wx.LIST_STATE_FOCUSED)
+                state = wx.LIST_STATE_SELECTED | wx.LIST_STATE_FOCUSED
                 self.list.SetItemState(
                     focused_index,
-                    wx.LIST_STATE_FOCUSED,
-                    wx.LIST_STATE_FOCUSED,
+                    state,
+                    state,
                 )
                 self.list.EnsureVisible(focused_index)
         finally:
@@ -1497,8 +1545,14 @@ class MailPage(wx.Panel):
         self.multi_select_mode = False
         self._multi_selected_keys.clear()
         self._shift_pressed_alone = False
+        if self._shift_announce_call is not None:
+            self._shift_announce_call.Stop()
+            self._shift_announce_call = None
         self._suppress_selection_event = True
         try:
+            for index in range(len(self.visible_messages)):
+                if self.list.IsItemChecked(index):
+                    self.list.CheckItem(index, False)
             self.list.SetItemState(
                 -1,
                 0,
@@ -1541,12 +1595,17 @@ class MailPage(wx.Panel):
         else:
             target = current + page_size
         target = max(0, min(target, item_count - 1))
-        self.list.SetItemState(-1, 0, wx.LIST_STATE_FOCUSED)
-        self.list.SetItemState(
-            target,
-            wx.LIST_STATE_FOCUSED,
-            wx.LIST_STATE_FOCUSED,
-        )
+        self._suppress_selection_event = True
+        try:
+            self.list.SetItemState(
+                -1,
+                0,
+                wx.LIST_STATE_SELECTED | wx.LIST_STATE_FOCUSED,
+            )
+            state = wx.LIST_STATE_SELECTED | wx.LIST_STATE_FOCUSED
+            self.list.SetItemState(target, state, state)
+        finally:
+            self._suppress_selection_event = False
         self.list.EnsureVisible(target)
         self.on_selected(self, self.visible_messages[target])
 
@@ -1557,15 +1616,12 @@ class MailPage(wx.Panel):
             return
         summary = self.visible_messages[index]
         key = self.message_key(summary)
-        is_selected = bool(
-            self.list.GetItemState(index, wx.LIST_STATE_SELECTED)
-        )
-        new_state = not is_selected
-        self.list.SetItemState(
-            index,
-            wx.LIST_STATE_SELECTED if new_state else 0,
-            wx.LIST_STATE_SELECTED,
-        )
+        new_state = not self.list.IsItemChecked(index)
+        self._suppress_selection_event = True
+        try:
+            self.list.CheckItem(index, new_state)
+        finally:
+            self._suppress_selection_event = False
         if new_state:
             self._multi_selected_keys.add(key)
             action = "تم تحديد الرسالة."
@@ -1593,6 +1649,19 @@ class MailPage(wx.Panel):
         self.announce_accessible(
             f"عدد الرسائل المحددة: {len(self._multi_selected_keys)}."
         )
+
+    def schedule_selection_count_announcement(self) -> None:
+        if self._shift_announce_call is not None:
+            self._shift_announce_call.Stop()
+        self._shift_announce_call = wx.CallLater(
+            120,
+            self._announce_scheduled_selection_count,
+        )
+
+    def _announce_scheduled_selection_count(self) -> None:
+        self._shift_announce_call = None
+        if self.multi_select_mode and self.list.HasFocus():
+            self.announce_selection_count()
 
     def announce_accessible(self, message: str) -> None:
         localized = tr(message)
@@ -4464,7 +4533,7 @@ Filtering:
 Each section can show all, starred, unread, or read messages. The Trash option loads the actual Trash folder.
 
 Multiple selection:
-Press Ctrl+Shift+Space in the message list to enter multiple-selection mode. Move with the arrow keys and press Space to select or unselect the focused message. Press Shift by itself to hear the number selected, and press Escape or Ctrl+Shift+Space again to leave the mode. Mouse users can use the standard Control-click and Shift-click selection. The context menu provides bulk read, star, pin, and Trash actions. Delete opens a confirmation dialog that states the message count.
+Each message in the message list has a check box. Press Ctrl+Shift+Space to enter multiple-selection mode, move with the arrow keys, and press Space to check or uncheck the focused message. You can also click the check boxes with the mouse. Press Shift by itself to hear the number selected, and press Escape or Ctrl+Shift+Space again to leave the mode. The context menu provides bulk read, star, pin, and Trash actions. Delete opens a confirmation dialog that states the message count.
 
 Commands:
 - Refresh displayed content retrieves recent messages.
@@ -4505,7 +4574,7 @@ Privacy and security:
 كل قسم يحتوي على صندوق تصنيف يتيح عرض الكل، أو الرسائل المميزة بنجمة، أو غير المقروءة، أو المقروءة. خيار سلة المحذوفات في نهاية التصنيف يفحص صندوق السلة الحقيقي في Gmail أو IMAP ويعرض الرسائل الموجودة فيه.
 
 التحديد المتعدد:
-من قائمة الرسائل اضغط Ctrl+Shift+Space للدخول إلى وضع التحديد المتعدد. تنقل بالأسهم واضغط Space لتحديد الرسالة الحالية أو إلغاء تحديدها. اضغط Shift وحده لسماع عدد الرسائل المحددة، واضغط Escape أو Ctrl+Shift+Space مرة أخرى للخروج من الوضع. يمكن التحديد بالفأرة باستخدام Control مع النقر أو Shift مع النقر. تعرض قائمة السياق إجراءات القراءة والنجمة والتثبيت والحذف المناسبة للمجموعة، ويعرض زر Delete نافذة تأكيد تذكر عدد الرسائل.
+تحتوي كل رسالة في قائمة الرسائل على مربع اختيار. اضغط Ctrl+Shift+Space للدخول إلى وضع التحديد المتعدد، وتنقل بالأسهم ثم اضغط Space لتحديد مربع الرسالة الحالية أو إلغاء تحديده. ويمكن النقر على مربعات الاختيار بالفأرة مباشرة. اضغط Shift وحده لسماع عدد الرسائل المحددة، واضغط Escape أو Ctrl+Shift+Space مرة أخرى للخروج من الوضع. تعرض قائمة السياق إجراءات القراءة والنجمة والتثبيت والحذف المناسبة للمجموعة، ويعرض زر Delete نافذة تأكيد تذكر عدد الرسائل.
 
 الأوامر الأساسية:
 - تحديث المحتوى المعروض: يجلب أحدث الرسائل من الخادم مع عرض نسبة التقدم.

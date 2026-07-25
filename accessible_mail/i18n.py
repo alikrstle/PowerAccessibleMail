@@ -60,7 +60,7 @@ ENGLISH_TRANSLATIONS: dict[str, str] = {
     "مستعرض HTML للرسالة. استخدم أوامر قارئ الشاشة أو Tab للتنقل بين الروابط والأزرار، وEnter أو Space لفتح العنصر.": "HTML message viewer. Use screen-reader commands or Tab to move through links and buttons, then press Enter or Space to open an item.",
     "اضغط Enter أو Space لفتح الرابط أو الزر أو فتح المرفق المحدد محليا": "Press Enter or Space to open the selected link, button, or attachment.",
     "استخدم السهم للأعلى والأسفل لاختيار رسالة، واضغط Space لتبديلها بين مقروءة وغير مقروءة": "Use Up and Down Arrow to select a message. Press Space to toggle read status.",
-    "استخدم الأسهم لاختيار رسالة، واضغط Space لتبديل حالة القراءة. اضغط Control وShift وSpace لتفعيل التحديد المتعدد.": "Use the arrow keys to choose a message, then press Space to toggle its read status. Press Control, Shift, and Space to activate multiple selection.",
+    "تحتوي كل رسالة على مربع اختيار. اضغط Control وShift وSpace لتفعيل التحديد المتعدد، ثم استخدم Space لتحديد الرسالة أو إلغاء تحديدها.": "Each message has a check box. Press Control, Shift, and Space to activate multiple selection, then press Space to select or unselect the message.",
     "ملف": "File",
     "رسالة": "Message",
     "المساعدة": "Help",
