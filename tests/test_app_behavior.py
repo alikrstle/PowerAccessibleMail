@@ -198,8 +198,15 @@ class AppBehaviorTests(unittest.TestCase):
         source = inspect.getsource(MailPage._build)
 
         self.assertIn("self.list = wx.ListCtrl(self, style=wx.LC_REPORT)", source)
-        self.assertIn("self.list.EnableCheckBoxes(True)", source)
+        self.assertIn("self.list.EnableCheckBoxes(False)", source)
         self.assertNotIn("wx.LC_SINGLE_SEL", source)
+
+    def test_checkboxes_are_shown_only_in_multiple_selection_mode(self) -> None:
+        enter_source = inspect.getsource(MailPage.enter_multi_selection_mode)
+        exit_source = inspect.getsource(MailPage.exit_multi_selection_mode)
+
+        self.assertIn("self.set_multi_selection_checkboxes(True)", enter_source)
+        self.assertIn("self.set_multi_selection_checkboxes(False)", exit_source)
 
     def test_ctrl_shift_space_toggles_multiple_selection_mode(self) -> None:
         event = SimpleNamespace(
@@ -293,6 +300,7 @@ class AppBehaviorTests(unittest.TestCase):
             _multi_selected_keys=set(),
             visible_messages=[summary],
             message_key=Mock(return_value=("INBOX", "1")),
+            set_multi_selection_checkboxes=Mock(),
             update_multi_selection_status=Mock(),
             announce_accessible=Mock(),
         )
@@ -301,6 +309,7 @@ class AppBehaviorTests(unittest.TestCase):
 
         self.assertTrue(page.multi_select_mode)
         self.assertEqual(page._multi_selected_keys, {("INBOX", "1")})
+        page.set_multi_selection_checkboxes.assert_called_once_with(True)
         page.update_multi_selection_status.assert_called_once_with()
         page.announce_accessible.assert_called_once()
 

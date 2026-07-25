@@ -1052,7 +1052,7 @@ class MailPage(wx.Panel):
         root.Add(filter_row, 0, wx.EXPAND)
 
         self.list = wx.ListCtrl(self, style=wx.LC_REPORT)
-        self.list.EnableCheckBoxes(True)
+        self.list.EnableCheckBoxes(False)
         self.list.InsertColumn(0, tr("الحالة"), width=120)
         self.list.InsertColumn(1, tr("المرسل"), width=220)
         self.list.InsertColumn(2, tr("الموضوع"), width=300)
@@ -1060,7 +1060,7 @@ class MailPage(wx.Panel):
         set_accessible(
             self.list,
             f"قائمة {self.title}",
-            "تحتوي كل رسالة على مربع اختيار. اضغط Control وShift وSpace لتفعيل التحديد المتعدد، ثم استخدم Space لتحديد الرسالة أو إلغاء تحديدها.",
+            "استخدم الأسهم لاختيار رسالة. اضغط Control وShift وSpace لإظهار مربعات الاختيار وتفعيل التحديد المتعدد.",
         )
         self.list.Bind(wx.EVT_LIST_ITEM_SELECTED, self.on_item_selected)
         self.list.Bind(wx.EVT_LIST_ITEM_DESELECTED, self.on_item_deselected)
@@ -1392,6 +1392,7 @@ class MailPage(wx.Panel):
             multi_select_mode = getattr(self, "multi_select_mode", False)
             if selected_count > 1 and not multi_select_mode:
                 self.multi_select_mode = True
+                self.set_multi_selection_checkboxes(True)
                 self._suppress_selection_event = True
                 try:
                     for row_index in row_indices:
@@ -1431,6 +1432,7 @@ class MailPage(wx.Panel):
         if not self.multi_select_mode:
             self.multi_select_mode = True
             self._multi_selected_keys.clear()
+            self.set_multi_selection_checkboxes(True)
         key = self.message_key(self.visible_messages[index])
         if checked:
             self._multi_selected_keys.add(key)
@@ -1508,6 +1510,20 @@ class MailPage(wx.Panel):
         else:
             self.enter_multi_selection_mode()
 
+    def set_multi_selection_checkboxes(self, enabled: bool) -> None:
+        self.list.EnableCheckBoxes(enabled)
+        if enabled:
+            description = (
+                "وضع التحديد المتعدد. تنقل بالأسهم واضغط Space لتحديد مربع "
+                "الرسالة أو إلغاء تحديده."
+            )
+        else:
+            description = (
+                "قائمة الرسائل. استخدم الأسهم لاختيار رسالة. اضغط Control "
+                "وShift وSpace لإظهار مربعات الاختيار وتفعيل التحديد المتعدد."
+            )
+        self.list.SetToolTip(tr(description))
+
     def enter_multi_selection_mode(self) -> None:
         focused_index = self.focused_index()
         if focused_index < 0:
@@ -1516,6 +1532,7 @@ class MailPage(wx.Panel):
             focused_index = 0
         self.multi_select_mode = True
         self._multi_selected_keys.clear()
+        self.set_multi_selection_checkboxes(True)
         self._suppress_selection_event = True
         try:
             for index in range(len(self.visible_messages)):
@@ -1553,6 +1570,7 @@ class MailPage(wx.Panel):
             for index in range(len(self.visible_messages)):
                 if self.list.IsItemChecked(index):
                     self.list.CheckItem(index, False)
+            self.set_multi_selection_checkboxes(False)
             self.list.SetItemState(
                 -1,
                 0,
@@ -4533,7 +4551,7 @@ Filtering:
 Each section can show all, starred, unread, or read messages. The Trash option loads the actual Trash folder.
 
 Multiple selection:
-Each message in the message list has a check box. Press Ctrl+Shift+Space to enter multiple-selection mode, move with the arrow keys, and press Space to check or uncheck the focused message. You can also click the check boxes with the mouse. Press Shift by itself to hear the number selected, and press Escape or Ctrl+Shift+Space again to leave the mode. The context menu provides bulk read, star, pin, and Trash actions. Delete opens a confirmation dialog that states the message count.
+In normal mode, messages appear as list items without check boxes. Press Ctrl+Shift+Space to enter multiple-selection mode and show a check box beside every message. Move with the arrow keys and press Space to check or uncheck the focused message, or click the visible check boxes with the mouse. Press Shift by itself to hear the number selected, and press Escape or Ctrl+Shift+Space again to leave the mode and hide the check boxes. The context menu provides bulk read, star, pin, and Trash actions. Delete opens a confirmation dialog that states the message count.
 
 Commands:
 - Refresh displayed content retrieves recent messages.
@@ -4574,7 +4592,7 @@ Privacy and security:
 كل قسم يحتوي على صندوق تصنيف يتيح عرض الكل، أو الرسائل المميزة بنجمة، أو غير المقروءة، أو المقروءة. خيار سلة المحذوفات في نهاية التصنيف يفحص صندوق السلة الحقيقي في Gmail أو IMAP ويعرض الرسائل الموجودة فيه.
 
 التحديد المتعدد:
-تحتوي كل رسالة في قائمة الرسائل على مربع اختيار. اضغط Ctrl+Shift+Space للدخول إلى وضع التحديد المتعدد، وتنقل بالأسهم ثم اضغط Space لتحديد مربع الرسالة الحالية أو إلغاء تحديده. ويمكن النقر على مربعات الاختيار بالفأرة مباشرة. اضغط Shift وحده لسماع عدد الرسائل المحددة، واضغط Escape أو Ctrl+Shift+Space مرة أخرى للخروج من الوضع. تعرض قائمة السياق إجراءات القراءة والنجمة والتثبيت والحذف المناسبة للمجموعة، ويعرض زر Delete نافذة تأكيد تذكر عدد الرسائل.
+في الوضع العادي تظهر الرسائل كعناصر قائمة من دون مربعات اختيار. اضغط Ctrl+Shift+Space للدخول إلى وضع التحديد المتعدد وإظهار مربع اختيار بجانب كل رسالة. تنقل بالأسهم واضغط Space لتحديد مربع الرسالة الحالية أو إلغاء تحديده، أو انقر على المربعات الظاهرة بالفأرة. اضغط Shift وحده لسماع عدد الرسائل المحددة، واضغط Escape أو Ctrl+Shift+Space مرة أخرى للخروج من الوضع وإخفاء المربعات. تعرض قائمة السياق إجراءات القراءة والنجمة والتثبيت والحذف المناسبة للمجموعة، ويعرض زر Delete نافذة تأكيد تذكر عدد الرسائل.
 
 الأوامر الأساسية:
 - تحديث المحتوى المعروض: يجلب أحدث الرسائل من الخادم مع عرض نسبة التقدم.
