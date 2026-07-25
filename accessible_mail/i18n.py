@@ -61,7 +61,7 @@ ENGLISH_TRANSLATIONS: dict[str, str] = {
     "اضغط Enter أو Space لفتح الرابط أو الزر أو فتح المرفق المحدد محليا": "Press Enter or Space to open the selected link, button, or attachment.",
     "استخدم السهم للأعلى والأسفل لاختيار رسالة، واضغط Space لتبديلها بين مقروءة وغير مقروءة": "Use Up and Down Arrow to select a message. Press Space to toggle read status.",
     "استخدم الأسهم لاختيار رسالة. اضغط Control وShift وSpace لإظهار مربعات الاختيار وتفعيل التحديد المتعدد.": "Use the arrow keys to choose a message. Press Control, Shift, and Space to show check boxes and activate multiple selection.",
-    "وضع التحديد المتعدد. تنقل بالأسهم واضغط Space لتحديد مربع الرسالة أو إلغاء تحديده.": "Multiple-selection mode. Move with the arrow keys and press Space to check or uncheck the message.",
+    "وضع التحديد المتعدد. تنقل بالأسهم واضغط Space لتحديد مربع الرسالة أو إلغاء تحديده. اضغط Control وحده لسماع العدد.": "Multiple-selection mode. Move with the arrow keys and press Space to check or uncheck the message. Press Control by itself to hear the count.",
     "قائمة الرسائل. استخدم الأسهم لاختيار رسالة. اضغط Control وShift وSpace لإظهار مربعات الاختيار وتفعيل التحديد المتعدد.": "Message list. Use the arrow keys to choose a message. Press Control, Shift, and Space to show check boxes and activate multiple selection.",
     "ملف": "File",
     "رسالة": "Message",

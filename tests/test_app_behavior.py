@@ -181,6 +181,7 @@ class AppBehaviorTests(unittest.TestCase):
     def test_forward_tab_from_message_list_activates_html_viewer(self) -> None:
         event = SimpleNamespace(
             GetKeyCode=lambda: wx.WXK_TAB,
+            ControlDown=lambda: False,
             ShiftDown=lambda: False,
             Skip=Mock(),
         )
@@ -218,7 +219,7 @@ class AppBehaviorTests(unittest.TestCase):
         )
         page = SimpleNamespace(
             multi_select_mode=False,
-            _shift_pressed_alone=False,
+            _control_pressed_alone=False,
             toggle_multi_selection_mode=Mock(),
         )
 
@@ -237,7 +238,7 @@ class AppBehaviorTests(unittest.TestCase):
         )
         page = SimpleNamespace(
             multi_select_mode=True,
-            _shift_pressed_alone=False,
+            _control_pressed_alone=False,
             toggle_focused_message_selection=Mock(),
         )
 
@@ -246,14 +247,14 @@ class AppBehaviorTests(unittest.TestCase):
         page.toggle_focused_message_selection.assert_called_once_with()
         event.Skip.assert_not_called()
 
-    def test_shift_release_announces_selected_message_count(self) -> None:
+    def test_control_release_announces_selected_message_count(self) -> None:
         event = SimpleNamespace(
-            GetKeyCode=lambda: wx.WXK_SHIFT,
+            GetKeyCode=lambda: wx.WXK_CONTROL,
             Skip=Mock(),
         )
         page = SimpleNamespace(
             multi_select_mode=True,
-            _shift_pressed_alone=True,
+            _control_pressed_alone=True,
             schedule_selection_count_announcement=Mock(),
         )
 
@@ -262,35 +263,71 @@ class AppBehaviorTests(unittest.TestCase):
         page.schedule_selection_count_announcement.assert_called_once_with()
         event.Skip.assert_not_called()
 
-    def test_shift_key_down_arms_selection_count_announcement(self) -> None:
+    def test_control_key_down_arms_selection_count_announcement(self) -> None:
         event = SimpleNamespace(
-            GetKeyCode=lambda: wx.WXK_SHIFT,
+            GetKeyCode=lambda: wx.WXK_CONTROL,
             Skip=Mock(),
         )
         page = SimpleNamespace(
             multi_select_mode=True,
-            _shift_pressed_alone=False,
+            _control_pressed_alone=False,
         )
 
         MailPage.on_list_key_down(page, event)
 
-        self.assertTrue(page._shift_pressed_alone)
+        self.assertTrue(page._control_pressed_alone)
         event.Skip.assert_called_once_with()
 
-    def test_non_shift_key_down_cancels_shift_only_announcement(self) -> None:
+    def test_non_control_key_down_cancels_control_only_announcement(self) -> None:
         event = SimpleNamespace(
             GetKeyCode=lambda: wx.WXK_DOWN,
             Skip=Mock(),
         )
         page = SimpleNamespace(
             multi_select_mode=True,
-            _shift_pressed_alone=True,
+            _control_pressed_alone=True,
         )
 
         MailPage.on_list_key_down(page, event)
 
-        self.assertFalse(page._shift_pressed_alone)
+        self.assertFalse(page._control_pressed_alone)
         event.Skip.assert_called_once_with()
+
+    @patch("accessible_mail.app.wx.CallLater")
+    def test_mode_change_notification_is_delayed_one_second(
+        self,
+        call_later: Mock,
+    ) -> None:
+        page = SimpleNamespace(
+            _multi_mode_notification_call=None,
+            _show_multi_selection_mode_notification=Mock(),
+        )
+
+        MailPage.schedule_multi_selection_mode_notification(page, "تم التفعيل")
+
+        call_later.assert_called_once_with(
+            1000,
+            page._show_multi_selection_mode_notification,
+            "تم التفعيل",
+        )
+
+    @patch("accessible_mail.app.wx.GetTopLevelParent")
+    def test_mode_change_notification_uses_in_app_and_accessible_alerts(
+        self,
+        get_parent: Mock,
+    ) -> None:
+        parent = SimpleNamespace(show_notification=Mock())
+        get_parent.return_value = parent
+        page = SimpleNamespace(
+            _multi_mode_notification_call=object(),
+            announce_accessible=Mock(),
+        )
+
+        MailPage._show_multi_selection_mode_notification(page, "تم التفعيل")
+
+        self.assertIsNone(page._multi_mode_notification_call)
+        parent.show_notification.assert_called_once_with("تم التفعيل")
+        page.announce_accessible.assert_called_once_with("تم التفعيل")
 
     def test_checked_message_enters_multiple_selection_mode(self) -> None:
         summary = object()
@@ -337,7 +374,7 @@ class AppBehaviorTests(unittest.TestCase):
         )
         page = SimpleNamespace(
             multi_select_mode=True,
-            _shift_pressed_alone=False,
+            _control_pressed_alone=False,
             selected_summaries=Mock(return_value=summaries),
             on_bulk_action=Mock(),
         )
