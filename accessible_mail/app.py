@@ -43,6 +43,7 @@ from .config import (
     save_settings,
 )
 from .i18n import is_rtl, set_language, tr
+from .screen_reader import interrupt_and_speak
 from .email_service import MailError, MailSyncResult
 from .email_utils import normalize_message_text
 from .mail_service_router import MailServiceRouter
@@ -109,6 +110,22 @@ def set_accessible(control: wx.Window, name: str, description: str = "") -> None
     control.SetName(tr(name))
     if description:
         control.SetToolTip(tr(description))
+
+
+def announce_to_screen_reader(control: wx.Window, message: str) -> bool:
+    localized = tr(message)
+    if interrupt_and_speak(localized):
+        return True
+    try:
+        wx.Accessible.NotifyEvent(
+            wx.ACC_EVENT_SYSTEM_ALERT,
+            control,
+            wx.OBJID_CLIENT,
+            0,
+        )
+        return True
+    except Exception:
+        return False
 
 
 def message_box(
@@ -1618,6 +1635,12 @@ class MailPage(wx.Panel):
         else:
             target = current + page_size
         target = max(0, min(target, item_count - 1))
+        if target == current:
+            if key_code in {wx.WXK_UP, wx.WXK_HOME, wx.WXK_PAGEUP}:
+                self.announce_accessible("بداية قائمة الرسائل.")
+            else:
+                self.announce_accessible("نهاية قائمة الرسائل.")
+            return
         self._suppress_selection_event = True
         try:
             self.list.SetItemState(
@@ -1700,7 +1723,8 @@ class MailPage(wx.Panel):
         parent = wx.GetTopLevelParent(self)
         if parent and hasattr(parent, "show_notification"):
             parent.show_notification(message)
-        self.announce_accessible(message)
+        else:
+            self.announce_accessible(message)
 
     def announce_accessible(self, message: str) -> None:
         localized = tr(message)
@@ -1710,15 +1734,7 @@ class MailPage(wx.Panel):
             self.selection_status.Show()
             self.Layout()
         self.set_status(message)
-        try:
-            wx.Accessible.NotifyEvent(
-                wx.ACC_EVENT_SYSTEM_ALERT,
-                self.selection_status,
-                wx.OBJID_CLIENT,
-                0,
-            )
-        except Exception:
-            pass
+        announce_to_screen_reader(self.selection_status, message)
 
     def show_content(self, content: MessageContent) -> None:
         self.current_content_key = self.message_key(content.summary)
@@ -3460,9 +3476,12 @@ class MainFrame(wx.Frame):
     def show_notification(self, message: str, timeout_ms: int = 8000) -> None:
         if self._notification_timer and self._notification_timer.IsRunning():
             self._notification_timer.Stop()
-        self.notification_bar.ShowMessage(tr(message), wx.ICON_INFORMATION)
+        localized = tr(message)
+        self.notification_bar.SetName(localized)
+        self.notification_bar.ShowMessage(localized, wx.ICON_INFORMATION)
         self.SetStatusText(message)
         self.main_panel.Layout()
+        announce_to_screen_reader(self.notification_bar, message)
         self._notification_timer = wx.CallLater(timeout_ms, self.dismiss_notification)
 
     def dismiss_notification(self) -> None:
@@ -4572,7 +4591,7 @@ Filtering:
 Each section can show all, starred, unread, or read messages. The Trash option loads the actual Trash folder.
 
 Multiple selection:
-In normal mode, messages appear as list items without check boxes. Press Ctrl+Shift+Space to enter multiple-selection mode and show a check box beside every message. Move with the arrow keys and press Space to check or uncheck the focused message, or click the visible check boxes with the mouse. Press Control by itself to hear the number selected, and press Escape or Ctrl+Shift+Space again to leave the mode and hide the check boxes. Entry and exit are announced after one second. The context menu provides bulk read, star, pin, and Trash actions. Delete opens a confirmation dialog that states the message count.
+In normal mode, messages appear as list items without check boxes. Press Ctrl+Shift+Space to enter multiple-selection mode and show a check box beside every message. Move with the arrow keys and press Space to check or uncheck the focused message, or click the visible check boxes with the mouse. Press Control by itself to hear the number selected, and press Escape or Ctrl+Shift+Space again to leave the mode and hide the check boxes. Entry and exit are announced after one second. Moving above the first message or below the last message announces the list boundary. The context menu provides bulk read, star, pin, and Trash actions. Delete opens a confirmation dialog that states the message count.
 
 Commands:
 - Refresh displayed content retrieves recent messages.
@@ -4613,7 +4632,7 @@ Privacy and security:
 كل قسم يحتوي على صندوق تصنيف يتيح عرض الكل، أو الرسائل المميزة بنجمة، أو غير المقروءة، أو المقروءة. خيار سلة المحذوفات في نهاية التصنيف يفحص صندوق السلة الحقيقي في Gmail أو IMAP ويعرض الرسائل الموجودة فيه.
 
 التحديد المتعدد:
-في الوضع العادي تظهر الرسائل كعناصر قائمة من دون مربعات اختيار. اضغط Ctrl+Shift+Space للدخول إلى وضع التحديد المتعدد وإظهار مربع اختيار بجانب كل رسالة. تنقل بالأسهم واضغط Space لتحديد مربع الرسالة الحالية أو إلغاء تحديده، أو انقر على المربعات الظاهرة بالفأرة. اضغط Control وحده لسماع عدد الرسائل المحددة، واضغط Escape أو Ctrl+Shift+Space مرة أخرى للخروج من الوضع وإخفاء المربعات. يُنطق الدخول والخروج بعد ثانية واحدة. تعرض قائمة السياق إجراءات القراءة والنجمة والتثبيت والحذف المناسبة للمجموعة، ويعرض زر Delete نافذة تأكيد تذكر عدد الرسائل.
+في الوضع العادي تظهر الرسائل كعناصر قائمة من دون مربعات اختيار. اضغط Ctrl+Shift+Space للدخول إلى وضع التحديد المتعدد وإظهار مربع اختيار بجانب كل رسالة. تنقل بالأسهم واضغط Space لتحديد مربع الرسالة الحالية أو إلغاء تحديده، أو انقر على المربعات الظاهرة بالفأرة. اضغط Control وحده لسماع عدد الرسائل المحددة، واضغط Escape أو Ctrl+Shift+Space مرة أخرى للخروج من الوضع وإخفاء المربعات. يُنطق الدخول والخروج بعد ثانية واحدة، كما يُنطق الوصول إلى بداية قائمة الرسائل أو نهايتها عند محاولة تجاوزها. تعرض قائمة السياق إجراءات القراءة والنجمة والتثبيت والحذف المناسبة للمجموعة، ويعرض زر Delete نافذة تأكيد تذكر عدد الرسائل.
 
 الأوامر الأساسية:
 - تحديث المحتوى المعروض: يجلب أحدث الرسائل من الخادم مع عرض نسبة التقدم.

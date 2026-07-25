@@ -16,6 +16,11 @@ $PackageAppDir = Join-Path $PackageDir $AppName
 $VersionInfo = Join-Path $PSScriptRoot "windows_version_info_gmail_api_limited.txt"
 $AppIcon = Join-Path $PSScriptRoot "assets\branding\power_accessible_mail.ico"
 $LoginLogo = Join-Path $PSScriptRoot "assets\branding\power_accessible_mail_oauth_120.png"
+$NvdaVendor = Join-Path $PSScriptRoot "accessible_mail\vendor\nvda"
+$NvdaController = Join-Path $NvdaVendor "nvdaControllerClient.dll"
+$NvdaLicense = Join-Path $NvdaVendor "LICENSE-LGPL-2.1.txt"
+$NvdaReadme = Join-Path $NvdaVendor "NVDA-CONTROLLER-README.md"
+$NvdaSource = Join-Path $NvdaVendor "SOURCE.txt"
 
 function Remove-ProjectDirectory {
     param([Parameter(Mandatory = $true)][string]$Path)
@@ -55,6 +60,22 @@ if (-not (Test-Path -LiteralPath $LoginLogo)) {
     throw "Application login logo is required: $LoginLogo"
 }
 
+foreach ($nvdaFile in @($NvdaController, $NvdaLicense, $NvdaReadme, $NvdaSource)) {
+    if (-not (Test-Path -LiteralPath $nvdaFile)) {
+        throw "NVDA Controller Client file is required: $nvdaFile"
+    }
+}
+$expectedNvdaControllerHash = "2FE60CF00BE929AAE32E95C1E1507A20ADA4902C8FEC273B3CC2D3BF5472932A"
+$actualNvdaControllerHash = (Get-FileHash -LiteralPath $NvdaController -Algorithm SHA256).Hash
+if ($actualNvdaControllerHash -ne $expectedNvdaControllerHash) {
+    throw "The NVDA Controller Client SHA-256 does not match the approved official file."
+}
+$nvdaControllerSignature = Get-AuthenticodeSignature -LiteralPath $NvdaController
+if ($nvdaControllerSignature.Status -ne [System.Management.Automation.SignatureStatus]::Valid -or
+    $nvdaControllerSignature.SignerCertificate.Subject -notlike "CN=NV Access Limited,*") {
+    throw "The NVDA Controller Client does not have a valid NV Access Limited signature."
+}
+
 try {
     $oauthConfig = Get-Content -LiteralPath $OAuthClients -Raw | ConvertFrom-Json
 }
@@ -87,6 +108,10 @@ if (Test-Path -LiteralPath (Join-Path $PSScriptRoot "backgrounds")) {
 }
 $dataArgs += @("--add-data", ($AppIcon + ";assets\branding"))
 $dataArgs += @("--add-data", ($LoginLogo + ";assets\branding"))
+$dataArgs += @("--add-binary", ($NvdaController + ";accessible_mail\vendor\nvda"))
+$dataArgs += @("--add-data", ($NvdaLicense + ";accessible_mail\vendor\nvda"))
+$dataArgs += @("--add-data", ($NvdaReadme + ";accessible_mail\vendor\nvda"))
+$dataArgs += @("--add-data", ($NvdaSource + ";accessible_mail\vendor\nvda"))
 
 $pyInstallerArgs = @(
     "-m", "PyInstaller",
@@ -131,6 +156,10 @@ if ($bundledOAuthKeys.Count -ne 1 -or
 $bundledLogo = @(Get-ChildItem -LiteralPath $AppDistDir -Recurse -File -Filter "power_accessible_mail_oauth_120.png")
 if ($bundledLogo.Count -ne 1) {
     throw "Expected exactly one bundled login logo, found $($bundledLogo.Count)."
+}
+$bundledNvdaController = @(Get-ChildItem -LiteralPath $AppDistDir -Recurse -File -Filter "nvdaControllerClient.dll")
+if ($bundledNvdaController.Count -ne 1) {
+    throw "Expected exactly one bundled NVDA Controller Client, found $($bundledNvdaController.Count)."
 }
 
 New-Item -ItemType Directory -Path $ReleaseDir -Force | Out-Null

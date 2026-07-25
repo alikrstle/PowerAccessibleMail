@@ -1,0 +1,11 @@
+NVDA Controller Client API 2.0
+Version: NVDA 2026.1.1 stable
+Architecture: x64
+Source: https://download.nvaccess.org/releases/stable/nvda_2026.1.1_controllerClient.zip
+Archive SHA-256: 2A3A70F729BE0C48120C5F24A81653202827C40A7986E289FFE2275A2B45011F
+DLL SHA-256: 2FE60CF00BE929AAE32E95C1E1507A20ADA4902C8FEC273B3CC2D3BF5472932A
+Authenticode signer: NV Access Limited
+License: GNU Lesser General Public License, version 2.1
+
+The DLL is distributed unmodified for communication with a running NVDA
+screen reader. See LICENSE-LGPL-2.1.txt and NVDA-CONTROLLER-README.md.

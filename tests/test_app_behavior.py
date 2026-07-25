@@ -4,7 +4,7 @@ import inspect
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
-from unittest.mock import Mock, patch
+from unittest.mock import Mock, call, patch
 
 import wx
 
@@ -17,6 +17,7 @@ from accessible_mail.app import (
     MailPage,
     MainFrame,
     UpdateAvailableDialog,
+    announce_to_screen_reader,
     run_bulk_operations,
 )
 from accessible_mail.config import (
@@ -312,7 +313,7 @@ class AppBehaviorTests(unittest.TestCase):
         )
 
     @patch("accessible_mail.app.wx.GetTopLevelParent")
-    def test_mode_change_notification_uses_in_app_and_accessible_alerts(
+    def test_mode_change_notification_uses_unified_in_app_notification(
         self,
         get_parent: Mock,
     ) -> None:
@@ -327,7 +328,42 @@ class AppBehaviorTests(unittest.TestCase):
 
         self.assertIsNone(page._multi_mode_notification_call)
         parent.show_notification.assert_called_once_with("تم التفعيل")
-        page.announce_accessible.assert_called_once_with("تم التفعيل")
+        page.announce_accessible.assert_not_called()
+
+    @patch("accessible_mail.app.wx.Accessible.NotifyEvent")
+    @patch("accessible_mail.app.interrupt_and_speak", return_value=True)
+    def test_accessible_announcement_interrupts_nvda_directly(
+        self,
+        interrupt_and_speak: Mock,
+        notify_event: Mock,
+    ) -> None:
+        control = object()
+
+        announced = announce_to_screen_reader(control, "تم التفعيل")
+
+        self.assertTrue(announced)
+        interrupt_and_speak.assert_called_once_with("تم التفعيل")
+        notify_event.assert_not_called()
+
+    @patch("accessible_mail.app.wx.Accessible.NotifyEvent")
+    @patch("accessible_mail.app.interrupt_and_speak", return_value=False)
+    def test_accessible_announcement_falls_back_to_system_alert(
+        self,
+        interrupt_and_speak: Mock,
+        notify_event: Mock,
+    ) -> None:
+        control = object()
+
+        announced = announce_to_screen_reader(control, "تم التفعيل")
+
+        self.assertTrue(announced)
+        interrupt_and_speak.assert_called_once_with("تم التفعيل")
+        notify_event.assert_called_once_with(
+            wx.ACC_EVENT_SYSTEM_ALERT,
+            control,
+            wx.OBJID_CLIENT,
+            0,
+        )
 
     def test_checked_message_enters_multiple_selection_mode(self) -> None:
         summary = object()
@@ -362,6 +398,33 @@ class AppBehaviorTests(unittest.TestCase):
         self.assertEqual(indices, [0, 2])
         page.checked_indices.assert_called_once_with()
         page.row_selected_indices.assert_not_called()
+
+    def test_multiple_selection_announces_list_boundaries(self) -> None:
+        list_control = SimpleNamespace(
+            GetCountPerPage=lambda: 10,
+            SetItemState=Mock(),
+            EnsureVisible=Mock(),
+        )
+        page = SimpleNamespace(
+            visible_messages=[object()],
+            focused_index=lambda: 0,
+            list=list_control,
+            announce_accessible=Mock(),
+            on_selected=Mock(),
+        )
+
+        MailPage.move_multi_selection_focus(page, wx.WXK_UP)
+        MailPage.move_multi_selection_focus(page, wx.WXK_DOWN)
+
+        self.assertEqual(
+            page.announce_accessible.call_args_list,
+            [
+                call("بداية قائمة الرسائل."),
+                call("نهاية قائمة الرسائل."),
+            ],
+        )
+        list_control.SetItemState.assert_not_called()
+        page.on_selected.assert_not_called()
 
     def test_delete_key_uses_bulk_delete_for_selected_messages(self) -> None:
         summaries = [object(), object()]
@@ -712,6 +775,48 @@ class AppBehaviorTests(unittest.TestCase):
         frame.show_notification.assert_called_once_with(
             "مرحبا بكم في برنامج Power Accessible Mail"
         )
+
+    @patch("accessible_mail.app.wx.CallLater")
+    @patch("accessible_mail.app.announce_to_screen_reader")
+    def test_in_app_notification_uses_interrupting_screen_reader_path(
+        self,
+        announce: Mock,
+        call_later: Mock,
+    ) -> None:
+        frame = SimpleNamespace(
+            _notification_timer=None,
+            notification_bar=SimpleNamespace(
+                SetName=Mock(),
+                ShowMessage=Mock(),
+            ),
+            SetStatusText=Mock(),
+            main_panel=SimpleNamespace(Layout=Mock()),
+            dismiss_notification=Mock(),
+        )
+
+        MainFrame.show_notification(frame, "تم التفعيل")
+
+        frame.notification_bar.SetName.assert_called_once_with("تم التفعيل")
+        frame.notification_bar.ShowMessage.assert_called_once_with(
+            "تم التفعيل",
+            wx.ICON_INFORMATION,
+        )
+        announce.assert_called_once_with(
+            frame.notification_bar,
+            "تم التفعيل",
+        )
+        call_later.assert_called_once_with(8000, frame.dismiss_notification)
+
+    def test_both_builds_bundle_the_nvda_controller_client(self) -> None:
+        project_root = Path(__file__).resolve().parents[1]
+        for filename in (
+            "build_power_accessible_mail_64.ps1",
+            "build_power_accessible_mail_gmail_api_limited_64.ps1",
+        ):
+            source = (project_root / filename).read_text(encoding="utf-8-sig")
+            self.assertIn('"--add-binary"', source)
+            self.assertIn("nvdaControllerClient.dll", source)
+            self.assertIn("Expected exactly one bundled NVDA Controller", source)
 
     def test_account_method_buttons_activate_without_ok_button(self) -> None:
         dialog = SimpleNamespace(
