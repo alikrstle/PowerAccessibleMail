@@ -50,17 +50,14 @@ class ScreenReaderTests(unittest.TestCase):
         self.assertFalse(screen_reader.interrupt_and_speak("Private message"))
         load_controller.assert_not_called()
 
-    def test_bundled_nvda_controller_matches_expected_release_file(self) -> None:
-        controller_path = (
-            Path(screen_reader.__file__).resolve().parent
-            / "vendor"
-            / "nvda"
-            / "nvdaControllerClient.dll"
-        )
+    def test_bundled_nvda_controllers_match_expected_release_files(self) -> None:
+        vendor_path = Path(screen_reader.__file__).resolve().parent / "vendor" / "nvda"
+        expected_hashes = {
+            "x64": "2FE60CF00BE929AAE32E95C1E1507A20ADA4902C8FEC273B3CC2D3BF5472932A",
+            "x86": "AB824A1126FEF9135F5E7FEDC4DDEB8EBCE73A5BFCB6086E1799971D92DCA8B4",
+        }
 
-        digest = hashlib.sha256(controller_path.read_bytes()).hexdigest().upper()
-
-        self.assertEqual(
-            digest,
-            "2FE60CF00BE929AAE32E95C1E1507A20ADA4902C8FEC273B3CC2D3BF5472932A",
-        )
+        for architecture, expected_hash in expected_hashes.items():
+            controller_path = vendor_path / architecture / "nvdaControllerClient.dll"
+            digest = hashlib.sha256(controller_path.read_bytes()).hexdigest().upper()
+            self.assertEqual(digest, expected_hash)

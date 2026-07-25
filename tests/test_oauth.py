@@ -1,10 +1,9 @@
 from __future__ import annotations
 
-import os
 import unittest
-from unittest.mock import patch
 
 from accessible_mail.oauth import (
+    available_provider_ids,
     google_provider_id,
     oauth_callback_error_message,
     oauth_error_requires_reauthentication,
@@ -50,16 +49,13 @@ class OAuthErrorTests(unittest.TestCase):
             "Temporary failure",
         )
 
-    def test_limited_edition_resolves_google_to_limited_provider(self) -> None:
-        with patch.dict(os.environ, {"POWER_ACCESSIBLE_MAIL_LIMITED_GOOGLE": "1"}):
-            self.assertEqual(provider_id_from_name("Google / Gmail"), "google_gmail_api")
-            self.assertEqual(google_provider_id(), "google_gmail_api")
-
-    def test_full_edition_resolves_google_to_full_provider(self) -> None:
-        with patch.dict(os.environ, {}, clear=False):
-            os.environ.pop("POWER_ACCESSIBLE_MAIL_LIMITED_GOOGLE", None)
-            self.assertEqual(provider_id_from_name("Google / Gmail"), "google")
-            self.assertEqual(google_provider_id(), "google")
+    def test_unified_product_uses_gmail_api_and_microsoft(self) -> None:
+        self.assertEqual(
+            available_provider_ids(),
+            ["google_gmail_api", "microsoft"],
+        )
+        self.assertEqual(provider_id_from_name("Google / Gmail"), "google_gmail_api")
+        self.assertEqual(google_provider_id(), "google_gmail_api")
 
 
 if __name__ == "__main__":

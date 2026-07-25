@@ -6,8 +6,8 @@ import urllib.error
 from unittest.mock import patch
 
 from accessible_mail.update_checker import (
-    EDITION_FULL,
-    EDITION_GMAIL_API_LIMITED,
+    ARCHITECTURE_X64,
+    ARCHITECTURE_X86,
     GITHUB_API_VERSION,
     check_for_updates,
     version_key,
@@ -44,15 +44,15 @@ class UpdateCheckerTests(unittest.TestCase):
             "assets": [
                 {
                     "name": "PowerAccessibleMailSetup-1.2.9-win-x64.exe",
-                    "browser_download_url": "https://github.com/download/limited.exe",
+                    "browser_download_url": "https://github.com/download/x64.exe",
                 },
                 {
-                    "name": "PowerAccessibleMailFullSetup-1.2.9-win-x64-UNSIGNED.exe",
-                    "browser_download_url": "https://github.com/download/full-unsigned.exe",
+                    "name": "PowerAccessibleMailSetup-1.2.9-win-x86-UNSIGNED.exe",
+                    "browser_download_url": "https://github.com/download/x86-unsigned.exe",
                 },
                 {
-                    "name": "PowerAccessibleMailFullSetup-1.2.9-win-x64.exe",
-                    "browser_download_url": "https://github.com/download/full.exe",
+                    "name": "PowerAccessibleMailSetup-1.2.9-win-x86.exe",
+                    "browser_download_url": "https://github.com/download/x86.exe",
                 },
             ],
         }
@@ -63,7 +63,7 @@ class UpdateCheckerTests(unittest.TestCase):
         return_value="alikrstle/PowerAccessibleMail",
     )
     @patch("accessible_mail.update_checker.urllib.request.urlopen")
-    def test_full_edition_selects_signed_full_installer(
+    def test_x64_build_selects_signed_x64_installer(
         self,
         urlopen,
         _repository,
@@ -71,12 +71,12 @@ class UpdateCheckerTests(unittest.TestCase):
     ) -> None:
         urlopen.return_value = FakeResponse(self.github_release())
 
-        result = check_for_updates("1.2.8", edition=EDITION_FULL)
+        result = check_for_updates("1.2.8", architecture=ARCHITECTURE_X64)
 
         self.assertTrue(result.configured)
         self.assertTrue(result.available)
         self.assertEqual(result.latest_version, "1.2.9")
-        self.assertEqual(result.download_url, "https://github.com/download/full.exe")
+        self.assertEqual(result.download_url, "https://github.com/download/x64.exe")
         self.assertIn("Accessibility", result.notes)
         request = urlopen.call_args.args[0]
         self.assertEqual(request.get_header("Accept"), "application/vnd.github+json")
@@ -88,7 +88,7 @@ class UpdateCheckerTests(unittest.TestCase):
         return_value="alikrstle/PowerAccessibleMail",
     )
     @patch("accessible_mail.update_checker.urllib.request.urlopen")
-    def test_limited_edition_selects_public_installer_name(
+    def test_x86_build_selects_signed_x86_installer(
         self,
         urlopen,
         _repository,
@@ -96,10 +96,10 @@ class UpdateCheckerTests(unittest.TestCase):
     ) -> None:
         urlopen.return_value = FakeResponse(self.github_release())
 
-        result = check_for_updates("1.2.8", edition=EDITION_GMAIL_API_LIMITED)
+        result = check_for_updates("1.2.8", architecture=ARCHITECTURE_X86)
 
         self.assertTrue(result.available)
-        self.assertEqual(result.download_url, "https://github.com/download/limited.exe")
+        self.assertEqual(result.download_url, "https://github.com/download/x86.exe")
 
     @patch.dict(
         "os.environ",
@@ -120,7 +120,7 @@ class UpdateCheckerTests(unittest.TestCase):
     ) -> None:
         urlopen.return_value = FakeResponse(self.github_release())
 
-        check_for_updates("1.2.8", edition=EDITION_FULL)
+        check_for_updates("1.2.8", architecture=ARCHITECTURE_X64)
 
         request = urlopen.call_args.args[0]
         self.assertEqual(request.get_header("Authorization"), "Bearer test-token")
@@ -141,7 +141,7 @@ class UpdateCheckerTests(unittest.TestCase):
         release["assets"] = []
         urlopen.return_value = FakeResponse(release)
 
-        result = check_for_updates("1.2.8", edition=EDITION_FULL)
+        result = check_for_updates("1.2.8", architecture=ARCHITECTURE_X64)
 
         self.assertEqual(result.download_url, release["html_url"])
 
@@ -168,7 +168,7 @@ class UpdateCheckerTests(unittest.TestCase):
             "https://github.com/alikrstle/PowerAccessibleMail/releases/tag/v1.2.9"
         )
         signed_asset_error = urllib.error.HTTPError(
-            "https://github.com/download/full.exe",
+            "https://github.com/download/x64.exe",
             404,
             "not found",
             {},
@@ -181,7 +181,7 @@ class UpdateCheckerTests(unittest.TestCase):
             FakeResponse(b""),
         ]
 
-        result = check_for_updates("1.2.8", edition=EDITION_FULL)
+        result = check_for_updates("1.2.8", architecture=ARCHITECTURE_X64)
 
         self.assertTrue(result.available)
         self.assertEqual(result.latest_version, "1.2.9")
@@ -190,7 +190,7 @@ class UpdateCheckerTests(unittest.TestCase):
             (
                 "https://github.com/alikrstle/PowerAccessibleMail/releases/"
                 "download/v1.2.9/"
-                "PowerAccessibleMailFullSetup-1.2.9-win-x64-UNSIGNED.exe"
+                "PowerAccessibleMailSetup-1.2.9-win-x64-UNSIGNED.exe"
             ),
         )
 
@@ -219,14 +219,14 @@ class UpdateCheckerTests(unittest.TestCase):
             ),
             FakeResponse(b"", final_url=release_url),
             urllib.error.HTTPError(
-                "https://github.com/download/full.exe",
+                "https://github.com/download/x64.exe",
                 404,
                 "not found",
                 {},
                 None,
             ),
             urllib.error.HTTPError(
-                "https://github.com/download/full-unsigned.exe",
+                "https://github.com/download/x64-unsigned.exe",
                 404,
                 "not found",
                 {},
@@ -235,7 +235,7 @@ class UpdateCheckerTests(unittest.TestCase):
         ]
         urlopen.side_effect = errors
 
-        result = check_for_updates("1.2.8", edition=EDITION_FULL)
+        result = check_for_updates("1.2.8", architecture=ARCHITECTURE_X64)
 
         self.assertTrue(result.available)
         self.assertEqual(result.download_url, release_url)
@@ -287,6 +287,30 @@ class UpdateCheckerTests(unittest.TestCase):
             result.download_url,
             "https://updates.example.com/setup.exe",
         )
+
+    @patch(
+        "accessible_mail.update_checker.load_update_manifest_url",
+        return_value="https://updates.example.com/latest.json",
+    )
+    @patch("accessible_mail.update_checker.urllib.request.urlopen")
+    def test_manifest_can_provide_architecture_specific_downloads(
+        self,
+        urlopen,
+        _manifest,
+    ) -> None:
+        urlopen.return_value = FakeResponse(
+            {
+                "version": "1.3.0",
+                "downloads": {
+                    "x64": "https://updates.example.com/x64.exe",
+                    "x86": "https://updates.example.com/x86.exe",
+                },
+            }
+        )
+
+        result = check_for_updates("1.2.8", architecture=ARCHITECTURE_X86)
+
+        self.assertEqual(result.download_url, "https://updates.example.com/x86.exe")
 
     def test_equivalent_versions_compare_equally(self) -> None:
         self.assertEqual(version_key("v1.2"), version_key("1.2.0"))

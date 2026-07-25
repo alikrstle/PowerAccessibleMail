@@ -1,7 +1,7 @@
 Power Accessible Mail
-Version: 1.2.9
+Version: 1.2.10
 
-Edition: Gmail API Limited
+Build: identical features in the x64 and x86 packages
 Developer: Soljan.AlSharq.
 Owner: Ali Al-Amir
 Company: Soljan.AlSharq.
@@ -16,7 +16,7 @@ Adding a Gmail account
 3. Choose the account and grant consent on Google's official page.
 4. Return to the application after sign-in succeeds.
 
-This edition uses the Gmail API and the limited gmail.modify scope. The user does not enter a Gmail password inside the application.
+The application uses the Gmail API and the gmail.modify scope for Google accounts. It also supports Microsoft sign-in and manually configured IMAP and SMTP accounts.
 
 Main sections
 - Inbox: displays messages carrying the INBOX label.

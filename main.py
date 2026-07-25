@@ -5,12 +5,11 @@ import sys
 from pathlib import Path
 
 
-os.environ["POWER_ACCESSIBLE_MAIL_EDITION"] = "full"
 os.environ["POWER_ACCESSIBLE_MAIL_APP_NAME"] = "PowerAccessibleMail"
 os.environ["POWER_ACCESSIBLE_MAIL_APP_TITLE"] = "Power Accessible Mail"
 if not getattr(sys, "frozen", False):
     os.environ["POWER_ACCESSIBLE_MAIL_OAUTH_CLIENTS_FILE"] = str(
-        Path(__file__).resolve().parent / ". النسخة الكاملة" / "oauth_clients.json"
+        Path(__file__).resolve().parent / "oauth_clients.json"
     )
 
 

@@ -597,64 +597,51 @@ class AppBehaviorTests(unittest.TestCase):
 
     def test_update_mode_skips_normal_installer_pages(self) -> None:
         project_root = Path(__file__).resolve().parents[1]
-        installer_names = (
-            "installer_power_accessible_mail.iss",
-            "installer_power_accessible_mail_gmail_api_limited.iss",
+        source = (project_root / "installer_power_accessible_mail.iss").read_text(
+            encoding="utf-8-sig"
         )
-        for installer_name in installer_names:
-            source = (project_root / installer_name).read_text(encoding="utf-8-sig")
-            for page_name in (
-                "wpInfoBefore",
-                "wpSelectDir",
-                "wpSelectProgramGroup",
-                "wpSelectTasks",
-                "wpReady",
-            ):
-                self.assertIn(f"PageID = {page_name}", source)
+        for page_name in (
+            "wpInfoBefore",
+            "wpSelectDir",
+            "wpSelectProgramGroup",
+            "wpSelectTasks",
+            "wpReady",
+        ):
+            self.assertIn(f"PageID = {page_name}", source)
 
-    def test_release_installer_names_distinguish_editions(self) -> None:
+    def test_release_installer_name_uses_target_architecture(self) -> None:
         project_root = Path(__file__).resolve().parents[1]
-        full_installer = (
-            project_root / "installer_power_accessible_mail.iss"
-        ).read_text(encoding="utf-8-sig")
-        limited_installer = (
-            project_root / "installer_power_accessible_mail_gmail_api_limited.iss"
-        ).read_text(encoding="utf-8-sig")
+        installer = (project_root / "installer_power_accessible_mail.iss").read_text(
+            encoding="utf-8-sig"
+        )
 
         self.assertIn(
-            "OutputBaseFilename=PowerAccessibleMailFullSetup-",
-            full_installer,
+            "OutputBaseFilename=PowerAccessibleMailSetup-{#MyAppVersion}-win-{#TargetArchitecture}",
+            installer,
         )
-        self.assertIn(
-            "OutputBaseFilename=PowerAccessibleMailSetup-",
-            limited_installer,
-        )
+        self.assertNotIn("FullSetup", installer)
+        self.assertNotIn("GmailApiLimited", installer)
 
     def test_installer_navigation_buttons_use_native_localized_captions(self) -> None:
         project_root = Path(__file__).resolve().parents[1]
-        installer_names = (
-            "installer_power_accessible_mail.iss",
-            "installer_power_accessible_mail_gmail_api_limited.iss",
+        installer_path = project_root / "installer_power_accessible_mail.iss"
+        raw_source = installer_path.read_bytes()
+        self.assertTrue(
+            raw_source.startswith(b"\xef\xbb\xbf"),
+            "The installer must use UTF-8 BOM so Inno Setup preserves Arabic captions",
         )
-        for installer_name in installer_names:
-            installer_path = project_root / installer_name
-            raw_source = installer_path.read_bytes()
-            self.assertTrue(
-                raw_source.startswith(b"\xef\xbb\xbf"),
-                f"{installer_name} must use UTF-8 BOM so Inno Setup preserves Arabic captions",
-            )
-            source = raw_source.decode("utf-8-sig")
-            self.assertNotIn("arabic.ButtonBack=", source)
-            self.assertNotIn("arabic.ButtonNext=", source)
-            self.assertNotIn("english.ButtonBack=", source)
-            self.assertNotIn("english.ButtonNext=", source)
-            self.assertNotIn("NormalNextCaption", source)
-            self.assertNotIn("NormalCancelCaption", source)
-            for line in source.splitlines():
-                if ".ButtonBack=" in line or ".ButtonNext=" in line:
-                    self.assertNotIn("&", line)
-                    self.assertNotIn("<", line)
-                    self.assertNotIn(">", line)
+        source = raw_source.decode("utf-8-sig")
+        self.assertNotIn("arabic.ButtonBack=", source)
+        self.assertNotIn("arabic.ButtonNext=", source)
+        self.assertNotIn("english.ButtonBack=", source)
+        self.assertNotIn("english.ButtonNext=", source)
+        self.assertNotIn("NormalNextCaption", source)
+        self.assertNotIn("NormalCancelCaption", source)
+        for line in source.splitlines():
+            if ".ButtonBack=" in line or ".ButtonNext=" in line:
+                self.assertNotIn("&", line)
+                self.assertNotIn("<", line)
+                self.assertNotIn(">", line)
 
     def test_focus_message_list_deactivates_html_before_returning(self) -> None:
         calls: list[str] = []
@@ -704,12 +691,12 @@ class AppBehaviorTests(unittest.TestCase):
     def test_oauth_provider_button_starts_login_directly(self) -> None:
         dialog = SimpleNamespace(start_oauth_login=Mock())
 
-        AccountDialog.on_oauth_provider_button(dialog, Mock(), "google")
+        AccountDialog.on_oauth_provider_button(dialog, Mock(), "google_gmail_api")
 
-        dialog.start_oauth_login.assert_called_once_with("google")
+        dialog.start_oauth_login.assert_called_once_with("google_gmail_api")
 
     @patch("accessible_mail.app.google_provider_id", return_value="google_gmail_api")
-    def test_startup_google_button_starts_edition_google_provider(
+    def test_startup_google_button_starts_gmail_api_provider(
         self,
         provider_id: Mock,
     ) -> None:
@@ -809,14 +796,12 @@ class AppBehaviorTests(unittest.TestCase):
 
     def test_both_builds_bundle_the_nvda_controller_client(self) -> None:
         project_root = Path(__file__).resolve().parents[1]
-        for filename in (
-            "build_power_accessible_mail_64.ps1",
-            "build_power_accessible_mail_gmail_api_limited_64.ps1",
-        ):
-            source = (project_root / filename).read_text(encoding="utf-8-sig")
-            self.assertIn('"--add-binary"', source)
-            self.assertIn("nvdaControllerClient.dll", source)
-            self.assertIn("Expected exactly one bundled NVDA Controller", source)
+        source = (project_root / "build_power_accessible_mail.ps1").read_text(
+            encoding="utf-8-sig"
+        )
+        self.assertIn('"--add-binary"', source)
+        self.assertIn("$Architecture\\nvdaControllerClient.dll", source)
+        self.assertIn("Expected exactly one bundled NVDA Controller", source)
 
     def test_account_method_buttons_activate_without_ok_button(self) -> None:
         dialog = SimpleNamespace(

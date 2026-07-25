@@ -1,16 +1,16 @@
 Application information
 
 Application: Power Accessible Mail
-Version: 1.2.9
+Version: 1.2.10
 Developer: Soljan.AlSharq.
 Owner: Ali Al-Amir
 Company: Soljan.AlSharq.
 Company ownership: Soljan.AlSharq. is owned by Ali Al-Amir
-Edition: Gmail API Limited
+Build: unified x64 and x86 editions
 
 Privacy and ownership summary
 - The application and its rights are owned by Ali Al-Amir and developed by Soljan.AlSharq.
-- The application accesses email data only after OAuth consent to read, send, and manage messages.
+- The application accesses Gmail through the Gmail API and Microsoft through Outlook services after OAuth consent. Manual IMAP and SMTP setup is also supported.
 - Accounts and cached data are stored locally. Sensitive local data is protected with Windows DPAPI for the current Windows account.
 - User data is not sold or used for advertising.
 - When the user requests message translation, the selected message text is sent to Google Translate only to perform that request.

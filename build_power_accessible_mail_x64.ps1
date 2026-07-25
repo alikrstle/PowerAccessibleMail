@@ -2,6 +2,7 @@ param(
     [string]$PythonPath = ".\.venv\Scripts\python.exe"
 )
 
-& (Join-Path $PSScriptRoot "build_power_accessible_mail_x64.ps1") `
+& (Join-Path $PSScriptRoot "build_power_accessible_mail.ps1") `
+    -Architecture x64 `
     -PythonPath $PythonPath
 exit $LASTEXITCODE

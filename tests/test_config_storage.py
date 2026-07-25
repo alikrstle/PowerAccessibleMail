@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 import json
+import os
 import tempfile
 import unittest
 from pathlib import Path
 from unittest.mock import patch
 
+from accessible_mail import config
 from accessible_mail.config import (
     LANGUAGE_ENGLISH,
     TRANSLATION_INLINE,
@@ -19,6 +21,65 @@ from accessible_mail.models import Account
 
 
 class ConfigStorageTests(unittest.TestCase):
+    def test_limited_profile_accounts_are_merged_into_unified_profile(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            appdata = Path(directory)
+            unified = appdata / "PowerAccessibleMail"
+            legacy = appdata / "PowerAccessibleMailGmailApiLimited"
+            unified.mkdir()
+            legacy.mkdir()
+            (unified / "accounts.json").write_text(
+                json.dumps(
+                    [
+                        {
+                            "id": "manual",
+                            "email_address": "manual@example.com",
+                            "auth_method": "password",
+                        },
+                        {
+                            "id": "old-google",
+                            "email_address": "person@gmail.com",
+                            "oauth_provider": "google",
+                        },
+                    ]
+                ),
+                encoding="utf-8",
+            )
+            (legacy / "accounts.json").write_text(
+                json.dumps(
+                    [
+                        {
+                            "id": "gmail-api",
+                            "email_address": "person@gmail.com",
+                            "oauth_provider": "google_gmail_api",
+                        }
+                    ]
+                ),
+                encoding="utf-8",
+            )
+
+            with patch.dict(os.environ, {"APPDATA": directory}, clear=False):
+                config._MIGRATED_PROFILE_ROOTS.clear()
+                migrated_path = config.data_dir()
+                payload = json.loads(
+                    (migrated_path / "accounts.json").read_text(encoding="utf-8")
+                )
+                backup_created = (
+                    unified / "accounts.pre-unified-backup.json"
+                ).exists()
+                marker_created = (
+                    unified / ".unified-profile-migration-v1"
+                ).exists()
+
+        self.assertEqual(len(payload), 2)
+        providers = {
+            item["email_address"]: item.get("oauth_provider", "")
+            for item in payload
+        }
+        self.assertEqual(providers["person@gmail.com"], "google_gmail_api")
+        self.assertTrue(backup_created)
+        self.assertTrue(marker_created)
+
     def test_language_and_translation_mode_are_saved(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "settings.json"

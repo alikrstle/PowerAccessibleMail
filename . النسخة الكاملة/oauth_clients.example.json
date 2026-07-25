@@ -1,10 +1,10 @@
 {
-  "google": {
-    "client_id": "ضع Client ID الخاص بالنسخة الكاملة هنا",
-    "client_secret": "ضع Client Secret الخاص بالنسخة الكاملة هنا"
+  "google_gmail_api": {
+    "client_id": "ضع Google Gmail API Client ID هنا",
+    "client_secret": "ضع Google Gmail API Client Secret هنا"
   },
   "microsoft": {
-    "client_id": "ضع Microsoft Client ID هنا لاحقا",
+    "client_id": "ضع Microsoft Client ID هنا",
     "client_secret": ""
   }
 }

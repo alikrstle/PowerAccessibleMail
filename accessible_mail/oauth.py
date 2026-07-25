@@ -4,7 +4,6 @@ import base64
 import hashlib
 import html
 import json
-import os
 import secrets
 import threading
 import time
@@ -121,15 +120,10 @@ def provider_display_names() -> list[str]:
 
 
 def available_provider_ids() -> list[str]:
-    if os.environ.get("POWER_ACCESSIBLE_MAIL_LIMITED_GOOGLE") == "1":
-        return ["google_gmail_api"]
-    return ["google", "microsoft"]
+    return ["google_gmail_api", "microsoft"]
 
 
 def provider_id_from_name(name: str) -> str:
-    # Google's full and limited providers intentionally share one display name.
-    # Restrict the lookup to this edition so the limited build cannot select the
-    # full Gmail provider by accident.
     for provider_id in available_provider_ids():
         provider = OAUTH_PROVIDERS[provider_id]
         if provider["name"] == name:
@@ -416,15 +410,15 @@ def _post_form(url: str, data: dict[str, str]) -> dict[str, Any]:
         normalized = str(message).lower()
         if oauth_error_requires_reauthentication(error_code, normalized):
             raise OAuthReauthenticationRequired(
-                "انتهت صلاحية تسجيل الدخول أو ألغيت من Google. "
+                "انتهت صلاحية تسجيل الدخول أو ألغيت من مزود البريد. "
                 "افتح خيارات الحسابات وإدارتها ثم اختر إعادة تسجيل الدخول للحساب."
             ) from exc
         if error_code == "invalid_scope" or "invalid_scope" in normalized:
             message = (
                 f"{message}\n\n"
                 "الحل: احذف الحساب من البرنامج أو أعد إضافته عبر تسجيل الدخول بالمتصفح. "
-                "إذا كنت تستخدم النسخة المحدودة فتأكد أن مشروع Google Cloud يحتوي نطاق gmail.modify، "
-                "وإذا كنت تستخدم النسخة الكاملة فتأكد أن المشروع يحتوي نطاق mail.google.com."
+                "لحساب Google تأكد أن مشروع Google Cloud يحتوي نطاق gmail.modify. "
+                "ولحساب Microsoft تأكد من إضافة صلاحيات IMAP.AccessAsUser.All وSMTP.Send."
             )
         raise OAuthError(f"فشل طلب OAuth: {message}") from exc
     except urllib.error.URLError as exc:

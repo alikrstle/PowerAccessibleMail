@@ -270,6 +270,7 @@ ENGLISH_TRANSLATIONS: dict[str, str] = {
     "تعذر تحديث رمز OAuth.": "Unable to refresh the OAuth token.",
     "انتهت صلاحية تسجيل الدخول. افتح خيارات الحسابات وإدارتها ثم اختر إعادة تسجيل الدخول للحساب.": "The sign-in session expired. Open Account options and management, then choose Sign in to account again.",
     "انتهت صلاحية تسجيل الدخول أو ألغيت من Google. افتح خيارات الحسابات وإدارتها ثم اختر إعادة تسجيل الدخول للحساب.": "The sign-in session expired or was revoked by Google. Open Account options and management, then choose Sign in to account again.",
+    "انتهت صلاحية تسجيل الدخول أو ألغيت من مزود البريد. افتح خيارات الحسابات وإدارتها ثم اختر إعادة تسجيل الدخول للحساب.": "The sign-in session expired or was revoked by the email provider. Open Account options and management, then choose Sign in to account again.",
     "تم تسجيل الدخول. يمكنك العودة إلى برنامج البريد الإلكتروني.": "Sign-in succeeded. You can return to the email application.",
     "هذه الصفحة خاصة بتسجيل الدخول إلى برنامج البريد.": "This page is used to sign in to the email application.",
     "رفض تسجيل الدخول لأن رمز التحقق غير مطابق.": "Sign-in was rejected because the verification state did not match.",

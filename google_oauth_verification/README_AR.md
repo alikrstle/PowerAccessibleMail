@@ -1,74 +1,50 @@
 # تجهيز موافقة Google OAuth
 
-هذه الملفات تساعدك في إرسال تطبيق Power Accessible Mail إلى Google للمراجعة حتى يظهر تسجيل الدخول عبر المتصفح بشكل رسمي للمستخدمين.
+تساعد هذه الملفات في إرسال Power Accessible Mail إلى Google للمراجعة حتى يظهر تسجيل الدخول عبر المتصفح رسميا للمستخدمين.
 
-## مهم جدا
+## النطاق المستخدم
 
-Google لا تطلب عادة رفع ملف البرنامج فقط. المراجعة تتم من داخل Google Cloud Console، وتحتاج:
+كل إصدارات البرنامج الجديدة تستخدم Gmail API بالنطاق:
+
+`https://www.googleapis.com/auth/gmail.modify`
+
+لا تطلب الإصدارات الجديدة نطاق `https://mail.google.com/`. تستخدم حسابات Gmail واجهة Gmail API للقراءة والإرسال وإدارة التصنيفات ونقل الرسائل إلى سلة المحذوفات.
+
+## المتطلبات
 
 - مشروع Google Cloud خاص بالتطبيق.
+- تفعيل Gmail API.
 - شاشة OAuth Consent Screen مكتملة.
 - صفحة رئيسية للتطبيق على نطاق تملكه.
-- سياسة خصوصية منشورة على نفس النطاق.
-- شرح سبب طلب صلاحيات Gmail.
-- فيديو توضيحي يبين تسجيل الدخول واستخدام صلاحيات Gmail داخل البرنامج.
+- سياسة خصوصية منشورة على النطاق نفسه.
+- بريد دعم رسمي.
+- شرح سبب طلب `gmail.modify`.
+- فيديو يوضح تسجيل الدخول واستخدام وظائف Gmail.
 
-## النطاق الحالي في البرنامج
+## الاختبار قبل النشر
 
-البرنامج يستخدم حاليا:
+1. اجعل حالة التطبيق Testing.
+2. أضف عناوين المختبرين ضمن Audience ثم Test users.
+3. أنشئ OAuth Client من نوع Desktop app.
+4. ضع بياناته في `google_gmail_api` داخل ملف `oauth_clients.json` الموحد.
+5. أعط المختبرين البناء المطابق لأجهزتهم؛ نسختا x64 وx86 تستخدمان العميل نفسه والنطاق نفسه.
 
-`https://mail.google.com/`
+## النشر العام
 
-هذا النطاق مصنف من Google كنطاق Gmail مقيد Restricted؛ لأنه يعطي وصولا واسعا للبريد. السبب التقني لاستخدامه حاليا هو أن البرنامج يعمل عبر IMAP و SMTP مع XOAUTH2.
+1. افتح مشروع التطبيق وفعّل Gmail API.
+2. أكمل اسم التطبيق وبريد الدعم وروابط الصفحة الرئيسية وسياسة الخصوصية.
+3. تحقق من النطاق في Google Search Console وأضفه إلى Authorized domains.
+4. أضف النطاقات `openid` و`email` و`profile` و`gmail.modify`.
+5. انشر التطبيق إلى Production واختر Prepare for verification.
+6. أرفق التبرير من `scope_justification_en.md`.
+7. أرفق فيديو العرض المعد وفق `demo_video_script_ar.md`.
+8. راقب بريد مالك المشروع للرد على طلبات Google.
 
-## الطريق الأسرع للمختبرين فقط
+## الملفات
 
-إذا كان لديك عدد صغير من المختبرين، لا تحتاج موافقة عامة الآن:
-
-1. افتح Google Cloud Console.
-2. افتح مشروع التطبيق.
-3. OAuth consent screen.
-4. اجعل التطبيق في Testing.
-5. أضف حسابات المختبرين في Test users.
-6. أعطهم النسخة التي تحتوي على `oauth_clients.json`.
-
-هذا مناسب للتجربة قبل النشر العام.
-
-## الطريق الرسمي للنشر العام
-
-1. أنشئ أو افتح مشروع Google Cloud الخاص بالتطبيق.
-2. فعّل Gmail API إن كنت ستستخدم Gmail API. أما النسخة الحالية عبر IMAP/SMTP فتحتاج OAuth فقط مع نطاق `https://mail.google.com/`.
-3. افتح OAuth consent screen.
-4. اختر External.
-5. املأ:
-   - App name: Power Accessible Mail
-   - User support email: بريد دعم تملكه
-   - App domain/homepage: رابط صفحة البرنامج
-   - Privacy policy: رابط سياسة الخصوصية
-   - Developer contact email
-6. أضف النطاقات المطلوبة في Authorized domains.
-7. أضف النطاقات المطلوبة في Data Access / Scopes:
-   - `openid`
-   - `email`
-   - `profile`
-   - `https://mail.google.com/`
-8. انشر التطبيق إلى Production.
-9. اضغط Prepare for verification.
-10. أضف تبرير النطاقات من ملف `scope_justification_en.md`.
-11. أضف رابط فيديو العرض بعد تسجيله حسب `demo_video_script_ar.md`.
-12. أرسل الطلب وانتظر مراسلة Google على بريد مالك المشروع.
-
-إذا كنت تجهز النسختين معا، استخدم OAuth Client وملفاً منفصلين لكل نسخة: بيانات الكاملة توضع في `google` داخل `. النسخة الكاملة\oauth_clients.json`، وبيانات المحدودة توضع في `google_gmail_api` داخل `. النسخة المحدودة\oauth_clients.json`. لا تعتمد النسخة المحدودة على ملف أو متغيرات بيئة النسخة الكاملة.
-
-## ملفات هذه الحزمة
-
-- `privacy_policy_en.md`: نص سياسة خصوصية إنجليزي للنشر.
-- `privacy_policy_ar.md`: نسخة عربية للمستخدمين.
-- `scope_justification_en.md`: تبرير الصلاحيات لـ Google.
+- `privacy_policy_en.md`: سياسة الخصوصية الإنجليزية للنشر.
+- `privacy_policy_ar.md`: النسخة العربية.
+- `scope_justification_en.md`: تبرير النطاقات.
 - `demo_video_script_ar.md`: سيناريو فيديو المراجعة.
-- `homepage_content_ar.md`: نص مناسب لصفحة تعريف البرنامج.
-- `submission_checklist_ar.md`: قائمة تحقق قبل الإرسال.
-
-## نصيحتي الفنية
-
-للإصدار العام، الأفضل لاحقا نقل Gmail من IMAP/SMTP إلى Gmail API بنطاقات أضيق قدر الإمكان. سيبقى بعض وصول Gmail مقيدا، لكن Google تفضّل دائما أقل نطاق ممكن بدل `https://mail.google.com/`.
+- `homepage_content_ar.md`: نص صفحة البرنامج.
+- `submission_checklist_ar.md`: قائمة التحقق.

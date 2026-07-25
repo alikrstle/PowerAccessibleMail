@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import ctypes
 import os
+import struct
 import sys
 import threading
 from functools import lru_cache
@@ -14,18 +15,16 @@ _controller_lock = threading.Lock()
 
 
 def _controller_candidates() -> list[Path]:
-    package_path = (
-        Path(__file__).resolve().parent
-        / "vendor"
-        / "nvda"
-        / _NVDA_CONTROLLER_NAME
-    )
+    architecture = "x64" if struct.calcsize("P") == 8 else "x86"
+    vendor_path = Path(__file__).resolve().parent / "vendor" / "nvda"
+    package_path = vendor_path / architecture / _NVDA_CONTROLLER_NAME
+    legacy_package_path = vendor_path / _NVDA_CONTROLLER_NAME
     executable_path = Path(sys.executable).resolve().parent / _NVDA_CONTROLLER_NAME
     configured_path = os.environ.get(
         "POWER_ACCESSIBLE_MAIL_NVDA_CONTROLLER",
         "",
     ).strip()
-    candidates = [package_path, executable_path]
+    candidates = [package_path, legacy_package_path, executable_path]
     if configured_path:
         candidates.insert(0, Path(configured_path).expanduser())
     return candidates

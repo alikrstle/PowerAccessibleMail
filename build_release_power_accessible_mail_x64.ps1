@@ -5,9 +5,14 @@ param(
     [string]$InnoCompiler = "C:\Users\alikrstl\AppData\Local\Programs\Inno Setup 6\ISCC.exe"
 )
 
-& (Join-Path $PSScriptRoot "build_release_power_accessible_mail_x64.ps1") `
-    -PythonPath $PythonPath `
-    -CertificateThumbprint $CertificateThumbprint `
-    -TimestampServer $TimestampServer `
-    -InnoCompiler $InnoCompiler
+$arguments = @{
+    Architecture = "x64"
+    PythonPath = $PythonPath
+    CertificateThumbprint = $CertificateThumbprint
+    InnoCompiler = $InnoCompiler
+}
+if ($TimestampServer) {
+    $arguments.TimestampServer = $TimestampServer
+}
+& (Join-Path $PSScriptRoot "build_release_power_accessible_mail.ps1") @arguments
 exit $LASTEXITCODE

@@ -65,35 +65,33 @@ run.bat
 
 ## تسجيل الدخول عبر المتصفح
 
-يدعم البرنامج حاليا تسجيل الدخول عبر المتصفح لحسابات:
+يدعم البرنامج تسجيل الدخول عبر المتصفح لحسابات:
 
 - Google / Gmail
+- Microsoft / Outlook
 
-Microsoft / Outlook سيعود لاحقا بعد تجهيز مفاتيح Microsoft.
-
-افتح "إضافة حساب"، واختر طريقة التسجيل ثم اضغط "موافق". عند اختيار التسجيل عبر المتصفح تظهر خدمات البريد كأزرار؛ الضغط على اسم الخدمة يفتح المتصفح مباشرة من دون زر "موافق" إضافي. أما نموذج التسجيل اليدوي فيحتفظ بزر "موافق" لحفظ البيانات.
+افتح "إضافة حساب" واختر طريقة التسجيل. عند اختيار التسجيل عبر المتصفح تظهر خدمات البريد كأزرار؛ الضغط على اسم الخدمة يفتح المتصفح مباشرة من دون زر "موافق" إضافي. أما نموذج التسجيل اليدوي فيحتفظ بزر "موافق" لحفظ البيانات.
 
 مهم للمستخدم: لا تحتاج إلى كلمة مرور تطبيق أو كلمة مرور الحساب الأصلية. عند تجهيز مفاتيح OAuth سيعرض المتصفح صفحة اختيار الحساب ثم صفحة الموافقة، ويضغط المستخدم متابعة أو استمرار فقط.
 
-مهم للمطور: لا يستطيع البرنامج قراءة حسابات أو كلمات مرور المتصفح مباشرة، لأن المتصفحات وخدمات البريد تمنع ذلك لحماية المستخدم. لذلك يجب تسجيل التطبيق مرة واحدة لدى Google أو Microsoft، ثم وضع بيانات كل إصدار في ملفه المستقل. هذه البيانات لا تظهر في واجهة المستخدم.
+مهم للمطور: لا يستطيع البرنامج قراءة حسابات أو كلمات مرور المتصفح مباشرة. يجب تسجيل التطبيق مرة واحدة لدى Google وMicrosoft، ثم وضع بيانات العملاء في ملف `oauth_clients.json` الموحد. هذه البيانات لا تظهر في واجهة المستخدم.
 
 نطاقات OAuth المستخدمة:
 
-- Gmail: `openid email profile https://mail.google.com/`
-- نسخة Gmail API المحدودة: `openid email profile https://www.googleapis.com/auth/gmail.modify`
+- Gmail API: `openid email profile https://www.googleapis.com/auth/gmail.modify`
 - Microsoft: `openid profile email offline_access https://outlook.office.com/IMAP.AccessAsUser.All https://outlook.office.com/SMTP.Send`
 
 ### تجهيز OAuth للمطور
 
-1. افتح `. النسخة الكاملة\oauth_clients.json` للكاملة أو `. النسخة المحدودة\oauth_clients.json` للمحدودة.
+1. أنشئ `oauth_clients.json` في جذر المشروع اعتمادا على `oauth_clients.example.json`.
 2. سجل التطبيق في Google Cloud أو Microsoft Entra.
-3. ضع بيانات الكاملة داخل ملف الكاملة:
+3. ضع بيانات الخدمتين في الملف الموحد:
 
 ```json
 {
-  "google": {
-    "client_id": "ضع Google Client ID الخاص بالنسخة الكاملة هنا",
-    "client_secret": "ضع Google Client Secret الخاص بالنسخة الكاملة هنا إن وجد"
+  "google_gmail_api": {
+    "client_id": "ضع Google Gmail API Client ID هنا",
+    "client_secret": "ضع Google Gmail API Client Secret هنا إن وجد"
   },
   "microsoft": {
     "client_id": "ضع Microsoft Application Client ID هنا",
@@ -102,23 +100,25 @@ Microsoft / Outlook سيعود لاحقا بعد تجهيز مفاتيح Microso
 }
 ```
 
-وضع بيانات المحدودة وحدها داخل ملف المحدودة:
+نسختا `x64` و`x86` تستخدمان ملف الاعتماد نفسه والميزات نفسها. يمكن أيضا ضبط القيم عبر متغيرات البيئة:
 
-```json
-{
-  "google_gmail_api": {
-    "client_id": "ضع Google Client ID الخاص بنسخة Gmail API المحدودة هنا",
-    "client_secret": "ضع Google Client Secret الخاص بنسخة Gmail API المحدودة هنا إن وجد"
-  }
-}
-```
-
-لا يوجد ملف اعتماد مشترك في الجذر. النسخة الكاملة تستخدم `google` مع نطاق `https://mail.google.com/`، ونسخة Gmail API المحدودة تستخدم `google_gmail_api` مع نطاق `gmail.modify`. يمكن أيضا ضبطها عبر متغيرات البيئة:
-
-- النسخة الكاملة: `ACCESSIBLE_MAIL_GOOGLE_CLIENT_ID` و`ACCESSIBLE_MAIL_GOOGLE_CLIENT_SECRET`
-- نسخة Gmail API المحدودة: `ACCESSIBLE_MAIL_GOOGLE_GMAIL_API_CLIENT_ID` و`ACCESSIBLE_MAIL_GOOGLE_GMAIL_API_CLIENT_SECRET`
+- `ACCESSIBLE_MAIL_GOOGLE_GMAIL_API_CLIENT_ID`
+- `ACCESSIBLE_MAIL_GOOGLE_GMAIL_API_CLIENT_SECRET`
+- `ACCESSIBLE_MAIL_MICROSOFT_CLIENT_ID`
+- `ACCESSIBLE_MAIL_MICROSOFT_CLIENT_SECRET`
 
 عند تسجيل Microsoft استخدم منصة Mobile and desktop applications واضبط Redirect URI على `http://localhost`.
+
+## بناء نسختي Windows
+
+المصدر واحد، والاختلاف الوحيد هو معمارية Python والمكتبات:
+
+```powershell
+.\build_release_power_accessible_mail_x64.ps1
+.\build_release_power_accessible_mail_x86.ps1
+```
+
+تستخدم نسخة `x64` البيئة `.venv`، وتستخدم نسخة `x86` البيئة `.venv-x86`. ينتج البناء مثبتا ونسخة محمولة وبصمات SHA-256 لكل معمارية.
 
 ## ملاحظات مهمة للحسابات
 
@@ -143,7 +143,7 @@ Microsoft / Outlook سيعود لاحقا بعد تجهيز مفاتيح Microso
 
 يحفظ البرنامج إعدادات الحسابات في مجلد بيانات المستخدم:
 
-- على Windows: `%APPDATA%\AccessibleMail\accounts.json`
+- على Windows: `%APPDATA%\PowerAccessibleMail\accounts.json`
 - على الأنظمة الأخرى: `~/.accessible_mail/accounts.json`
 
 إذا اخترت حفظ رموز OAuth، ستحفظ محليا داخل هذا الملف لتسهيل التشغيل. من الأفضل لاحقا استبدال ذلك بتخزين آمن مثل Windows Credential Manager.
@@ -152,7 +152,7 @@ Microsoft / Outlook سيعود لاحقا بعد تجهيز مفاتيح Microso
 
 يحفظ البرنامج الرسائل المستوردة في قاعدة بيانات محلية داخل:
 
-`%APPDATA%\AccessibleMail\.mail_store\messages.sqlite3`
+`%APPDATA%\PowerAccessibleMail\.mail_store\messages.sqlite3`
 
 المجلد مخفي على Windows، ومحتوى الرسائل والروابط وملخصات الرسائل تحفظ مشفرة باستخدام Windows DPAPI لحساب Windows الحالي. هذا يعني أن البرنامج يعرض الرسائل المحفوظة بسرعة في المرات التالية، ثم يحدّث أحدث دفعة من Gmail في الخلفية.
 
@@ -165,10 +165,10 @@ Microsoft / Outlook سيعود لاحقا بعد تجهيز مفاتيح Microso
 عند نشر إصدار جديد:
 
 1. أنشئ GitHub Release منشورا، وليس Draft أو Pre-release.
-2. استخدم وسم إصدار مثل `v1.2.9`.
-3. ارفع مثبّت النسخة المحدودة باسم `PowerAccessibleMailSetup-1.2.9-win-x64-UNSIGNED.exe` عند عدم توفر شهادة توقيع.
-4. ارفع مثبّت النسخة الكاملة باسم `PowerAccessibleMailFullSetup-1.2.9-win-x64-UNSIGNED.exe` عند عدم توفر شهادة توقيع.
-5. يفضّل رفع ملفات ZIP وملفات بصمة SHA-256 إلى الإصدار نفسه.
+2. استخدم وسم إصدار مثل `v1.2.10`.
+3. ارفع `PowerAccessibleMailSetup-1.2.10-win-x64-UNSIGNED.exe` عند عدم توفر شهادة توقيع.
+4. ارفع `PowerAccessibleMailSetup-1.2.10-win-x86-UNSIGNED.exe` عند عدم توفر شهادة توقيع.
+5. ارفع ملفات ZIP وملفات بصمة SHA-256 للمعماريتين إلى الإصدار نفسه.
 
 المستودع الافتراضي هو `alikrstle/PowerAccessibleMail`. يمكن تغييره لأغراض التطوير عبر:
 
@@ -178,8 +178,11 @@ Microsoft / Outlook سيعود لاحقا بعد تجهيز مفاتيح Microso
 
 ```json
 {
-  "version": "1.2.9",
-  "download_url": "https://example.com/PowerAccessibleMailSetup-1.2.9-win-x64.exe",
+  "version": "1.2.10",
+  "downloads": {
+    "x64": "https://example.com/PowerAccessibleMailSetup-1.2.10-win-x64.exe",
+    "x86": "https://example.com/PowerAccessibleMailSetup-1.2.10-win-x86.exe"
+  },
   "notes": "تحسينات في استلام الرسائل ودعم المرفقات."
 }
 ```

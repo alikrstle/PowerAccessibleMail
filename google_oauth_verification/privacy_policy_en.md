@@ -1,6 +1,6 @@
 # Privacy Policy for Power Accessible Mail
 
-Last updated: May 30, 2026
+Last updated: July 25, 2026
 
 ## Overview
 
@@ -8,7 +8,7 @@ Power Accessible Mail is a desktop email client designed to improve access to em
 
 ## Google User Data Accessed
 
-When a user connects a Gmail account, Power Accessible Mail requests permission to access Gmail through OAuth. The current desktop version uses the `https://mail.google.com/` scope so it can connect to Gmail through IMAP and SMTP using XOAUTH2.
+When a user connects a Gmail account, Power Accessible Mail requests the `https://www.googleapis.com/auth/gmail.modify` scope and accesses Gmail directly through Gmail API. Current releases do not request `https://mail.google.com/`.
 
 The app may access:
 
@@ -26,6 +26,7 @@ Google user data is used only to provide the user-facing email features visible 
 - Reading messages in an accessible vertical text viewer.
 - Showing links and attachments contained in messages.
 - Marking messages as read when the user opens them.
+- Starring messages and moving user-selected messages to Gmail Trash.
 - Sending new messages and replies on behalf of the user.
 - Caching messages locally so the application can load faster and avoid repeatedly downloading the same messages.
 
@@ -40,6 +41,8 @@ OAuth tokens are stored locally so the user does not need to sign in every time.
 ## Data Sharing
 
 Power Accessible Mail does not send Gmail message content, attachments, contacts, or OAuth tokens to the developer's servers.
+
+When the user explicitly requests message translation, the selected message text is sent to Google Translate only to perform that translation. Translation is optional and does not run in the background.
 
 The application may contact an update manifest URL only to check whether a new version is available. That update check does not include Gmail message content.
 

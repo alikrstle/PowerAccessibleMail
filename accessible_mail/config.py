@@ -14,8 +14,9 @@ from .models import Account
 
 APP_NAME = os.environ.get("POWER_ACCESSIBLE_MAIL_APP_NAME", "PowerAccessibleMail")
 APP_TITLE = os.environ.get("POWER_ACCESSIBLE_MAIL_APP_TITLE", "Power Accessible Mail")
-APP_VERSION = "1.2.9"
+APP_VERSION = "1.2.10"
 PASSWORD_PREFIX = "dpapi:"
+LEGACY_PROFILE_NAMES = ("PowerAccessibleMailGmailApiLimited",)
 LANGUAGE_ARABIC = "ar"
 LANGUAGE_ENGLISH = "en"
 VIEWER_HTML = "html"
@@ -25,6 +26,8 @@ THEME_DARK = "dark"
 TRANSLATION_INLINE = "inline"
 TRANSLATION_DIALOG = "dialog"
 _CONFIG_WRITE_LOCK = threading.RLock()
+_PROFILE_MIGRATION_LOCK = threading.Lock()
+_MIGRATED_PROFILE_ROOTS: set[Path] = set()
 
 
 @dataclass(slots=True)
@@ -44,11 +47,107 @@ def app_dir() -> Path:
 def data_dir() -> Path:
     appdata = os.environ.get("APPDATA")
     if appdata:
-        root = Path(appdata) / APP_NAME
+        appdata_root = Path(appdata)
+        root = appdata_root / APP_NAME
     else:
+        appdata_root = None
         root = Path.home() / ".accessible_mail"
     root.mkdir(parents=True, exist_ok=True)
+    if appdata_root is not None and APP_NAME == "PowerAccessibleMail":
+        _migrate_legacy_profiles(appdata_root, root)
     return root
+
+
+def _migrate_legacy_profiles(appdata_root: Path, destination: Path) -> None:
+    resolved_destination = destination.resolve(strict=False)
+    with _PROFILE_MIGRATION_LOCK:
+        if resolved_destination in _MIGRATED_PROFILE_ROOTS:
+            return
+        marker = destination / ".unified-profile-migration-v1"
+        if marker.exists():
+            _MIGRATED_PROFILE_ROOTS.add(resolved_destination)
+            return
+
+        legacy_roots = [
+            appdata_root / name
+            for name in LEGACY_PROFILE_NAMES
+            if (appdata_root / name).is_dir()
+        ]
+        if not legacy_roots:
+            _MIGRATED_PROFILE_ROOTS.add(resolved_destination)
+            return
+
+        try:
+            for legacy_root in legacy_roots:
+                _merge_legacy_accounts(
+                    legacy_root / "accounts.json",
+                    destination / "accounts.json",
+                )
+                _copy_legacy_path_if_missing(
+                    legacy_root / ".mail_store",
+                    destination / ".mail_store",
+                )
+                _copy_legacy_path_if_missing(
+                    legacy_root / "update_manifest_url.txt",
+                    destination / "update_manifest_url.txt",
+                )
+            marker.write_text(
+                "Merged legacy Gmail API profile into PowerAccessibleMail.\n",
+                encoding="ascii",
+            )
+        except OSError:
+            return
+        _MIGRATED_PROFILE_ROOTS.add(resolved_destination)
+
+
+def _merge_legacy_accounts(source: Path, destination: Path) -> None:
+    source_payload = _read_json_with_backup(source)
+    if not isinstance(source_payload, list):
+        return
+    destination_payload = _read_json_with_backup(destination)
+    if not isinstance(destination_payload, list):
+        destination_payload = []
+
+    merged: list[object] = list(destination_payload)
+    positions: dict[str, int] = {}
+    for index, item in enumerate(merged):
+        key = _account_migration_key(item)
+        if key:
+            positions[key] = index
+    for item in source_payload:
+        key = _account_migration_key(item)
+        if key and key in positions:
+            merged[positions[key]] = item
+        else:
+            if key:
+                positions[key] = len(merged)
+            merged.append(item)
+
+    if destination.exists():
+        backup = destination.with_name("accounts.pre-unified-backup.json")
+        if not backup.exists():
+            shutil.copy2(destination, backup)
+    _atomic_write_json(destination, merged)
+
+
+def _account_migration_key(item: object) -> str:
+    if not isinstance(item, dict):
+        return ""
+    email_address = str(item.get("email_address") or "").strip().casefold()
+    if email_address:
+        return f"email:{email_address}"
+    account_id = str(item.get("id") or "").strip()
+    return f"id:{account_id}" if account_id else ""
+
+
+def _copy_legacy_path_if_missing(source: Path, destination: Path) -> None:
+    if destination.exists() or not source.exists():
+        return
+    if source.is_dir():
+        shutil.copytree(source, destination)
+    else:
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(source, destination)
 
 
 def accounts_path() -> Path:

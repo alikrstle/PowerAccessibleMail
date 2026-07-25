@@ -2,8 +2,14 @@ oauth_clients.json
 *.pyc
 __pycache__/
 .venv/
+.venv-x86/
 build/
 dist/
 build-gmail-api-limited/
 dist-gmail-api-limited/
+build-x64/
+build-x86/
+dist-x64/
+dist-x86/
 release/
+release-archive-*/

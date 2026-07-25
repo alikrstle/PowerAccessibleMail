@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import struct
 import sys
 import urllib.error
 import urllib.parse
@@ -16,8 +17,8 @@ from .config import APP_VERSION, app_dir, data_dir
 DEFAULT_GITHUB_REPOSITORY = "alikrstle/PowerAccessibleMail"
 GITHUB_API_VERSION = "2026-03-10"
 MAX_UPDATE_RESPONSE_BYTES = 1024 * 1024
-EDITION_FULL = "full"
-EDITION_GMAIL_API_LIMITED = "gmail_api_limited"
+ARCHITECTURE_X64 = "x64"
+ARCHITECTURE_X86 = "x86"
 
 
 @dataclass(slots=True)
@@ -79,11 +80,21 @@ def updates_configured() -> bool:
 def check_for_updates(
     current_version: str = APP_VERSION,
     timeout: int = 20,
-    edition: str | None = None,
+    architecture: str | None = None,
 ) -> UpdateCheckResult:
+    selected_architecture = normalize_architecture(
+        architecture
+        or os.environ.get("POWER_ACCESSIBLE_MAIL_ARCHITECTURE", "")
+        or current_architecture()
+    )
     manifest_url = load_update_manifest_url()
     if manifest_url:
-        return _check_manifest(manifest_url, current_version, timeout)
+        return _check_manifest(
+            manifest_url,
+            current_version,
+            selected_architecture,
+            timeout,
+        )
 
     repository = load_github_repository()
     if not repository:
@@ -96,15 +107,31 @@ def check_for_updates(
                 "POWER_ACCESSIBLE_MAIL_GITHUB_REPOSITORY."
             ),
         )
-    selected_edition = (
-        edition or os.environ.get("POWER_ACCESSIBLE_MAIL_EDITION", EDITION_FULL)
-    ).strip().lower()
-    return _check_github_release(repository, current_version, selected_edition, timeout)
+    return _check_github_release(
+        repository,
+        current_version,
+        selected_architecture,
+        timeout,
+    )
+
+
+def current_architecture() -> str:
+    return ARCHITECTURE_X64 if struct.calcsize("P") == 8 else ARCHITECTURE_X86
+
+
+def normalize_architecture(value: str) -> str:
+    normalized = str(value or "").strip().lower().removeprefix("win-")
+    if normalized in {ARCHITECTURE_X64, "amd64", "64", "64bit"}:
+        return ARCHITECTURE_X64
+    if normalized in {ARCHITECTURE_X86, "i386", "i686", "32", "32bit"}:
+        return ARCHITECTURE_X86
+    return current_architecture()
 
 
 def _check_manifest(
     manifest_url: str,
     current_version: str,
+    architecture: str,
     timeout: int,
 ) -> UpdateCheckResult:
     request = urllib.request.Request(
@@ -137,7 +164,14 @@ def _check_manifest(
         )
 
     latest_version = str(manifest.get("version", "")).strip()
-    download_url = str(manifest.get("download_url") or manifest.get("url") or "").strip()
+    downloads = manifest.get("downloads")
+    architecture_url = downloads.get(architecture) if isinstance(downloads, dict) else ""
+    download_url = str(
+        architecture_url
+        or manifest.get("download_url")
+        or manifest.get("url")
+        or ""
+    ).strip()
     notes = str(manifest.get("notes", "")).strip()
     if not latest_version:
         return UpdateCheckResult(
@@ -157,7 +191,7 @@ def _check_manifest(
 def _check_github_release(
     repository: str,
     current_version: str,
-    edition: str,
+    architecture: str,
     timeout: int,
 ) -> UpdateCheckResult:
     owner, repo = repository.split("/", 1)
@@ -184,7 +218,7 @@ def _check_github_release(
         fallback = _check_github_latest_page(
             repository,
             current_version,
-            edition,
+            architecture,
             timeout,
         )
         if fallback is not None:
@@ -201,7 +235,7 @@ def _check_github_release(
         fallback = _check_github_latest_page(
             repository,
             current_version,
-            edition,
+            architecture,
             timeout,
         )
         if fallback is not None:
@@ -226,7 +260,10 @@ def _check_github_release(
         )
 
     release_url = _https_url(release.get("html_url"))
-    download_url = select_installer_asset(release.get("assets"), edition) or release_url
+    download_url = (
+        select_installer_asset(release.get("assets"), architecture)
+        or release_url
+    )
     notes = str(release.get("body") or "").strip()
     return _result_for_release(
         current_version=current_version,
@@ -239,7 +276,7 @@ def _check_github_release(
 def _check_github_latest_page(
     repository: str,
     current_version: str,
-    edition: str,
+    architecture: str,
     timeout: int,
 ) -> UpdateCheckResult | None:
     latest_url = f"https://github.com/{repository}/releases/latest"
@@ -276,7 +313,7 @@ def _check_github_latest_page(
             repository,
             tag,
             latest_version,
-            edition,
+            architecture,
             current_version,
             timeout,
         )
@@ -294,15 +331,11 @@ def _find_public_installer(
     repository: str,
     tag: str,
     latest_version: str,
-    edition: str,
+    architecture: str,
     current_version: str,
     timeout: int,
 ) -> str:
-    if edition == EDITION_GMAIL_API_LIMITED:
-        prefix = "PowerAccessibleMailSetup"
-    else:
-        prefix = "PowerAccessibleMailFullSetup"
-    base_name = f"{prefix}-{latest_version}-win-x64"
+    base_name = f"PowerAccessibleMailSetup-{latest_version}-win-{architecture}"
     candidate_names = [f"{base_name}.exe", f"{base_name}-UNSIGNED.exe"]
     encoded_tag = urllib.parse.quote(tag, safe="")
     for name in candidate_names:
@@ -334,7 +367,7 @@ def _read_json_response(request: urllib.request.Request, timeout: int) -> object
     return json.loads(payload.decode("utf-8"))
 
 
-def select_installer_asset(assets: object, edition: str) -> str:
+def select_installer_asset(assets: object, architecture: str) -> str:
     if not isinstance(assets, list):
         return ""
     candidates: list[tuple[int, str]] = []
@@ -345,7 +378,7 @@ def select_installer_asset(assets: object, edition: str) -> str:
         url = _https_url(asset.get("browser_download_url"))
         if not name or not url or not name.lower().endswith(".exe"):
             continue
-        score = _installer_asset_score(name, edition)
+        score = _installer_asset_score(name, architecture)
         if score >= 0:
             candidates.append((score, url))
     if not candidates:
@@ -354,21 +387,14 @@ def select_installer_asset(assets: object, edition: str) -> str:
     return candidates[0][1]
 
 
-def _installer_asset_score(name: str, edition: str) -> int:
+def _installer_asset_score(name: str, architecture: str) -> int:
     lower_name = name.lower()
-    if edition == EDITION_GMAIL_API_LIMITED:
-        if lower_name.startswith("poweraccessiblemailsetup-"):
-            score = 100
-        elif lower_name.startswith("poweraccessiblemailgmailapilimitedsetup-"):
-            score = 90
-        else:
-            return -1
-    else:
-        if not lower_name.startswith("poweraccessiblemailfullsetup-"):
-            return -1
-        score = 100
-    if "win-x64" in lower_name:
-        score += 5
+    architecture = normalize_architecture(architecture)
+    if not lower_name.startswith("poweraccessiblemailsetup-"):
+        return -1
+    if f"win-{architecture}" not in lower_name:
+        return -1
+    score = 100
     if "unsigned" in lower_name:
         score -= 10
     return score

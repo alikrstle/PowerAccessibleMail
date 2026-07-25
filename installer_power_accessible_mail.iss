@@ -1,9 +1,13 @@
 ﻿#define MyAppName "Power Accessible Mail"
-#define MyAppVersion "1.2.9"
+#define MyAppVersion "1.2.10"
 #define MyAppPublisher "Soljan.AlSharq."
 #define MyAppExeName "Power Accessible Mail.exe"
 #define MyAppIcon "assets\branding\power_accessible_mail.ico"
-#define MyAppUninstallKey "Software\Microsoft\Windows\CurrentVersion\Uninstall\{E87E82D0-9E81-4F20-8E23-3A6D7E2F9B01}_is1"
+#define MyAppUninstallKey "Software\Microsoft\Windows\CurrentVersion\Uninstall\{7F4F2C96-105C-49C0-AD57-752CE99BCDC7}_is1"
+
+#ifndef TargetArchitecture
+  #define TargetArchitecture "x64"
+#endif
 
 #ifdef SignedBuild
   #define OutputSuffix ""
@@ -12,13 +16,13 @@
 #endif
 
 [Setup]
-AppId={{E87E82D0-9E81-4F20-8E23-3A6D7E2F9B01}
+AppId={{7F4F2C96-105C-49C0-AD57-752CE99BCDC7}
 AppName={#MyAppName}
 AppVersion={#MyAppVersion}
 AppPublisher={#MyAppPublisher}
 AppComments=Developed by Soljan.AlSharq.; owned by Ali Al-Amir
-DefaultDirName={localappdata}\Programs\{#MyAppName}
-DefaultGroupName={#MyAppName}
+DefaultDirName={localappdata}\Programs\SoljanAlSharq\{#MyAppName}
+DefaultGroupName=SoljanAlSharq\{#MyAppName}
 DisableProgramGroupPage=yes
 DisableWelcomePage=no
 DisableDirPage=no
@@ -26,14 +30,18 @@ DisableReadyPage=no
 DisableFinishedPage=no
 ShowLanguageDialog=yes
 OutputDir=release\installer
-OutputBaseFilename=PowerAccessibleMailFullSetup-{#MyAppVersion}-win-x64{#OutputSuffix}
+OutputBaseFilename=PowerAccessibleMailSetup-{#MyAppVersion}-win-{#TargetArchitecture}{#OutputSuffix}
 Compression=lzma
 SolidCompression=yes
 WizardStyle=modern
 PrivilegesRequired=lowest
+#if TargetArchitecture == "x64"
 ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
-VersionInfoVersion=1.2.9.0
+#else
+ArchitecturesAllowed=x86compatible
+#endif
+VersionInfoVersion=1.2.10.0
 VersionInfoCompany={#MyAppPublisher}
 VersionInfoDescription={#MyAppName} Installer
 VersionInfoProductName={#MyAppName}
@@ -48,8 +56,8 @@ SignToolRetryCount=3
 #endif
 
 [Languages]
-Name: "arabic"; MessagesFile: "compiler:Languages\Arabic.isl"; InfoBeforeFile: "installer_info_full_ar.txt"
-Name: "english"; MessagesFile: "compiler:Default.isl"; InfoBeforeFile: "installer_info_full_en.txt"
+Name: "arabic"; MessagesFile: "compiler:Languages\Arabic.isl"; InfoBeforeFile: "installer_info_ar.txt"
+Name: "english"; MessagesFile: "compiler:Default.isl"; InfoBeforeFile: "installer_info_en.txt"
 
 [CustomMessages]
 arabic.ReadLocalizedReadme=قراءة دليل البرنامج العربي
@@ -74,13 +82,13 @@ Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{
 
 [Files]
 #ifdef SignedBuild
-Source: "release\win-x64\Power Accessible Mail\Power Accessible Mail.exe"; DestDir: "{app}"; Flags: ignoreversion signcheck
+Source: "release\win-{#TargetArchitecture}\Power Accessible Mail\Power Accessible Mail.exe"; DestDir: "{app}"; Flags: ignoreversion signcheck
 #else
-Source: "release\win-x64\Power Accessible Mail\Power Accessible Mail.exe"; DestDir: "{app}"; Flags: ignoreversion
+Source: "release\win-{#TargetArchitecture}\Power Accessible Mail\Power Accessible Mail.exe"; DestDir: "{app}"; Flags: ignoreversion
 #endif
-Source: "release\win-x64\Power Accessible Mail\*"; Excludes: "Power Accessible Mail.exe"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
-Source: "installer_readme_full_ar.txt"; DestDir: "{app}"; DestName: "README_AR.txt"; Flags: ignoreversion
-Source: "installer_readme_full_en.txt"; DestDir: "{app}"; DestName: "README_EN.txt"; Flags: ignoreversion
+Source: "release\win-{#TargetArchitecture}\Power Accessible Mail\*"; Excludes: "Power Accessible Mail.exe"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
+Source: "installer_readme_ar.txt"; DestDir: "{app}"; DestName: "README_AR.txt"; Flags: ignoreversion
+Source: "installer_readme_en.txt"; DestDir: "{app}"; DestName: "README_EN.txt"; Flags: ignoreversion
 
 [Icons]
 Name: "{group}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"
