@@ -14,7 +14,7 @@ param(
 
 $ErrorActionPreference = "Stop"
 $ProjectRoot = $PSScriptRoot
-$Version = "1.2.8"
+$Version = "1.2.9"
 $LockFile = Join-Path $ProjectRoot "requirements-release.lock"
 $BuildScript = Join-Path $ProjectRoot "build_power_accessible_mail_64.ps1"
 $SignScript = Join-Path $ProjectRoot "sign_release_file.ps1"
@@ -31,8 +31,8 @@ $AppExe = Join-Path $AppDir "Power Accessible Mail.exe"
 $PackageAppDir = Join-Path $ReleaseRoot "package-win-x64\Power Accessible Mail"
 $PackageAppExe = Join-Path $PackageAppDir "Power Accessible Mail.exe"
 $InstallerDir = Join-Path $ReleaseRoot "installer"
-$InstallerExe = Join-Path $InstallerDir "PowerAccessibleMailSetup-$Version-win-x64.exe"
-$PortableZip = Join-Path $ReleaseRoot "PowerAccessibleMail-$Version-win-x64.zip"
+$InstallerExe = Join-Path $InstallerDir "PowerAccessibleMailFullSetup-$Version-win-x64.exe"
+$PortableZip = Join-Path $ReleaseRoot "PowerAccessibleMailFull-$Version-win-x64.zip"
 $HashManifest = Join-Path $ReleaseRoot "SHA256SUMS.txt"
 $BuildManifest = Join-Path $ReleaseRoot "BUILD-MANIFEST.json"
 

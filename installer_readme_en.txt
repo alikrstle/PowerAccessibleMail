@@ -1,5 +1,5 @@
 Power Accessible Mail
-Version: 1.2.8
+Version: 1.2.9
 
 Edition: Gmail API Limited
 Developer: Ali Al-Amir

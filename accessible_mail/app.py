@@ -56,7 +56,7 @@ from .oauth import (
     provider_id_from_name,
     run_browser_oauth_flow,
 )
-from .update_checker import UpdateCheckResult, check_for_updates, load_update_manifest_url
+from .update_checker import UpdateCheckResult, check_for_updates, updates_configured
 
 
 INITIAL_MESSAGE_LIMIT = 50
@@ -68,6 +68,13 @@ FILTER_UNREAD = "غير مقروءة"
 FILTER_READ = "مقروءة"
 FILTER_TRASH = "سلة المحذوفات"
 FILTER_CHOICES = [FILTER_ALL, FILTER_STARRED, FILTER_UNREAD, FILTER_READ, FILTER_TRASH]
+BULK_ACTION_MARK_READ = "mark_read"
+BULK_ACTION_MARK_UNREAD = "mark_unread"
+BULK_ACTION_STAR = "star"
+BULK_ACTION_UNSTAR = "unstar"
+BULK_ACTION_PIN = "pin"
+BULK_ACTION_UNPIN = "unpin"
+BULK_ACTION_DELETE = "delete"
 LANGUAGE_CHOICES = {
     "العربية": LANGUAGE_ARABIC,
     "الإنجليزية": LANGUAGE_ENGLISH,
@@ -114,6 +121,28 @@ def message_box(
 
 
 wx.MessageBox = message_box
+
+
+def run_bulk_operations(
+    summaries: list[MessageSummary],
+    operation: Callable[[MessageSummary], None],
+    max_workers: int = 4,
+) -> tuple[list[MessageSummary], list[tuple[MessageSummary, Exception]]]:
+    if not summaries:
+        return [], []
+    worker_count = max(1, min(max_workers, len(summaries)))
+    succeeded: list[MessageSummary] = []
+    failed: list[tuple[MessageSummary, Exception]] = []
+    with ThreadPoolExecutor(max_workers=worker_count) as executor:
+        jobs = [(summary, executor.submit(operation, summary)) for summary in summaries]
+        for summary, job in jobs:
+            try:
+                job.result()
+            except Exception as exc:
+                failed.append((summary, exc))
+            else:
+                succeeded.append(summary)
+    return succeeded, failed
 
 
 def apply_layout_direction(window: wx.Window) -> None:
@@ -925,6 +954,40 @@ class ComposeDialog(wx.Dialog):
         )
 
 
+class BulkDeleteDialog(wx.Dialog):
+    def __init__(self, parent: wx.Window, message_count: int) -> None:
+        super().__init__(parent, title=tr("تأكيد حذف الرسائل"), size=(620, 230))
+        root = wx.BoxSizer(wx.VERTICAL)
+        question = wx.StaticText(
+            self,
+            label=tr(
+                f"هل تريد حذف {message_count} رسالة وإرسالها إلى سلة المحذوفات؟"
+            ),
+        )
+        question.Wrap(580)
+        set_accessible(question, f"تأكيد حذف {message_count} رسالة")
+        root.Add(question, 1, wx.EXPAND | wx.ALL, 16)
+
+        buttons = wx.BoxSizer(wx.HORIZONTAL)
+        cancel_button = wx.Button(self, wx.ID_CANCEL, label=tr("إلغاء"))
+        delete_button = wx.Button(
+            self,
+            wx.ID_OK,
+            label=tr("حذف وإرسال إلى سلة المحذوفات"),
+        )
+        set_accessible(cancel_button, "إلغاء حذف الرسائل")
+        set_accessible(delete_button, f"حذف {message_count} رسالة وإرسالها إلى سلة المحذوفات")
+        cancel_button.SetDefault()
+        buttons.Add(cancel_button, 0, wx.ALL, 8)
+        buttons.Add(delete_button, 0, wx.ALL, 8)
+        root.Add(buttons, 0, wx.ALIGN_CENTER | wx.BOTTOM, 8)
+
+        self.SetSizer(root)
+        apply_layout_direction(self)
+        self.CentreOnParent()
+        wx.CallAfter(cancel_button.SetFocus)
+
+
 class MailPage(wx.Panel):
     def __init__(
         self,
@@ -937,6 +1000,7 @@ class MailPage(wx.Panel):
         on_toggle_star: Callable[["MailPage"], None],
         on_toggle_pin: Callable[["MailPage"], None],
         on_delete: Callable[["MailPage"], None],
+        on_bulk_action: Callable[["MailPage", str, list[MessageSummary]], None],
         on_filter_changed: Callable[["MailPage"], None] | None = None,
     ) -> None:
         super().__init__(parent)
@@ -961,6 +1025,9 @@ class MailPage(wx.Panel):
         self._html_refresh_pending = True
         self._html_focus_after_load = False
         self._suppress_selection_event = False
+        self.multi_select_mode = False
+        self._multi_selected_keys: set[tuple[str, str]] = set()
+        self._shift_pressed_alone = False
         self.on_selected = on_selected
         self.on_toggle_read = on_toggle_read
         self.on_translate = on_translate
@@ -968,6 +1035,7 @@ class MailPage(wx.Panel):
         self.on_toggle_star = on_toggle_star
         self.on_toggle_pin = on_toggle_pin
         self.on_delete = on_delete
+        self.on_bulk_action = on_bulk_action
         self.on_filter_changed = on_filter_changed
         self._build()
 
@@ -982,7 +1050,7 @@ class MailPage(wx.Panel):
         filter_row.Add(self.filter_choice, 1, wx.EXPAND | wx.ALL, 6)
         root.Add(filter_row, 0, wx.EXPAND)
 
-        self.list = wx.ListCtrl(self, style=wx.LC_REPORT | wx.LC_SINGLE_SEL)
+        self.list = wx.ListCtrl(self, style=wx.LC_REPORT)
         self.list.InsertColumn(0, tr("الحالة"), width=120)
         self.list.InsertColumn(1, tr("المرسل"), width=220)
         self.list.InsertColumn(2, tr("الموضوع"), width=300)
@@ -990,12 +1058,19 @@ class MailPage(wx.Panel):
         set_accessible(
             self.list,
             f"قائمة {self.title}",
-            "استخدم السهم للأعلى والأسفل لاختيار رسالة، واضغط Space لتبديلها بين مقروءة وغير مقروءة",
+            "استخدم الأسهم لاختيار رسالة، واضغط Space لتبديل حالة القراءة. اضغط Control وShift وSpace لتفعيل التحديد المتعدد.",
         )
         self.list.Bind(wx.EVT_LIST_ITEM_SELECTED, self.on_item_selected)
+        self.list.Bind(wx.EVT_LIST_ITEM_DESELECTED, self.on_item_deselected)
         self.list.Bind(wx.EVT_CHAR_HOOK, self.on_list_key)
+        self.list.Bind(wx.EVT_KEY_UP, self.on_list_key_up)
         self.list.Bind(wx.EVT_SET_FOCUS, self.on_message_list_focus)
         root.Add(self.list, 2, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM, 8)
+
+        self.selection_status = wx.StaticText(self, label="")
+        set_accessible(self.selection_status, "حالة التحديد المتعدد")
+        self.selection_status.Hide()
+        root.Add(self.selection_status, 0, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM, 8)
 
         root.Add(wx.StaticText(self, label="نص الرسالة:"), 0, wx.LEFT | wx.RIGHT, 8)
         self.viewer = wx.TextCtrl(
@@ -1148,7 +1223,12 @@ class MailPage(wx.Panel):
 
     def apply_filter(self, preserve_key: tuple[str, str] | None = None) -> None:
         if preserve_key is None:
-            preserve_key = self.selected_message_key()
+            preserve_key = self.focused_message_key() or self.selected_message_key()
+        selected_keys = (
+            set(self._multi_selected_keys) | self.selected_message_keys()
+            if self.multi_select_mode
+            else set()
+        )
         selected = self.selected_filter_key()
         if selected == "trash":
             self.visible_messages = list(self.trash_messages)
@@ -1161,6 +1241,8 @@ class MailPage(wx.Panel):
         else:
             self.visible_messages = list(self.messages)
         self.visible_messages = self.sort_newest_first(self.visible_messages)
+        visible_keys = {self.message_key(message) for message in self.visible_messages}
+        self._multi_selected_keys = selected_keys & visible_keys
 
         self._suppress_selection_event = True
         self.list.Freeze()
@@ -1172,18 +1254,39 @@ class MailPage(wx.Panel):
                 self.list.SetItem(row, 1, message.sender)
                 self.list.SetItem(row, 2, message.display_subject)
                 self.list.SetItem(row, 3, message.date)
-                if preserve_key == self.message_key(message):
+                key = self.message_key(message)
+                if self.multi_select_mode and key in self._multi_selected_keys:
+                    self.list.SetItemState(
+                        row,
+                        wx.LIST_STATE_SELECTED,
+                        wx.LIST_STATE_SELECTED,
+                    )
+                if preserve_key == key:
                     restore_index = index
             if restore_index >= 0:
+                state = wx.LIST_STATE_FOCUSED
+                if (
+                    not self.multi_select_mode
+                    or preserve_key in self._multi_selected_keys
+                ):
+                    state |= wx.LIST_STATE_SELECTED
                 self.list.SetItemState(
                     restore_index,
-                    wx.LIST_STATE_SELECTED | wx.LIST_STATE_FOCUSED,
+                    state,
                     wx.LIST_STATE_SELECTED | wx.LIST_STATE_FOCUSED,
                 )
                 self.list.EnsureVisible(restore_index)
+            elif self.multi_select_mode and self.visible_messages:
+                self.list.SetItemState(
+                    0,
+                    wx.LIST_STATE_FOCUSED,
+                    wx.LIST_STATE_FOCUSED,
+                )
         finally:
             self.list.Thaw()
             self._suppress_selection_event = False
+        if getattr(self, "multi_select_mode", False):
+            self.update_multi_selection_status()
 
     def on_filter(self, _event: wx.CommandEvent) -> None:
         if self.on_filter_changed and self.selected_filter_key() == "trash":
@@ -1192,16 +1295,79 @@ class MailPage(wx.Panel):
         self.apply_filter()
 
     def on_list_key(self, event: wx.KeyEvent) -> None:
-        if event.GetKeyCode() == wx.WXK_TAB:
+        key_code = event.GetKeyCode()
+        if key_code == wx.WXK_SHIFT:
+            self._shift_pressed_alone = getattr(self, "multi_select_mode", False)
+            event.Skip()
+            return
+        if event.ShiftDown():
+            self._shift_pressed_alone = False
+
+        if (
+            key_code == wx.WXK_SPACE
+            and event.ControlDown()
+            and event.ShiftDown()
+        ):
+            self.toggle_multi_selection_mode()
+            return
+
+        if getattr(self, "multi_select_mode", False):
+            if key_code == wx.WXK_ESCAPE:
+                self.exit_multi_selection_mode()
+                return
+            if key_code in {
+                wx.WXK_UP,
+                wx.WXK_DOWN,
+                wx.WXK_HOME,
+                wx.WXK_END,
+                wx.WXK_PAGEUP,
+                wx.WXK_PAGEDOWN,
+            }:
+                self.move_multi_selection_focus(key_code)
+                return
+            if (
+                key_code == wx.WXK_SPACE
+                and not event.ControlDown()
+                and not event.AltDown()
+            ):
+                self.toggle_focused_message_selection()
+                return
+            if key_code == wx.WXK_DELETE:
+                summaries = self.selected_summaries()
+                if summaries:
+                    self.on_bulk_action(self, BULK_ACTION_DELETE, summaries)
+                else:
+                    self.announce_selection_count()
+                return
+
+        if key_code == wx.WXK_DELETE:
+            if self.selected_summary():
+                self.on_delete(self)
+                return
+        if key_code == wx.WXK_TAB:
             if self.viewer_mode == VIEWER_HTML and not event.ShiftDown():
                 self.focus_message_viewer()
                 return
             event.Skip()
             return
-        if event.GetKeyCode() == wx.WXK_SPACE:
+        if (
+            key_code == wx.WXK_SPACE
+            and not event.ControlDown()
+            and not event.ShiftDown()
+            and not event.AltDown()
+        ):
             summary = self.selected_summary()
             if summary:
                 self.on_toggle_read(self, summary)
+                return
+        event.Skip()
+
+    def on_list_key_up(self, event: wx.KeyEvent) -> None:
+        if event.GetKeyCode() == wx.WXK_SHIFT:
+            should_announce = self._shift_pressed_alone and self.multi_select_mode
+            self._shift_pressed_alone = False
+            if should_announce:
+                self.announce_selection_count()
                 return
         event.Skip()
 
@@ -1214,13 +1380,237 @@ class MailPage(wx.Panel):
             return
         index = event.GetIndex()
         if 0 <= index < len(self.visible_messages):
-            self.on_selected(self, self.visible_messages[index])
+            selected_count = (
+                self.selected_count()
+                if hasattr(self, "selected_count")
+                else 1
+            )
+            multi_select_mode = getattr(self, "multi_select_mode", False)
+            if selected_count > 1 and not multi_select_mode:
+                self.multi_select_mode = True
+                self._multi_selected_keys = self.selected_message_keys()
+                self.announce_accessible(
+                    f"تم تفعيل وضع التحديد المتعدد. عدد الرسائل المحددة: {selected_count}."
+                )
+            elif multi_select_mode:
+                self._multi_selected_keys.add(
+                    self.message_key(self.visible_messages[index])
+                )
+                self.update_multi_selection_status()
+            if (
+                not getattr(self, "multi_select_mode", False)
+                or not hasattr(self, "focused_index")
+                or index == self.focused_index()
+            ):
+                self.on_selected(self, self.visible_messages[index])
+
+    def on_item_deselected(self, event: wx.ListEvent) -> None:
+        if self._suppress_selection_event or not self.multi_select_mode:
+            return
+        index = event.GetIndex()
+        if 0 <= index < len(self.visible_messages):
+            self._multi_selected_keys.discard(
+                self.message_key(self.visible_messages[index])
+            )
+        self.update_multi_selection_status()
+
+    def selected_indices(self) -> list[int]:
+        indices: list[int] = []
+        index = self.list.GetFirstSelected()
+        while index >= 0:
+            indices.append(index)
+            index = self.list.GetNextSelected(index)
+        return indices
+
+    def selected_summaries(self) -> list[MessageSummary]:
+        return [
+            self.visible_messages[index]
+            for index in self.selected_indices()
+            if 0 <= index < len(self.visible_messages)
+        ]
+
+    def selected_count(self) -> int:
+        return len(self.selected_indices())
+
+    def selected_message_keys(self) -> set[tuple[str, str]]:
+        return {self.message_key(summary) for summary in self.selected_summaries()}
+
+    def focused_index(self) -> int:
+        index = self.list.GetFocusedItem()
+        return index if 0 <= index < len(self.visible_messages) else -1
+
+    def focused_summary(self) -> MessageSummary | None:
+        index = self.focused_index()
+        return self.visible_messages[index] if index >= 0 else None
+
+    def focused_message_key(self) -> tuple[str, str] | None:
+        summary = self.focused_summary()
+        return self.message_key(summary) if summary else None
 
     def selected_summary(self) -> MessageSummary | None:
+        focused_index = self.focused_index()
+        if self.multi_select_mode and focused_index >= 0:
+            return self.visible_messages[focused_index]
+        if focused_index >= 0 and self.list.GetItemState(
+            focused_index,
+            wx.LIST_STATE_SELECTED,
+        ):
+            return self.visible_messages[focused_index]
         index = self.list.GetFirstSelected()
         if 0 <= index < len(self.visible_messages):
             return self.visible_messages[index]
         return None
+
+    def toggle_multi_selection_mode(self) -> None:
+        if self.multi_select_mode:
+            self.exit_multi_selection_mode()
+        else:
+            self.enter_multi_selection_mode()
+
+    def enter_multi_selection_mode(self) -> None:
+        focused_index = self.focused_index()
+        if focused_index < 0:
+            focused_index = self.list.GetFirstSelected()
+        if focused_index < 0 and self.visible_messages:
+            focused_index = 0
+        self.multi_select_mode = True
+        self._multi_selected_keys.clear()
+        self._suppress_selection_event = True
+        try:
+            self.list.SetItemState(-1, 0, wx.LIST_STATE_SELECTED)
+            if focused_index >= 0:
+                self.list.SetItemState(-1, 0, wx.LIST_STATE_FOCUSED)
+                self.list.SetItemState(
+                    focused_index,
+                    wx.LIST_STATE_FOCUSED,
+                    wx.LIST_STATE_FOCUSED,
+                )
+                self.list.EnsureVisible(focused_index)
+        finally:
+            self._suppress_selection_event = False
+        self.announce_accessible(
+            "تم تفعيل وضع التحديد المتعدد. لا توجد رسائل محددة."
+        )
+
+    def exit_multi_selection_mode(self, restore_single_selection: bool = True) -> None:
+        focused_index = self.focused_index()
+        self.multi_select_mode = False
+        self._multi_selected_keys.clear()
+        self._shift_pressed_alone = False
+        self._suppress_selection_event = True
+        try:
+            self.list.SetItemState(
+                -1,
+                0,
+                wx.LIST_STATE_SELECTED | wx.LIST_STATE_FOCUSED,
+            )
+            if (
+                restore_single_selection
+                and 0 <= focused_index < len(self.visible_messages)
+            ):
+                state = wx.LIST_STATE_SELECTED | wx.LIST_STATE_FOCUSED
+                self.list.SetItemState(focused_index, state, state)
+                self.list.EnsureVisible(focused_index)
+        finally:
+            self._suppress_selection_event = False
+        self.announce_accessible("تم إنهاء وضع التحديد المتعدد.")
+        if (
+            restore_single_selection
+            and 0 <= focused_index < len(self.visible_messages)
+        ):
+            self.on_selected(self, self.visible_messages[focused_index])
+
+    def move_multi_selection_focus(self, key_code: int) -> None:
+        item_count = len(self.visible_messages)
+        if item_count <= 0:
+            return
+        current = self.focused_index()
+        if current < 0:
+            current = 0
+        page_size = max(1, self.list.GetCountPerPage())
+        if key_code == wx.WXK_UP:
+            target = current - 1
+        elif key_code == wx.WXK_DOWN:
+            target = current + 1
+        elif key_code == wx.WXK_HOME:
+            target = 0
+        elif key_code == wx.WXK_END:
+            target = item_count - 1
+        elif key_code == wx.WXK_PAGEUP:
+            target = current - page_size
+        else:
+            target = current + page_size
+        target = max(0, min(target, item_count - 1))
+        self.list.SetItemState(-1, 0, wx.LIST_STATE_FOCUSED)
+        self.list.SetItemState(
+            target,
+            wx.LIST_STATE_FOCUSED,
+            wx.LIST_STATE_FOCUSED,
+        )
+        self.list.EnsureVisible(target)
+        self.on_selected(self, self.visible_messages[target])
+
+    def toggle_focused_message_selection(self) -> None:
+        index = self.focused_index()
+        if index < 0:
+            self.announce_selection_count()
+            return
+        summary = self.visible_messages[index]
+        key = self.message_key(summary)
+        is_selected = bool(
+            self.list.GetItemState(index, wx.LIST_STATE_SELECTED)
+        )
+        new_state = not is_selected
+        self.list.SetItemState(
+            index,
+            wx.LIST_STATE_SELECTED if new_state else 0,
+            wx.LIST_STATE_SELECTED,
+        )
+        if new_state:
+            self._multi_selected_keys.add(key)
+            action = "تم تحديد الرسالة."
+        else:
+            self._multi_selected_keys.discard(key)
+            action = "تم إلغاء تحديد الرسالة."
+        self.announce_accessible(
+            f"{action} عدد الرسائل المحددة: {len(self._multi_selected_keys)}."
+        )
+
+    def update_multi_selection_status(self) -> None:
+        if not self.multi_select_mode:
+            return
+        self._multi_selected_keys = self.selected_message_keys()
+        count = len(self._multi_selected_keys)
+        message = tr(f"وضع التحديد المتعدد. عدد الرسائل المحددة: {count}.")
+        self.selection_status.SetLabel(message)
+        self.selection_status.SetName(message)
+        if not self.selection_status.IsShown():
+            self.selection_status.Show()
+            self.Layout()
+
+    def announce_selection_count(self) -> None:
+        self._multi_selected_keys = self.selected_message_keys()
+        self.announce_accessible(
+            f"عدد الرسائل المحددة: {len(self._multi_selected_keys)}."
+        )
+
+    def announce_accessible(self, message: str) -> None:
+        localized = tr(message)
+        self.selection_status.SetLabel(localized)
+        self.selection_status.SetName(localized)
+        if not self.selection_status.IsShown():
+            self.selection_status.Show()
+            self.Layout()
+        self.set_status(message)
+        try:
+            wx.Accessible.NotifyEvent(
+                wx.ACC_EVENT_SYSTEM_ALERT,
+                self.selection_status,
+                wx.OBJID_CLIENT,
+                0,
+            )
+        except Exception:
+            pass
 
     def show_content(self, content: MessageContent) -> None:
         self.current_content_key = self.message_key(content.summary)
@@ -1760,6 +2150,30 @@ document.addEventListener("keydown", function (event) {{
         self.trash_messages = self.sort_newest_first(self.trash_messages)
         self.apply_filter(preserve_key=selected_key)
 
+    def update_message_flags_bulk(
+        self,
+        summaries: list[MessageSummary],
+        match_uid: bool = False,
+    ) -> None:
+        preserve_key = self.focused_message_key() or self.selected_message_key()
+        by_key = {self.message_key(summary): summary for summary in summaries}
+        by_uid = {summary.uid: summary for summary in summaries}
+        for messages in (self.messages, self.trash_messages):
+            for message in messages:
+                source = (
+                    by_uid.get(message.uid)
+                    if match_uid
+                    else by_key.get(self.message_key(message))
+                )
+                if not source:
+                    continue
+                message.is_read = source.is_read
+                message.is_starred = source.is_starred
+                message.is_pinned = source.is_pinned
+        self.messages = self.sort_newest_first(self.messages)
+        self.trash_messages = self.sort_newest_first(self.trash_messages)
+        self.apply_filter(preserve_key=preserve_key)
+
     def remove_message(self, summary: MessageSummary) -> None:
         key = self.message_key(summary)
         self.messages = [message for message in self.messages if self.message_key(message) != key]
@@ -1767,6 +2181,39 @@ document.addEventListener("keydown", function (event) {{
         self.visible_messages = [message for message in self.visible_messages if self.message_key(message) != key]
         self.apply_filter()
         if self.current_content_key == key:
+            self.set_viewer_text("")
+            self.set_links([])
+            self.current_content_key = None
+
+    def remove_messages_bulk(
+        self,
+        summaries: list[MessageSummary],
+        match_uid: bool = False,
+    ) -> None:
+        keys = {self.message_key(summary) for summary in summaries}
+        uids = {summary.uid for summary in summaries}
+
+        def keep(message: MessageSummary) -> bool:
+            if match_uid:
+                return message.uid not in uids
+            return self.message_key(message) not in keys
+
+        self.messages = [message for message in self.messages if keep(message)]
+        self.trash_messages = [
+            message for message in self.trash_messages if keep(message)
+        ]
+        if match_uid:
+            self._multi_selected_keys = {
+                key for key in self._multi_selected_keys if key[1] not in uids
+            }
+        else:
+            self._multi_selected_keys.difference_update(keys)
+        self.apply_filter()
+        if self.current_content_key and (
+            self.current_content_key in keys
+            or match_uid
+            and self.current_content_key[1] in uids
+        ):
             self.set_viewer_text("")
             self.set_links([])
             self.current_content_key = None
@@ -2011,6 +2458,10 @@ document.addEventListener("keydown", function (event) {{
         )
 
     def show_message_context_menu(self, control: wx.Window, translation_enabled: bool) -> None:
+        selected_summaries = self.selected_summaries()
+        if self.multi_select_mode or len(selected_summaries) > 1:
+            self.show_multi_message_context_menu(control, selected_summaries)
+            return
         summary = self.selected_summary()
         menu = wx.Menu()
         action_invoked = False
@@ -2068,6 +2519,78 @@ document.addEventListener("keydown", function (event) {{
             menu.Bind(wx.EVT_MENU, translate_action, translate_item)
             menu.Bind(wx.EVT_MENU, pin_action, pin_item)
             menu.Bind(wx.EVT_MENU, delete_action, delete_item)
+            self.context_menu_popup_owner(control).PopupMenu(menu)
+        finally:
+            menu.Destroy()
+        if not action_invoked:
+            wx.CallAfter(self.restore_context_focus, return_control)
+
+    def show_multi_message_context_menu(
+        self,
+        control: wx.Window,
+        summaries: list[MessageSummary],
+    ) -> None:
+        menu = wx.Menu()
+        action_invoked = False
+        return_control = self.context_return_control(control)
+
+        def invoke(action: str) -> Callable[[wx.CommandEvent], None]:
+            def handler(_event: wx.CommandEvent) -> None:
+                nonlocal action_invoked
+                action_invoked = True
+                self.on_bulk_action(self, action, list(summaries))
+                wx.CallAfter(self.focus_message_list)
+
+            return handler
+
+        try:
+            count_item = menu.Append(
+                wx.ID_ANY,
+                tr(f"عدد الرسائل المحددة: {len(summaries)}."),
+            )
+            count_item.Enable(False)
+            menu.AppendSeparator()
+            read_item = menu.Append(wx.ID_ANY, tr("تعليم كمقروءة"))
+            unread_item = menu.Append(wx.ID_ANY, tr("تعليم كغير مقروءة"))
+            star_item = menu.Append(wx.ID_ANY, tr("تمييز الرسائل بنجمة"))
+            unstar_item = menu.Append(wx.ID_ANY, tr("إزالة النجمة من الرسائل"))
+            pin_item = menu.Append(wx.ID_ANY, tr("تثبيت الرسائل في الأعلى"))
+            unpin_item = menu.Append(wx.ID_ANY, tr("إلغاء تثبيت الرسائل"))
+            menu.AppendSeparator()
+            delete_item = menu.Append(
+                wx.ID_ANY,
+                tr("حذف الرسائل وإرسالها إلى سلة المحذوفات"),
+            )
+
+            has_messages = bool(summaries)
+            for item in (
+                read_item,
+                unread_item,
+                star_item,
+                unstar_item,
+                pin_item,
+                unpin_item,
+            ):
+                item.Enable(has_messages)
+            delete_item.Enable(
+                has_messages and self.selected_filter_key() != "trash"
+            )
+
+            menu.Bind(
+                wx.EVT_MENU,
+                invoke(BULK_ACTION_MARK_READ),
+                read_item,
+            )
+            menu.Bind(
+                wx.EVT_MENU,
+                invoke(BULK_ACTION_MARK_UNREAD),
+                unread_item,
+            )
+            menu.Bind(wx.EVT_MENU, invoke(BULK_ACTION_STAR), star_item)
+            menu.Bind(wx.EVT_MENU, invoke(BULK_ACTION_UNSTAR), unstar_item)
+            menu.Bind(wx.EVT_MENU, invoke(BULK_ACTION_PIN), pin_item)
+            menu.Bind(wx.EVT_MENU, invoke(BULK_ACTION_UNPIN), unpin_item)
+            menu.Bind(wx.EVT_MENU, invoke(BULK_ACTION_DELETE), delete_item)
             self.context_menu_popup_owner(control).PopupMenu(menu)
         finally:
             menu.Destroy()
@@ -2364,6 +2887,7 @@ class MainFrame(wx.Frame):
             self.on_toggle_star_current_message,
             self.on_toggle_pin_current_message,
             self.on_delete_current_message,
+            self.on_bulk_message_action,
             self.on_mail_page_filter_changed,
         )
         spam_page = MailPage(
@@ -2376,6 +2900,7 @@ class MainFrame(wx.Frame):
             self.on_toggle_star_current_message,
             self.on_toggle_pin_current_message,
             self.on_delete_current_message,
+            self.on_bulk_message_action,
             self.on_mail_page_filter_changed,
         )
         sent_page = MailPage(
@@ -2388,6 +2913,7 @@ class MainFrame(wx.Frame):
             self.on_toggle_star_current_message,
             self.on_toggle_pin_current_message,
             self.on_delete_current_message,
+            self.on_bulk_message_action,
             self.on_mail_page_filter_changed,
         )
         all_mail_page = MailPage(
@@ -2400,6 +2926,7 @@ class MainFrame(wx.Frame):
             self.on_toggle_star_current_message,
             self.on_toggle_pin_current_message,
             self.on_delete_current_message,
+            self.on_bulk_message_action,
             self.on_mail_page_filter_changed,
         )
         self.pages["inbox"] = inbox_page
@@ -3516,6 +4043,232 @@ class MainFrame(wx.Frame):
 
         self.run_worker("جار نقل الرسالة إلى سلة المحذوفات...", work, done)
 
+    def on_bulk_message_action(
+        self,
+        page: MailPage,
+        action: str,
+        summaries: list[MessageSummary],
+    ) -> None:
+        account = self.selected_account()
+        unique_summaries = list(
+            {
+                page.message_key(summary): summary
+                for summary in summaries
+            }.values()
+        )
+        if not account or not unique_summaries:
+            page.announce_selection_count()
+            return
+        if action == BULK_ACTION_DELETE:
+            self.on_delete_selected_messages(page, unique_summaries)
+            return
+
+        action_settings: dict[str, tuple[str, bool, str, str]] = {
+            BULK_ACTION_MARK_READ: (
+                "read",
+                True,
+                f"جار تعليم {len(unique_summaries)} رسالة كمقروءة...",
+                f"تم تعليم {len(unique_summaries)} رسالة كمقروءة.",
+            ),
+            BULK_ACTION_MARK_UNREAD: (
+                "read",
+                False,
+                f"جار تعليم {len(unique_summaries)} رسالة كغير مقروءة...",
+                f"تم تعليم {len(unique_summaries)} رسالة كغير مقروءة.",
+            ),
+            BULK_ACTION_STAR: (
+                "starred",
+                True,
+                f"جار تمييز {len(unique_summaries)} رسالة بنجمة...",
+                f"تم تمييز {len(unique_summaries)} رسالة بنجمة.",
+            ),
+            BULK_ACTION_UNSTAR: (
+                "starred",
+                False,
+                f"جار إزالة النجمة من {len(unique_summaries)} رسالة...",
+                f"تمت إزالة النجمة من {len(unique_summaries)} رسالة.",
+            ),
+            BULK_ACTION_PIN: (
+                "pinned",
+                True,
+                f"جار تثبيت {len(unique_summaries)} رسالة في الأعلى...",
+                f"تم تثبيت {len(unique_summaries)} رسالة في الأعلى.",
+            ),
+            BULK_ACTION_UNPIN: (
+                "pinned",
+                False,
+                f"جار إلغاء تثبيت {len(unique_summaries)} رسالة...",
+                f"تم إلغاء تثبيت {len(unique_summaries)} رسالة.",
+            ),
+        }
+        settings = action_settings.get(action)
+        if not settings:
+            return
+        flag_name, target_state, progress_message, success_message = settings
+        old_states = {
+            page.message_key(summary): (
+                summary.is_read,
+                summary.is_starred,
+                summary.is_pinned,
+            )
+            for summary in unique_summaries
+        }
+
+        def operation(summary: MessageSummary) -> None:
+            if flag_name == "read":
+                self.service.set_message_read(account, summary, target_state)
+            elif flag_name == "starred":
+                self.service.set_message_starred(account, summary, target_state)
+            else:
+                self.service.set_message_pinned(account, summary, target_state)
+
+        def work() -> tuple[
+            list[MessageSummary],
+            list[tuple[MessageSummary, Exception]],
+        ]:
+            return run_bulk_operations(unique_summaries, operation)
+
+        def done(
+            result: tuple[
+                list[MessageSummary],
+                list[tuple[MessageSummary, Exception]],
+            ],
+        ) -> None:
+            succeeded, failed = result
+            for summary, _exc in failed:
+                old_read, old_starred, old_pinned = old_states[
+                    page.message_key(summary)
+                ]
+                summary.is_read = old_read
+                summary.is_starred = old_starred
+                summary.is_pinned = old_pinned
+            for summary in succeeded:
+                self.update_cached_summary_flags(account, summary)
+
+            match_uid = account.oauth_provider == "google_gmail_api"
+            target_pages = self.pages.values() if match_uid else (page,)
+            for target_page in target_pages:
+                target_page.update_message_flags_bulk(
+                    unique_summaries,
+                    match_uid=match_uid,
+                )
+            if succeeded:
+                self.SetStatusText(
+                    success_message
+                    if not failed
+                    else (
+                        f"اكتمل الإجراء على {len(succeeded)} رسالة وتعذر تطبيقه "
+                        f"على {len(failed)} رسالة."
+                    )
+                )
+            if failed:
+                wx.MessageBox(
+                    f"تعذر تطبيق الإجراء على {len(failed)} رسالة. بقيت هذه الرسائل محددة للمحاولة مرة أخرى.",
+                    "تعذر إكمال الإجراء",
+                    wx.OK | wx.ICON_WARNING,
+                    self,
+                )
+            page.focus_message_list()
+
+        self.run_worker(progress_message, work, done)
+
+    def on_delete_selected_messages(
+        self,
+        page: MailPage,
+        summaries: list[MessageSummary],
+    ) -> None:
+        account = self.selected_account()
+        if not account or not summaries:
+            return
+        if page.selected_filter_key() == "trash":
+            wx.MessageBox(
+                "الرسائل المحددة موجودة بالفعل في سلة المحذوفات.",
+                "سلة المحذوفات",
+                wx.OK | wx.ICON_INFORMATION,
+                self,
+            )
+            return
+
+        dialog = BulkDeleteDialog(self, len(summaries))
+        try:
+            if dialog.ShowModal() != wx.ID_OK:
+                wx.CallAfter(page.focus_message_list)
+                return
+        finally:
+            dialog.Destroy()
+
+        selected_indices = page.selected_indices()
+        first_deleted_index = min(selected_indices) if selected_indices else 0
+
+        def operation(summary: MessageSummary) -> None:
+            self.service.move_message_to_trash(account, summary)
+
+        def work() -> tuple[
+            list[MessageSummary],
+            list[tuple[MessageSummary, Exception]],
+        ]:
+            return run_bulk_operations(summaries, operation)
+
+        def done(
+            result: tuple[
+                list[MessageSummary],
+                list[tuple[MessageSummary, Exception]],
+            ],
+        ) -> None:
+            succeeded, failed = result
+            if not succeeded:
+                wx.MessageBox(
+                    f"تعذر نقل {len(failed)} رسالة إلى سلة المحذوفات. لم تُحذف أي رسالة من القائمة.",
+                    "تعذر حذف الرسائل",
+                    wx.OK | wx.ICON_WARNING,
+                    self,
+                )
+                page.focus_message_list()
+                return
+
+            deleted_uids = {summary.uid for summary in succeeded}
+            for cache_key in list(self.content_cache):
+                if cache_key[0] == account.id and cache_key[2] in deleted_uids:
+                    self.content_cache.pop(cache_key, None)
+            if (
+                self.current_content
+                and self.current_content.summary.uid in deleted_uids
+            ):
+                self.current_content = None
+
+            match_uid = account.oauth_provider == "google_gmail_api"
+            target_pages = self.pages.values() if match_uid else (page,)
+            for target_page in target_pages:
+                target_page.remove_messages_bulk(
+                    succeeded,
+                    match_uid=match_uid,
+                )
+
+            page.exit_multi_selection_mode(restore_single_selection=False)
+            page.focus_list_index(
+                page.previous_message_index(first_deleted_index)
+            )
+            if failed:
+                self.SetStatusText(
+                    f"تم نقل {len(succeeded)} رسالة إلى سلة المحذوفات وتعذر نقل {len(failed)} رسالة."
+                )
+                wx.MessageBox(
+                    f"تم حذف {len(succeeded)} رسالة، وتعذر حذف {len(failed)} رسالة.",
+                    "اكتمل الحذف جزئيا",
+                    wx.OK | wx.ICON_WARNING,
+                    self,
+                )
+            else:
+                self.SetStatusText(
+                    f"تم نقل {len(succeeded)} رسالة إلى سلة المحذوفات."
+                )
+
+        self.run_worker(
+            f"جار نقل {len(summaries)} رسالة إلى سلة المحذوفات...",
+            work,
+            done,
+        )
+
     def update_cached_summary_flags(self, account: Account, summary: MessageSummary) -> None:
         matching_keys = [
             key
@@ -3710,6 +4463,9 @@ Mail sections:
 Filtering:
 Each section can show all, starred, unread, or read messages. The Trash option loads the actual Trash folder.
 
+Multiple selection:
+Press Ctrl+Shift+Space in the message list to enter multiple-selection mode. Move with the arrow keys and press Space to select or unselect the focused message. Press Shift by itself to hear the number selected, and press Escape or Ctrl+Shift+Space again to leave the mode. Mouse users can use the standard Control-click and Shift-click selection. The context menu provides bulk read, star, pin, and Trash actions. Delete opens a confirmation dialog that states the message count.
+
 Commands:
 - Refresh displayed content retrieves recent messages.
 - Sync all messages retrieves older messages in batches and stores them locally.
@@ -3725,7 +4481,7 @@ Translation:
 Ctrl+T translates the selected message to the application language. Translation can replace the message text directly in either viewer or open in a separate window, according to Settings. Translation requires an internet connection and sends the selected message text to Google Translate only when requested by the user.
 
 Updates:
-When an update server is configured, the application checks after startup and can also check from Help, Check for updates. An available version opens an accessible dialog with Update now and Close buttons.
+The application checks GitHub Releases after startup and can also check from Help, Check for updates. An available version opens an accessible dialog with Update now and Close buttons.
 
 Privacy and security:
 - Browser sign-in uses OAuth.
@@ -3747,6 +4503,9 @@ Privacy and security:
 
 التصنيف:
 كل قسم يحتوي على صندوق تصنيف يتيح عرض الكل، أو الرسائل المميزة بنجمة، أو غير المقروءة، أو المقروءة. خيار سلة المحذوفات في نهاية التصنيف يفحص صندوق السلة الحقيقي في Gmail أو IMAP ويعرض الرسائل الموجودة فيه.
+
+التحديد المتعدد:
+من قائمة الرسائل اضغط Ctrl+Shift+Space للدخول إلى وضع التحديد المتعدد. تنقل بالأسهم واضغط Space لتحديد الرسالة الحالية أو إلغاء تحديدها. اضغط Shift وحده لسماع عدد الرسائل المحددة، واضغط Escape أو Ctrl+Shift+Space مرة أخرى للخروج من الوضع. يمكن التحديد بالفأرة باستخدام Control مع النقر أو Shift مع النقر. تعرض قائمة السياق إجراءات القراءة والنجمة والتثبيت والحذف المناسبة للمجموعة، ويعرض زر Delete نافذة تأكيد تذكر عدد الرسائل.
 
 الأوامر الأساسية:
 - تحديث المحتوى المعروض: يجلب أحدث الرسائل من الخادم مع عرض نسبة التقدم.
@@ -3772,7 +4531,7 @@ Privacy and security:
 - لا يقرأ البرنامج كلمات مرور المتصفح ولا يستطيع الوصول إلى حسابات المستخدم إلا بعد موافقته في صفحة تسجيل الدخول الرسمية.
 
 التحديث:
-عند ضبط خادم التحديثات يفحص البرنامج وجود إصدار أحدث بعد بدء التشغيل، ويمكن إجراء الفحص يدويا من قائمة المساعدة. عند توفر تحديث تظهر نافذة فيها زرا تحديث الآن وإغلاق.
+يفحص البرنامج GitHub Releases بحثا عن إصدار أحدث بعد بدء التشغيل، ويمكن إجراء الفحص يدويا من قائمة المساعدة. عند توفر تحديث تظهر نافذة فيها زرا تحديث الآن وإغلاق.
 """
 
     def on_check_updates(self, _event: wx.Event) -> None:
@@ -3781,26 +4540,38 @@ Privacy and security:
 
         def done(result: UpdateCheckResult) -> None:
             if not result.configured:
-                wx.MessageBox(result.message, "تحديث البرنامج", wx.OK | wx.ICON_INFORMATION, self)
+                wx.MessageBox(
+                    tr(result.message),
+                    tr("تحديث البرنامج"),
+                    wx.OK | wx.ICON_INFORMATION,
+                    self,
+                )
                 return
             if not result.available:
-                wx.MessageBox(result.message, "تحديث البرنامج", wx.OK | wx.ICON_INFORMATION, self)
+                wx.MessageBox(
+                    tr(result.message),
+                    tr("تحديث البرنامج"),
+                    wx.OK | wx.ICON_INFORMATION,
+                    self,
+                )
                 return
             if result.download_url:
                 self.show_update_available(result)
                 return
             wx.MessageBox(
-                result.message + "\n\nيوجد تحديث لكن ملف التحديثات لا يحتوي على رابط تحميل.",
-                "تحديث متاح",
+                tr(result.message)
+                + "\n\n"
+                + tr("يوجد تحديث لكن لا يتوفر رابط تنزيل صالح."),
+                tr("تحديث متاح"),
                 wx.OK | wx.ICON_INFORMATION,
                 self,
             )
 
-        self.run_worker("جار فحص التحديثات...", work, done)
+        self.run_worker(tr("جار فحص التحديثات..."), work, done)
 
     def start_startup_update_check(self) -> None:
         self._startup_update_call = None
-        if self._startup_update_check_started or not load_update_manifest_url():
+        if self._startup_update_check_started or not updates_configured():
             return
         self._startup_update_check_started = True
 
@@ -3819,7 +4590,7 @@ Privacy and security:
         try:
             if dialog.ShowModal() == wx.ID_OK:
                 webbrowser.open(result.download_url)
-                self.SetStatusText("تم فتح رابط تنزيل التحديث.")
+                self.SetStatusText(tr("تم فتح رابط تنزيل التحديث."))
         finally:
             dialog.Destroy()
             self._update_dialog_open = False

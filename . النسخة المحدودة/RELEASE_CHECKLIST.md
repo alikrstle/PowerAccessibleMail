@@ -13,3 +13,6 @@
 - The packaged `google_gmail_api` client ID matches the limited desktop client.
 - Every tester's exact Gmail address is listed under `Audience > Test users`.
 - Testers are told that Google shows an unverified-app warning in Testing status and that test authorization expires after seven days.
+- GitHub release tag uses the `v1.2.9` form and matches the application version.
+- Limited installer asset uses the `PowerAccessibleMailSetup-<version>-win-x64.exe` name.
+- GitHub release is published and is neither a draft nor a pre-release.

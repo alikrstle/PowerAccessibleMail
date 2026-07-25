@@ -28,6 +28,7 @@
 - الكاش المحلي المشفر كما في النسخة الأصلية.
 - واجهة عربية أو إنجليزية مرتبطة بخيار اللغة في الإعدادات.
 - مستعرض HTML ومستعرض سهل، مع ترجمة الرسالة داخل أي منهما أو في نافذة مستقلة.
+- تحديد عدة رسائل بالفأرة أو بواسطة `Ctrl+Shift+Space`، ثم تنفيذ إجراءات القراءة والنجمة والتثبيت والحذف عليها دفعة واحدة.
 
 ## ما المختلف داخليا؟
 
@@ -74,6 +75,18 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\build_release_power_access
 ويخرج ملف التثبيت بجوار ملف ZIP مباشرة في:
 
 `..\release`
+
+## تحديث البرنامج
+
+يفحص البرنامج أحدث إصدار منشور في [GitHub Releases](https://github.com/alikrstle/PowerAccessibleMail/releases) تلقائيا بعد بدء التشغيل، أو يدويا من قائمة "المساعدة" عبر "تحديث البرنامج". تختار النسخة المحدودة الملف العام الذي يبدأ اسمه بـ `PowerAccessibleMailSetup-` وتتجاهل مثبّت النسخة الكاملة.
+
+يجب أن يكون الإصدار منشورا وغير تجريبي وغير مسودة، وأن يستخدم وسم إصدار مثل `v1.2.9`. ارفع مثبّت النسخة المحدودة باسم:
+
+`PowerAccessibleMailSetup-1.2.9-win-x64-UNSIGNED.exe`
+
+تحذف لاحقة `UNSIGNED` تلقائيا عندما تتوفر شهادة Authenticode موثوقة للبناء.
+
+المستودع الافتراضي هو `alikrstle/PowerAccessibleMail`، ويمكن تغييره لأغراض التطوير عبر `POWER_ACCESSIBLE_MAIL_GITHUB_REPOSITORY=owner/repository`. يبقى ملف JSON القديم مدعوما كخيار تجاوز بواسطة `POWER_ACCESSIBLE_MAIL_UPDATE_URL` أو `update_manifest_url.txt`.
 
 ## إعداد Google OAuth
 

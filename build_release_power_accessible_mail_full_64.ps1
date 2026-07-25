@@ -18,34 +18,29 @@ $Version = "1.2.9"
 $AppName = "Power Accessible Mail"
 $ProductName = "Power Accessible Mail"
 $LockFile = Join-Path $ProjectRoot "requirements-release.lock"
-$BuildScript = Join-Path $ProjectRoot "build_power_accessible_mail_gmail_api_limited_64.ps1"
+$BuildScript = Join-Path $ProjectRoot "build_power_accessible_mail_64.ps1"
 $SignScript = Join-Path $ProjectRoot "sign_release_file.ps1"
-$InstallerScript = Join-Path $ProjectRoot "installer_power_accessible_mail_gmail_api_limited.iss"
+$InstallerScript = Join-Path $ProjectRoot "installer_power_accessible_mail.iss"
 $InstallerResources = @(
-    (Join-Path $ProjectRoot "installer_info_ar.txt"),
-    (Join-Path $ProjectRoot "installer_info_en.txt"),
-    (Join-Path $ProjectRoot "installer_readme_ar.txt"),
-    (Join-Path $ProjectRoot "installer_readme_en.txt")
+    (Join-Path $ProjectRoot "installer_info_full_ar.txt"),
+    (Join-Path $ProjectRoot "installer_info_full_en.txt"),
+    (Join-Path $ProjectRoot "installer_readme_full_ar.txt"),
+    (Join-Path $ProjectRoot "installer_readme_full_en.txt")
 )
 $ReleaseRoot = Join-Path $ProjectRoot "release"
-$AppDir = Join-Path $ReleaseRoot "win-x64-gmail-api-limited\$AppName"
+$AppDir = Join-Path $ReleaseRoot "win-x64\$AppName"
 $AppExe = Join-Path $AppDir "$AppName.exe"
-$PackageAppDir = Join-Path $ReleaseRoot "package-win-x64-gmail-api-limited\$AppName"
+$PackageAppDir = Join-Path $ReleaseRoot "package-win-x64\$AppName"
 $PackageAppExe = Join-Path $PackageAppDir "$AppName.exe"
-$InstallerDir = Join-Path $ReleaseRoot "installer-gmail-api-limited"
+$InstallerDir = Join-Path $ReleaseRoot "installer"
 $isSigned = -not [string]::IsNullOrWhiteSpace($CertificateThumbprint)
 $buildKind = if ($isSigned) { "SIGNED" } else { "UNSIGNED" }
 $outputSuffix = if ($isSigned) { "" } else { "-UNSIGNED" }
-$InstallerExe = Join-Path $InstallerDir "PowerAccessibleMailSetup-$Version-win-x64$outputSuffix.exe"
-$PublishedInstaller = Join-Path $ReleaseRoot "PowerAccessibleMailSetup-$Version-win-x64$outputSuffix.exe"
-$PortableZip = Join-Path $ReleaseRoot "PowerAccessibleMail-$Version-win-x64$outputSuffix.zip"
-$HashManifest = Join-Path $ReleaseRoot "SHA256SUMS-GMAIL-API-LIMITED-$buildKind.txt"
-$BuildManifest = Join-Path $ReleaseRoot "$buildKind-GMAIL-API-LIMITED-BUILD-MANIFEST.json"
-$LegacyPublishedArtifacts = @(
-    (Join-Path $ReleaseRoot "PowerAccessibleMailGmailApiLimitedSetup-$Version-win-x64$outputSuffix.exe"),
-    (Join-Path $ReleaseRoot "PowerAccessibleMailGmailApiLimited-$Version-win-x64$outputSuffix.zip"),
-    (Join-Path $ReleaseRoot "PowerAccessibleMail-GmailApiLimited-win-x64.zip")
-)
+$InstallerExe = Join-Path $InstallerDir "PowerAccessibleMailFullSetup-$Version-win-x64$outputSuffix.exe"
+$PublishedInstaller = Join-Path $ReleaseRoot "PowerAccessibleMailFullSetup-$Version-win-x64$outputSuffix.exe"
+$PortableZip = Join-Path $ReleaseRoot "PowerAccessibleMailFull-$Version-win-x64$outputSuffix.zip"
+$HashManifest = Join-Path $ReleaseRoot "SHA256SUMS-FULL-$buildKind.txt"
+$BuildManifest = Join-Path $ReleaseRoot "$buildKind-FULL-BUILD-MANIFEST.json"
 
 foreach ($required in @($PythonPath, $LockFile, $BuildScript, $InstallerScript, $InnoCompiler) + $InstallerResources) {
     if (-not (Test-Path -LiteralPath $required)) {
@@ -54,11 +49,6 @@ foreach ($required in @($PythonPath, $LockFile, $BuildScript, $InstallerScript, 
 }
 if ($isSigned -and -not (Test-Path -LiteralPath $SignScript)) {
     throw "Signing was requested but the signing script was not found: $SignScript"
-}
-foreach ($legacyArtifact in $LegacyPublishedArtifacts) {
-    if (Test-Path -LiteralPath $legacyArtifact) {
-        Remove-Item -LiteralPath $legacyArtifact -Force
-    }
 }
 
 $expectedPackages = Get-Content -LiteralPath $LockFile |
@@ -83,7 +73,7 @@ if ($LASTEXITCODE -ne 0) {
 
 & $BuildScript -PythonPath $PythonPath
 if ($LASTEXITCODE -ne 0 -or -not (Test-Path -LiteralPath $AppExe)) {
-    throw "Gmail API limited application build failed."
+    throw "Full application build failed."
 }
 
 $versionInfo = (Get-Item -LiteralPath $AppExe).VersionInfo
@@ -108,14 +98,16 @@ if ($LASTEXITCODE -ne 0) {
     throw "The executable contains UPX-compressed sections."
 }
 
-$bundledOAuth = Get-ChildItem -LiteralPath $AppDir -Recurse -File -Filter "oauth_clients.json"
+$bundledOAuth = @(Get-ChildItem -LiteralPath $AppDir -Recurse -File -Filter "oauth_clients.json")
 if ($bundledOAuth.Count -ne 1) {
     throw "Expected exactly one bundled oauth_clients.json, found $($bundledOAuth.Count)."
 }
-$bundledOAuthConfig = Get-Content -LiteralPath $bundledOAuth.FullName -Raw | ConvertFrom-Json
+$bundledOAuthConfig = Get-Content -LiteralPath $bundledOAuth[0].FullName -Raw | ConvertFrom-Json
 $bundledOAuthKeys = @($bundledOAuthConfig.PSObject.Properties.Name)
-if ($bundledOAuthKeys.Count -ne 1 -or $bundledOAuthKeys[0] -ne "google_gmail_api") {
-    throw "The bundled OAuth file is not isolated to the limited Gmail API client."
+if ($bundledOAuthKeys -contains "google_gmail_api" -or
+    $bundledOAuthKeys -notcontains "google" -or
+    [string]::IsNullOrWhiteSpace([string]$bundledOAuthConfig.google.client_id)) {
+    throw "The bundled OAuth file does not contain the expected full Google client."
 }
 
 if ($isSigned) {
@@ -142,7 +134,7 @@ if ($isSigned) {
     $env:POWER_ACCESSIBLE_MAIL_SIGNING_CERT_THUMBPRINT = $CertificateThumbprint
     $env:POWER_ACCESSIBLE_MAIL_TIMESTAMP_SERVER = $TimestampServer
     $signCommand = 'powershell.exe -NoProfile -ExecutionPolicy Bypass -File $q' + $SignScript + '$q $f'
-    & $InnoCompiler "/DSignedBuild=1" "/SPowerAccessibleMailLimited=$signCommand" $InstallerScript
+    & $InnoCompiler "/DSignedBuild=1" "/SPowerAccessibleMail=$signCommand" $InstallerScript
 }
 else {
     & $InnoCompiler $InstallerScript
@@ -206,7 +198,7 @@ $manifestFiles = foreach ($file in $releaseFiles) {
 }
 [pscustomobject]@{
     Product = $ProductName
-    Edition = "gmail_api_limited"
+    Edition = "full"
     Version = $Version
     Architecture = "win-x64"
     BuildKind = $buildKind
@@ -232,7 +224,7 @@ if ($finalInstallerHash -ne $installerSourceHash) {
     throw "The published installer changed after verification; release output is not reliable."
 }
 
-Write-Output "$buildKind Gmail API limited release complete: $ReleaseRoot"
+Write-Output "$buildKind full release complete: $ReleaseRoot"
 Write-Output "Installer: $PublishedInstaller"
 Write-Output "Portable ZIP: $PortableZip"
 Write-Output "SHA-256 manifest: $HashManifest"

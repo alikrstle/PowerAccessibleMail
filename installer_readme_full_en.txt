@@ -1,5 +1,5 @@
 Power Accessible Mail
-Version: 1.2.8
+Version: 1.2.9
 
 Developer and owner: Ali Al-Amir
 Company: Soljan.AlSharq., owned by developer Ali Al-Amir

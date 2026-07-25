@@ -10,11 +10,14 @@ import wx
 
 from accessible_mail.app import (
     AccountDialog,
+    BULK_ACTION_DELETE,
+    BulkDeleteDialog,
     FILTER_CHOICES,
     FILTER_STARRED,
     MailPage,
     MainFrame,
     UpdateAvailableDialog,
+    run_bulk_operations,
 )
 from accessible_mail.config import (
     LANGUAGE_ENGLISH,
@@ -23,7 +26,7 @@ from accessible_mail.config import (
     VIEWER_HTML,
     ProgramSettings,
 )
-from accessible_mail.models import Account
+from accessible_mail.models import Account, MessageSummary
 from accessible_mail.oauth import OAuthReauthenticationRequired
 from accessible_mail.update_checker import UpdateCheckResult
 
@@ -191,6 +194,175 @@ class AppBehaviorTests(unittest.TestCase):
         page.focus_message_viewer.assert_called_once_with()
         event.Skip.assert_not_called()
 
+    def test_message_list_uses_native_multiple_selection(self) -> None:
+        source = inspect.getsource(MailPage._build)
+
+        self.assertIn("self.list = wx.ListCtrl(self, style=wx.LC_REPORT)", source)
+        self.assertNotIn("wx.LC_SINGLE_SEL", source)
+
+    def test_ctrl_shift_space_toggles_multiple_selection_mode(self) -> None:
+        event = SimpleNamespace(
+            GetKeyCode=lambda: wx.WXK_SPACE,
+            ControlDown=lambda: True,
+            ShiftDown=lambda: True,
+            AltDown=lambda: False,
+            Skip=Mock(),
+        )
+        page = SimpleNamespace(
+            multi_select_mode=False,
+            _shift_pressed_alone=False,
+            toggle_multi_selection_mode=Mock(),
+        )
+
+        MailPage.on_list_key(page, event)
+
+        page.toggle_multi_selection_mode.assert_called_once_with()
+        event.Skip.assert_not_called()
+
+    def test_space_toggles_focused_item_inside_multiple_selection_mode(self) -> None:
+        event = SimpleNamespace(
+            GetKeyCode=lambda: wx.WXK_SPACE,
+            ControlDown=lambda: False,
+            ShiftDown=lambda: False,
+            AltDown=lambda: False,
+            Skip=Mock(),
+        )
+        page = SimpleNamespace(
+            multi_select_mode=True,
+            _shift_pressed_alone=False,
+            toggle_focused_message_selection=Mock(),
+        )
+
+        MailPage.on_list_key(page, event)
+
+        page.toggle_focused_message_selection.assert_called_once_with()
+        event.Skip.assert_not_called()
+
+    def test_shift_release_announces_selected_message_count(self) -> None:
+        event = SimpleNamespace(
+            GetKeyCode=lambda: wx.WXK_SHIFT,
+            Skip=Mock(),
+        )
+        page = SimpleNamespace(
+            multi_select_mode=True,
+            _shift_pressed_alone=True,
+            announce_selection_count=Mock(),
+        )
+
+        MailPage.on_list_key_up(page, event)
+
+        page.announce_selection_count.assert_called_once_with()
+        event.Skip.assert_not_called()
+
+    def test_delete_key_uses_bulk_delete_for_selected_messages(self) -> None:
+        summaries = [object(), object()]
+        event = SimpleNamespace(
+            GetKeyCode=lambda: wx.WXK_DELETE,
+            ControlDown=lambda: False,
+            ShiftDown=lambda: False,
+            AltDown=lambda: False,
+            Skip=Mock(),
+        )
+        page = SimpleNamespace(
+            multi_select_mode=True,
+            _shift_pressed_alone=False,
+            selected_summaries=Mock(return_value=summaries),
+            on_bulk_action=Mock(),
+        )
+
+        MailPage.on_list_key(page, event)
+
+        page.on_bulk_action.assert_called_once_with(
+            page,
+            BULK_ACTION_DELETE,
+            summaries,
+        )
+        event.Skip.assert_not_called()
+
+    def test_multiple_selection_context_menu_contains_only_bulk_actions(self) -> None:
+        source = inspect.getsource(MailPage.show_multi_message_context_menu)
+
+        for label in (
+            "تعليم كمقروءة",
+            "تعليم كغير مقروءة",
+            "تمييز الرسائل بنجمة",
+            "إزالة النجمة من الرسائل",
+            "تثبيت الرسائل في الأعلى",
+            "إلغاء تثبيت الرسائل",
+            "حذف الرسائل وإرسالها إلى سلة المحذوفات",
+        ):
+            self.assertIn(label, source)
+        self.assertNotIn('tr("رد")', source)
+        self.assertNotIn('tr("ترجمة")', source)
+
+    def test_bulk_delete_dialog_has_safe_cancel_and_explicit_delete_buttons(self) -> None:
+        source = inspect.getsource(BulkDeleteDialog.__init__)
+
+        self.assertIn('label=tr("إلغاء")', source)
+        self.assertIn('label=tr("حذف وإرسال إلى سلة المحذوفات")', source)
+        self.assertIn("cancel_button.SetDefault()", source)
+
+    def test_bulk_operations_report_partial_failures(self) -> None:
+        summaries = [
+            SimpleNamespace(uid="1"),
+            SimpleNamespace(uid="2"),
+            SimpleNamespace(uid="3"),
+        ]
+
+        def operation(summary) -> None:
+            if summary.uid == "2":
+                raise OSError("failed")
+
+        succeeded, failed = run_bulk_operations(summaries, operation)
+
+        self.assertEqual([summary.uid for summary in succeeded], ["1", "3"])
+        self.assertEqual([summary.uid for summary, _exc in failed], ["2"])
+
+    @patch("accessible_mail.app.BulkDeleteDialog")
+    def test_bulk_delete_confirms_count_and_focuses_previous_message(
+        self,
+        dialog_class: Mock,
+    ) -> None:
+        summaries = [
+            MessageSummary(uid="10", mailbox="INBOX"),
+            MessageSummary(uid="11", mailbox="INBOX"),
+        ]
+        dialog_class.return_value.ShowModal.return_value = wx.ID_OK
+        page = SimpleNamespace(
+            selected_filter_key=lambda: "all",
+            selected_indices=lambda: [3, 5],
+            remove_messages_bulk=Mock(),
+            exit_multi_selection_mode=Mock(),
+            previous_message_index=MailPage.previous_message_index,
+            focus_list_index=Mock(),
+            focus_message_list=Mock(),
+        )
+        account = Account(id="account", oauth_provider="google_gmail_api")
+        service = SimpleNamespace(move_message_to_trash=Mock())
+        frame = SimpleNamespace(
+            selected_account=lambda: account,
+            service=service,
+            content_cache={},
+            current_content=None,
+            pages={"inbox": page},
+            SetStatusText=Mock(),
+            run_worker=lambda _message, work, done: done(work()),
+        )
+
+        MainFrame.on_delete_selected_messages(frame, page, summaries)
+
+        dialog_class.assert_called_once_with(frame, 2)
+        self.assertEqual(service.move_message_to_trash.call_count, 2)
+        page.remove_messages_bulk.assert_called_once_with(
+            summaries,
+            match_uid=True,
+        )
+        page.exit_multi_selection_mode.assert_called_once_with(
+            restore_single_selection=False,
+        )
+        page.focus_list_index.assert_called_once_with(2)
+        dialog_class.return_value.Destroy.assert_called_once_with()
+
     def test_message_list_focus_deactivates_html_viewer(self) -> None:
         event = SimpleNamespace(Skip=Mock())
         page = SimpleNamespace(deactivate_html_viewer=Mock())
@@ -267,6 +439,24 @@ class AppBehaviorTests(unittest.TestCase):
                 "wpReady",
             ):
                 self.assertIn(f"PageID = {page_name}", source)
+
+    def test_release_installer_names_distinguish_editions(self) -> None:
+        project_root = Path(__file__).resolve().parents[1]
+        full_installer = (
+            project_root / "installer_power_accessible_mail.iss"
+        ).read_text(encoding="utf-8-sig")
+        limited_installer = (
+            project_root / "installer_power_accessible_mail_gmail_api_limited.iss"
+        ).read_text(encoding="utf-8-sig")
+
+        self.assertIn(
+            "OutputBaseFilename=PowerAccessibleMailFullSetup-",
+            full_installer,
+        )
+        self.assertIn(
+            "OutputBaseFilename=PowerAccessibleMailSetup-",
+            limited_installer,
+        )
 
     def test_installer_navigation_buttons_use_native_localized_captions(self) -> None:
         project_root = Path(__file__).resolve().parents[1]

@@ -14,7 +14,7 @@ from .models import Account
 
 APP_NAME = os.environ.get("POWER_ACCESSIBLE_MAIL_APP_NAME", "PowerAccessibleMail")
 APP_TITLE = os.environ.get("POWER_ACCESSIBLE_MAIL_APP_TITLE", "Power Accessible Mail")
-APP_VERSION = "1.2.8"
+APP_VERSION = "1.2.9"
 PASSWORD_PREFIX = "dpapi:"
 LANGUAGE_ARABIC = "ar"
 LANGUAGE_ENGLISH = "en"

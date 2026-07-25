@@ -1,5 +1,5 @@
 ﻿#define MyAppName "Power Accessible Mail"
-#define MyAppVersion "1.2.8"
+#define MyAppVersion "1.2.9"
 #define MyAppPublisher "Soljan.AlSharq."
 #define MyAppExeName "Power Accessible Mail.exe"
 #define MyAppIcon "assets\branding\power_accessible_mail.ico"
@@ -26,14 +26,14 @@ DisableReadyPage=no
 DisableFinishedPage=no
 ShowLanguageDialog=yes
 OutputDir=release\installer
-OutputBaseFilename=PowerAccessibleMailSetup-{#MyAppVersion}-win-x64{#OutputSuffix}
+OutputBaseFilename=PowerAccessibleMailFullSetup-{#MyAppVersion}-win-x64{#OutputSuffix}
 Compression=lzma
 SolidCompression=yes
 WizardStyle=modern
 PrivilegesRequired=lowest
 ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
-VersionInfoVersion=1.2.8.0
+VersionInfoVersion=1.2.9.0
 VersionInfoCompany={#MyAppPublisher}
 VersionInfoDescription={#MyAppName} Installer
 VersionInfoProductName={#MyAppName}

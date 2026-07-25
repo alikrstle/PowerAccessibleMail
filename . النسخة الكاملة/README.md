@@ -50,6 +50,7 @@ run.bat
 - إنشاء رسالة جديدة.
 - الرد على رسالة محددة من قائمة "إجراءات الرسالة" أو من الاختصار.
 - قائمة مساعدة تحتوي على دليل البرنامج وخيار فحص التحديثات.
+- تحديد عدة رسائل بالفأرة أو بواسطة `Ctrl+Shift+Space`، ثم تنفيذ إجراءات القراءة والنجمة والتثبيت والحذف عليها دفعة واحدة.
 - قائمة أوامر رئيسية عمودية يمكن التنقل فيها بالسهم للأعلى والأسفل، وتنفيذ الأمر المحدد بـ Enter أو Space.
 - أمر "تحميل رسائل أقدم" لجلب الدفعة السابقة من رسائل القسم الحالي.
 - أمر "خيارات الحسابات وإدارتها" لفتح قائمة إضافة حساب، وإعادة تسجيل الدخول، وإزالة الحساب من البرنامج.
@@ -150,26 +151,24 @@ Microsoft / Outlook سيعود لاحقا بعد تجهيز مفاتيح Microso
 
 ## تحديث البرنامج
 
-من قائمة "المساعدة" اختر "تحديث البرنامج". يفحص البرنامج ملف تحديثات JSON على خادم HTTPS، ثم يعرض رقم الإصدار الجديد ورابط التحميل إن وجد.
+يفحص البرنامج أحدث إصدار منشور في [GitHub Releases](https://github.com/alikrstle/PowerAccessibleMail/releases) تلقائيا بعد بدء التشغيل، أو يدويا من قائمة "المساعدة" عبر "تحديث البرنامج". تختار النسخة الكاملة الملف الذي يبدأ اسمه بـ `PowerAccessibleMailFullSetup-`.
 
-لتفعيل هذا الخيار ضع رابط ملف التحديثات في ملف باسم:
+يجب أن يكون الإصدار منشورا وغير تجريبي وغير مسودة، وأن يستخدم وسم إصدار مثل `v1.2.9`. ارفع مثبّت النسخة الكاملة باسم:
 
-`update_manifest_url.txt`
+`PowerAccessibleMailFullSetup-1.2.9-win-x64-UNSIGNED.exe`
 
-يمكن وضع هذا الملف بجانب `Power Accessible Mail.exe` أو داخل مجلد بيانات المستخدم:
+تحذف لاحقة `UNSIGNED` تلقائيا عندما تتوفر شهادة Authenticode موثوقة للبناء.
 
-`%APPDATA%\PowerAccessibleMail\update_manifest_url.txt`
+المستودع الافتراضي هو `alikrstle/PowerAccessibleMail`، ويمكن تغييره عبر متغير البيئة:
 
-مثال محتوى ملف التحديثات على الخادم:
+`POWER_ACCESSIBLE_MAIL_GITHUB_REPOSITORY=owner/repository`
+
+يبقى ملف التحديثات JSON القديم مدعوما كخيار تجاوز بواسطة `POWER_ACCESSIBLE_MAIL_UPDATE_URL` أو `update_manifest_url.txt`:
 
 ```json
 {
-  "version": "1.0.1",
-  "download_url": "https://example.com/PowerAccessibleMail-win-x64.zip",
+  "version": "1.2.9",
+  "download_url": "https://example.com/PowerAccessibleMailFullSetup-1.2.9-win-x64.exe",
   "notes": "تحسينات في استلام الرسائل ودعم المرفقات."
 }
 ```
-
-يمكن أيضا ضبط الرابط عبر متغير البيئة:
-
-`POWER_ACCESSIBLE_MAIL_UPDATE_URL`

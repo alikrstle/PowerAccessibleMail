@@ -14,6 +14,22 @@ class TranslationTests(unittest.TestCase):
 
         self.assertEqual(tr("الإعدادات"), "Settings")
         self.assertEqual(tr("وصلت 3 رسائل جديدة إلى الوارد."), "3 new messages arrived in Inbox.")
+        self.assertEqual(
+            tr("لا يوجد إصدار منشور في GitHub Releases حتى الآن."),
+            "No release has been published in GitHub Releases yet.",
+        )
+        self.assertEqual(
+            tr("تعذر الاتصال بـ GitHub Releases: HTTP 403"),
+            "Unable to contact GitHub Releases: HTTP 403",
+        )
+        self.assertEqual(
+            tr("عدد الرسائل المحددة: 25."),
+            "25 message(s) selected.",
+        )
+        self.assertEqual(
+            tr("هل تريد حذف 25 رسالة وإرسالها إلى سلة المحذوفات؟"),
+            "Do you want to delete 25 message(s) and send them to Trash?",
+        )
 
     def test_interface_text_can_switch_back_to_arabic(self) -> None:
         set_language(LANGUAGE_ARABIC)
