@@ -1,8 +1,9 @@
 Power Accessible Mail
 Version: 1.2.9
 
-Developer and owner: Ali Al-Amir
-Company: Soljan.AlSharq., owned by developer Ali Al-Amir
+Developer: Soljan.AlSharq.
+Owner: Ali Al-Amir
+Company: Soljan.AlSharq., owned by Ali Al-Amir
 Edition: Full IMAP and SMTP edition
 
 Power Accessible Mail is an email client designed for screen-reader users. It supports browser or manual account setup, reading and sending messages, replies, message status management, and attachments.

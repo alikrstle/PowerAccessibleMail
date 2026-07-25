@@ -2,9 +2,10 @@ Power Accessible Mail
 Version: 1.2.9
 
 Edition: Gmail API Limited
-Developer: Ali Al-Amir
+Developer: Soljan.AlSharq.
+Owner: Ali Al-Amir
 Company: Soljan.AlSharq.
-Company ownership: Soljan.AlSharq. is owned by developer Ali Al-Amir
+Company ownership: Soljan.AlSharq. is owned by Ali Al-Amir
 
 About the application
 Power Accessible Mail is an email application designed for comfortable use with screen readers. Its interface uses native Windows lists and fields and presents messages vertically for efficient keyboard navigation.

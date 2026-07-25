@@ -16,7 +16,7 @@ AppId={{7F4F2C96-105C-49C0-AD57-752CE99BCDC7}
 AppName={#MyAppName}
 AppVersion={#MyAppVersion}
 AppPublisher={#MyAppPublisher}
-AppComments=Developed by Ali Al-Amir for Soljan.AlSharq.
+AppComments=Developed by Soljan.AlSharq.; owned by Ali Al-Amir
 DefaultDirName={localappdata}\Programs\SoljanAlSharq\{#MyAppName}
 DefaultGroupName=SoljanAlSharq\{#MyAppName}
 DisableProgramGroupPage=yes
@@ -38,7 +38,7 @@ VersionInfoCompany={#MyAppPublisher}
 VersionInfoDescription={#MyAppName} Installer
 VersionInfoProductName={#MyAppName}
 VersionInfoProductVersion={#MyAppVersion}
-VersionInfoCopyright=Copyright (c) 2026 Ali Al-Amir, Soljan.AlSharq.
+VersionInfoCopyright=Copyright (c) 2026 Soljan.AlSharq.; owner Ali Al-Amir
 SetupIconFile={#MyAppIcon}
 UninstallDisplayIcon={app}\{#MyAppExeName}
 #ifdef SignedBuild
