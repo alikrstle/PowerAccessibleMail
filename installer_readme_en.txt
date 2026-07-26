@@ -1,70 +1,145 @@
 Power Accessible Mail
-Version: 1.2.11
+Version 1.2.11
+Developed by Soljan.AlSharq.
+Soljan.AlSharq. is owned by Ali Al-Amir
 
-Build: identical features in the x64 and x86 packages
-Developer: Soljan.AlSharq.
-Owner: Ali Al-Amir
-Company: Soljan.AlSharq.
-Company ownership: Soljan.AlSharq. is owned by Ali Al-Amir
+Welcome to your email
 
-About the application
-Power Accessible Mail is an email application designed for comfortable use with screen readers. Its interface uses native Windows lists and fields and presents messages vertically for efficient keyboard navigation.
+Power Accessible Mail is built to make reading writing organizing and updating email comfortable from the keyboard
 
-Adding a Gmail account
-1. Open Accounts and select Add account.
-2. Select browser sign-in, then select Gmail.
-3. Choose the account and grant consent on Google's official page.
-4. Return to the application after sign-in succeeds.
+Native Windows lists and fields give screen readers predictable controls while messages are arranged vertically so moving through your mail feels direct and familiar
 
-The application uses the Gmail API and the gmail.modify scope for Google accounts. It also supports Microsoft sign-in and manually configured IMAP and SMTP accounts.
+Add your account in the way that suits you
 
-Main sections
-- Inbox: displays messages carrying the INBOX label.
-- Spam: displays Gmail Spam or a detected Junk folder.
-- Sent: displays messages sent by the user.
-- All Mail: displays Gmail All Mail and can reveal recent messages that do not appear in Inbox.
+When the application starts without an account you can continue with Google continue with Microsoft sign in manually or open the main interface without adding an account
 
-Message filters
-Each section can display all messages, starred messages, unread messages, or read messages. The Trash option displays messages in Gmail's actual Trash label.
+Open Account options and management and select Add account
 
-Main commands
-- Refresh displayed content: retrieves the newest messages from the server.
-- Synchronize all messages: retrieves older messages in batches and stores them locally.
-- Load older messages: retrieves one older batch for the current section.
-- Account options and management: adds an account, signs in again, or removes an account from the application.
-- Compose email: creates and sends a new message.
-- Settings: selects Arabic or English, the message viewer, in-view or separate-window translation, and light or dark appearance.
+The sign in methods appear as a real list
 
-Read status
-Selecting a message does not mark it as read automatically. Press Space on the selected message to switch between read and unread.
+Select browser sign in or manual sign in then press Enter right click the selected item or use the OK button beside Cancel
 
-Reading messages and elements
-In the HTML viewer, links and buttons appear in their original message positions as real screen-reader elements. Use Tab or your screen reader's browsing commands, then press Enter or Space to activate an element.
+Browser sign in opens the official Google or Microsoft consent page and never asks the application to read your browser password
 
-The element viewer is hidden by default in HTML mode. Press Ctrl+Enter to move between the message and element viewers. Press Ctrl+Space to return to the message list.
+Manual sign in begins with an Email service choice
 
-The easy viewer presents cleaned text with fewer blank lines. Its element viewer lists links, buttons, and attachments with clear names.
+Select Google or Microsoft and the application fills the matching IMAP and SMTP settings while keeping the fields available for review
 
-Message actions
-Open the actions menu from its button or press Shift+F10. Depending on the message state, available actions include Reply, Star, Translate, Pin to top, Move to Gmail Trash, and Save attachments.
+Gmail manual sign in normally requires an app password
 
-Keyboard shortcuts
-- Ctrl+A: account options and management.
-- Ctrl+N: compose a new message.
-- Ctrl+R: reply to the selected message.
-- Ctrl+T: translate the current message.
-- F5: refresh messages.
-- F1: open the application guide.
-- Ctrl+Space: return to the message list.
-- Ctrl+Enter: switch between the message and element viewers.
-- Shift+F10: open the context and actions menu.
-- Alt+F4: close the application.
+For Microsoft browser sign in is recommended because password based IMAP access may be restricted by the account policy
 
-Security and privacy
-- Browser sign-in uses OAuth, and the application does not read browser passwords.
-- The local message cache is protected with Windows DPAPI for the current Windows account.
-- Distribution packages contain no user accounts or cached messages.
-- The application can access Gmail only after the user grants consent on Google's official page.
+Your mail sections
 
-Updates and removal
-To check for updates, open Help and select Update application. To remove the application, open Installed apps in Windows Settings, select Power Accessible Mail, and choose Uninstall.
+Inbox reads the real Inbox folder
+
+Spam reads Spam or Junk
+
+Sent holds the messages you sent
+
+All Mail opens Gmail All Mail when it is available and can reveal recent messages that do not carry the Inbox label
+
+Inside each section the filter can show all messages starred messages unread messages read messages or the real Trash folder
+
+Press F5 whenever you want the newest messages
+
+Synchronize all messages retrieves older mail in batches and stores it locally
+
+Load older messages adds one older batch from the current section
+
+Read each message in the viewer you prefer
+
+The HTML viewer keeps links and buttons in their natural positions as real page elements
+
+Use Tab or your screen reader browsing commands to reach them then press Enter or Space to activate them
+
+Press Ctrl+Enter to move between the message viewer and the item viewer
+
+Press Ctrl+Space to return directly to the message list
+
+The easy viewer removes repeated blank lines and presents clean text
+
+Its item viewer collects links buttons and attachments under clear names
+
+Selecting a message does not mark it as read automatically
+
+Press Space in the normal message list to switch the focused message between read and unread
+
+Work with several messages at once
+
+In normal mode messages are list items without check boxes
+
+Press Ctrl+Shift+Space to enter multiple selection mode where every message becomes a check box
+
+Move with the arrow keys and press Space to check or uncheck a message or use the mouse
+
+The application announces entry into or exit from this mode after 300 milliseconds
+
+Press Control by itself to hear the selected count
+
+Press Escape or Ctrl+Shift+Space again to leave the mode
+
+Trying to move above the first item or below the last item announces the boundary
+
+The context menu provides suitable bulk read star pin and Trash commands
+
+Delete asks for confirmation and states how many messages will be moved to Trash
+
+Write and act without leaving the keyboard
+
+Compose email opens a complete message window
+
+Message actions include Reply Star Translate Pin to top move to the provider Trash and save attachments whenever they are available
+
+Open the menu from the Actions button or with Shift+F10
+
+Translation in place or in a separate window
+
+Ctrl+T translates the current message into the application language
+
+In Settings choose whether translation replaces the content inside the HTML or easy viewer or opens in a separate window
+
+Translation becomes available only while you are inside the message viewer
+
+It requires an internet connection and sends the selected message text to Google Translate only when you request it
+
+Make the application yours
+
+Settings lets you choose Arabic or English the HTML or easy message viewer translation inside the page or in a separate window and light or dark appearance
+
+Your choices are saved for the next launch
+
+Updates without opening a browser
+
+The application checks GitHub Releases after startup and you can check manually from Help and Check for updates
+
+When a release is available Update now opens an internal progress window showing its version release date progress bar and percentage
+
+The correct installer is downloaded its SHA-256 digest is verified and the direct update starts before the application restarts
+
+Useful keyboard commands
+
+Ctrl+A opens account options and management
+Ctrl+N composes a new message
+Ctrl+R replies to the focused message
+Ctrl+T translates the current message
+F5 refreshes messages
+F1 opens the application guide
+Ctrl+Space returns to the message list
+Ctrl+Enter switches between message and item viewers
+Shift+F10 opens the context and actions menu
+Alt+F4 closes the application
+
+Your privacy stays part of the design
+
+OAuth access begins only after your approval on the provider official page
+
+Locally cached messages tokens and saved credentials are protected by Windows DPAPI for the current Windows account
+
+Distribution packages do not contain user accounts or messages
+
+Removing an account from the application also removes its locally stored application data
+
+Power Accessible Mail
+An accessible email experience developed by Soljan.AlSharq.
+Soljan.AlSharq. is owned by Ali Al-Amir

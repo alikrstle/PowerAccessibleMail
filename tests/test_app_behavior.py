@@ -14,6 +14,8 @@ from accessible_mail.app import (
     BulkDeleteDialog,
     FILTER_CHOICES,
     FILTER_STARRED,
+    MANUAL_PROVIDER_GOOGLE,
+    MANUAL_PROVIDER_MICROSOFT,
     MailPage,
     MainFrame,
     UpdateAvailableDialog,
@@ -296,7 +298,7 @@ class AppBehaviorTests(unittest.TestCase):
         event.Skip.assert_called_once_with()
 
     @patch("accessible_mail.app.wx.CallLater")
-    def test_mode_change_notification_is_delayed_one_second(
+    def test_mode_change_notification_is_delayed_300_milliseconds(
         self,
         call_later: Mock,
     ) -> None:
@@ -308,7 +310,7 @@ class AppBehaviorTests(unittest.TestCase):
         MailPage.schedule_multi_selection_mode_notification(page, "تم التفعيل")
 
         call_later.assert_called_once_with(
-            500,
+            300,
             page._show_multi_selection_mode_notification,
             "تم التفعيل",
         )
@@ -835,7 +837,17 @@ class AppBehaviorTests(unittest.TestCase):
         self.assertIn("$Architecture\\nvdaControllerClient.dll", source)
         self.assertIn("Expected exactly one bundled NVDA Controller", source)
 
-    def test_account_method_buttons_activate_without_ok_button(self) -> None:
+    def test_portable_build_includes_both_user_guides(self) -> None:
+        project_root = Path(__file__).resolve().parents[1]
+        source = (
+            project_root / "build_release_power_accessible_mail.ps1"
+        ).read_text(encoding="utf-8-sig")
+
+        self.assertIn('"README_AR.txt"', source)
+        self.assertIn('"README_EN.txt"', source)
+        self.assertIn("The portable package guide does not match", source)
+
+    def test_account_method_list_has_ok_and_cancel_buttons(self) -> None:
         dialog = SimpleNamespace(
             show_oauth_provider_view=Mock(),
             show_manual_view=Mock(),
@@ -847,7 +859,10 @@ class AppBehaviorTests(unittest.TestCase):
         dialog.show_oauth_provider_view.assert_called_once_with()
         dialog.show_manual_view.assert_called_once_with()
         method_source = inspect.getsource(AccountDialog.show_method_view)
-        self.assertNotIn('label="موافق"', method_source)
+        self.assertIn('label="موافق"', method_source)
+        self.assertIn("ok_button.SetDefault()", method_source)
+        self.assertIn("on_account_method_activate", method_source)
+        self.assertIn('label="إلغاء"', method_source)
         self.assertIn("wx.ListBox", method_source)
 
     def test_account_method_list_activates_selected_item(self) -> None:
@@ -873,6 +888,43 @@ class AppBehaviorTests(unittest.TestCase):
         dialog.on_account_method_activate.assert_called_once_with()
         event.Skip.assert_not_called()
 
+    @patch("accessible_mail.app.wx.Window.FindFocus")
+    def test_dialog_char_hook_activates_account_method_on_enter(
+        self,
+        find_focus: Mock,
+    ) -> None:
+        method_list = object()
+        find_focus.return_value = method_list
+        event = SimpleNamespace(GetKeyCode=lambda: wx.WXK_RETURN, Skip=Mock())
+        dialog = SimpleNamespace(
+            mode="method",
+            account_method_list=method_list,
+            on_account_method_activate=Mock(),
+        )
+
+        AccountDialog.on_dialog_key(dialog, event)
+
+        dialog.on_account_method_activate.assert_called_once_with()
+        event.Skip.assert_not_called()
+
+    def test_right_click_selects_and_activates_account_method(self) -> None:
+        control = SimpleNamespace(
+            ScreenToClient=Mock(return_value=wx.Point(4, 8)),
+            HitTest=Mock(return_value=1),
+            SetSelection=Mock(),
+        )
+        event = SimpleNamespace(GetPosition=lambda: wx.Point(40, 80))
+        dialog = SimpleNamespace(
+            account_method_list=control,
+            _select_context_list_item=AccountDialog._select_context_list_item,
+            on_account_method_activate=Mock(),
+        )
+
+        AccountDialog.on_account_method_context(dialog, event)
+
+        control.SetSelection.assert_called_once_with(1)
+        dialog.on_account_method_activate.assert_called_once_with()
+
     def test_oauth_provider_list_activates_selected_service(self) -> None:
         dialog = SimpleNamespace(
             oauth_provider_list=SimpleNamespace(GetSelection=lambda: 1),
@@ -892,6 +944,43 @@ class AppBehaviorTests(unittest.TestCase):
         dialog = SimpleNamespace(on_oauth_provider_activate=Mock())
 
         AccountDialog.on_oauth_provider_key(dialog, event)
+
+        dialog.on_oauth_provider_activate.assert_called_once_with()
+        event.Skip.assert_not_called()
+
+    def test_right_click_selects_and_activates_oauth_service(self) -> None:
+        control = SimpleNamespace(
+            ScreenToClient=Mock(return_value=wx.Point(6, 12)),
+            HitTest=Mock(return_value=1),
+            SetSelection=Mock(),
+        )
+        event = SimpleNamespace(GetPosition=lambda: wx.Point(60, 120))
+        dialog = SimpleNamespace(
+            oauth_provider_list=control,
+            _select_context_list_item=AccountDialog._select_context_list_item,
+            on_oauth_provider_activate=Mock(),
+        )
+
+        AccountDialog.on_oauth_provider_context(dialog, event)
+
+        control.SetSelection.assert_called_once_with(1)
+        dialog.on_oauth_provider_activate.assert_called_once_with()
+
+    @patch("accessible_mail.app.wx.Window.FindFocus")
+    def test_dialog_char_hook_activates_oauth_service_on_enter(
+        self,
+        find_focus: Mock,
+    ) -> None:
+        provider_list = object()
+        find_focus.return_value = provider_list
+        event = SimpleNamespace(GetKeyCode=lambda: wx.WXK_NUMPAD_ENTER, Skip=Mock())
+        dialog = SimpleNamespace(
+            mode="oauth2",
+            oauth_provider_list=provider_list,
+            on_oauth_provider_activate=Mock(),
+        )
+
+        AccountDialog.on_dialog_key(dialog, event)
 
         dialog.on_oauth_provider_activate.assert_called_once_with()
         event.Skip.assert_not_called()
@@ -940,17 +1029,108 @@ class AppBehaviorTests(unittest.TestCase):
         self.assertTrue(frame_without_account._startup_login_shown)
         frame_without_account.command_list.SetFocus.assert_called_once_with()
 
-    def test_oauth_services_have_no_ok_button_but_manual_form_keeps_it(self) -> None:
+    def test_oauth_services_and_manual_form_have_ok_buttons(self) -> None:
         oauth_source = inspect.getsource(AccountDialog.show_oauth_provider_view)
         manual_source = inspect.getsource(AccountDialog.show_manual_view)
 
-        self.assertNotIn('label="موافق"', oauth_source)
+        self.assertIn('label="موافق"', oauth_source)
+        self.assertIn("ok_button.SetDefault()", oauth_source)
         self.assertIn("wx.ListBox", oauth_source)
         self.assertIn("on_oauth_provider_activate", oauth_source)
         self.assertIn('label="رجوع"', oauth_source)
         self.assertIn('label="إلغاء"', oauth_source)
         self.assertIn('label="موافق"', manual_source)
         self.assertIn("on_manual_ok", manual_source)
+
+    def test_manual_sign_in_starts_with_email_service_choice(self) -> None:
+        manual_source = inspect.getsource(AccountDialog.show_manual_view)
+
+        provider_position = manual_source.index("self.manual_provider = wx.Choice")
+        account_name_position = manual_source.index("self.display_name = self._text")
+
+        self.assertLess(provider_position, account_name_position)
+        self.assertIn("self.finish_panel(root, self.manual_provider)", manual_source)
+
+    def test_manual_provider_is_inferred_from_existing_account(self) -> None:
+        google_account = Account(email_address="person@gmail.com")
+        microsoft_account = Account(imap_server="outlook.office365.com")
+
+        self.assertEqual(
+            AccountDialog.manual_provider_index_for_account(google_account),
+            0,
+        )
+        self.assertEqual(
+            AccountDialog.manual_provider_index_for_account(microsoft_account),
+            1,
+        )
+
+    def test_manual_provider_choice_fills_microsoft_servers(self) -> None:
+        class TextValue:
+            def __init__(self, value: str = "") -> None:
+                self.value = value
+
+            def GetValue(self) -> str:
+                return self.value
+
+            def SetValue(self, value: str) -> None:
+                self.value = value
+
+        class CheckValue:
+            def __init__(self, value: bool = False) -> None:
+                self.value = value
+
+            def SetValue(self, value: bool) -> None:
+                self.value = value
+
+        dialog = SimpleNamespace(
+            selected_manual_provider_id=lambda: MANUAL_PROVIDER_MICROSOFT,
+            imap_server=TextValue(),
+            imap_port=TextValue(),
+            smtp_server=TextValue(),
+            smtp_port=TextValue(),
+            spam_mailbox=TextValue(),
+            imap_ssl=CheckValue(),
+            smtp_ssl=CheckValue(True),
+            smtp_starttls=CheckValue(False),
+        )
+
+        AccountDialog.apply_selected_manual_provider_defaults(
+            dialog,
+            overwrite=True,
+        )
+
+        self.assertEqual(dialog.imap_server.value, "outlook.office365.com")
+        self.assertEqual(dialog.smtp_server.value, "smtp-mail.outlook.com")
+        self.assertEqual(dialog.spam_mailbox.value, "Junk Email")
+        self.assertTrue(dialog.imap_ssl.value)
+        self.assertFalse(dialog.smtp_ssl.value)
+        self.assertTrue(dialog.smtp_starttls.value)
+
+    def test_manual_provider_choice_fills_google_servers(self) -> None:
+        text_control = lambda: SimpleNamespace(
+            value="",
+            GetValue=lambda: "",
+            SetValue=Mock(),
+        )
+        dialog = SimpleNamespace(
+            selected_manual_provider_id=lambda: MANUAL_PROVIDER_GOOGLE,
+            imap_server=text_control(),
+            imap_port=text_control(),
+            smtp_server=text_control(),
+            smtp_port=text_control(),
+            spam_mailbox=text_control(),
+            imap_ssl=SimpleNamespace(SetValue=Mock()),
+            smtp_ssl=SimpleNamespace(SetValue=Mock()),
+            smtp_starttls=SimpleNamespace(SetValue=Mock()),
+        )
+
+        AccountDialog.apply_selected_manual_provider_defaults(
+            dialog,
+            overwrite=True,
+        )
+
+        dialog.imap_server.SetValue.assert_called_once_with("imap.gmail.com")
+        dialog.smtp_server.SetValue.assert_called_once_with("smtp.gmail.com")
 
     def test_html_context_menu_uses_page_as_popup_owner(self) -> None:
         html_viewer = object()

@@ -39,6 +39,10 @@ $AppDir = Join-Path $ReleaseRoot "win-$Architecture\$AppName"
 $AppExe = Join-Path $AppDir "$AppName.exe"
 $PackageAppDir = Join-Path $ReleaseRoot "package-win-$Architecture\$AppName"
 $PackageAppExe = Join-Path $PackageAppDir "$AppName.exe"
+$ArabicReadme = Join-Path $ProjectRoot "installer_readme_ar.txt"
+$EnglishReadme = Join-Path $ProjectRoot "installer_readme_en.txt"
+$PackageArabicReadme = Join-Path $PackageAppDir "README_AR.txt"
+$PackageEnglishReadme = Join-Path $PackageAppDir "README_EN.txt"
 $InstallerDir = Join-Path $ReleaseRoot "installer"
 $isSigned = -not [string]::IsNullOrWhiteSpace($CertificateThumbprint)
 $buildKind = if ($isSigned) { "SIGNED" } else { "UNSIGNED" }
@@ -215,6 +219,22 @@ foreach ($file in @($AppExe, $PublishedInstaller)) {
 
 if (Test-Path -LiteralPath $PortableZip) {
     Remove-Item -LiteralPath $PortableZip -Force
+}
+Copy-Item -LiteralPath $ArabicReadme -Destination $PackageArabicReadme -Force
+Copy-Item -LiteralPath $EnglishReadme -Destination $PackageEnglishReadme -Force
+foreach ($readmePair in @(
+    @($ArabicReadme, $PackageArabicReadme),
+    @($EnglishReadme, $PackageEnglishReadme)
+)) {
+    $sourceReadmeHash = (
+        Get-FileHash -LiteralPath $readmePair[0] -Algorithm SHA256
+    ).Hash
+    $packageReadmeHash = (
+        Get-FileHash -LiteralPath $readmePair[1] -Algorithm SHA256
+    ).Hash
+    if ($sourceReadmeHash -ne $packageReadmeHash) {
+        throw "The portable package guide does not match its source file."
+    }
 }
 Compress-Archive `
     -LiteralPath $PackageAppDir `

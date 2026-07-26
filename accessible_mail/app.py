@@ -98,6 +98,34 @@ TRANSLATION_MODE_CHOICES = {
     "ترجمة داخل مستعرض الرسالة": TRANSLATION_INLINE,
     "ترجمة في نافذة مستقلة": TRANSLATION_DIALOG,
 }
+MANUAL_PROVIDER_GOOGLE = "google"
+MANUAL_PROVIDER_MICROSOFT = "microsoft"
+MANUAL_PROVIDER_CHOICES = (
+    (MANUAL_PROVIDER_GOOGLE, "Google / Gmail"),
+    (MANUAL_PROVIDER_MICROSOFT, "Microsoft / Outlook"),
+)
+MANUAL_PROVIDER_SETTINGS = {
+    MANUAL_PROVIDER_GOOGLE: {
+        "imap_server": "imap.gmail.com",
+        "imap_port": 993,
+        "imap_ssl": True,
+        "smtp_server": "smtp.gmail.com",
+        "smtp_port": 587,
+        "smtp_ssl": False,
+        "smtp_starttls": True,
+        "spam_mailbox": "",
+    },
+    MANUAL_PROVIDER_MICROSOFT: {
+        "imap_server": "outlook.office365.com",
+        "imap_port": 993,
+        "imap_ssl": True,
+        "smtp_server": "smtp-mail.outlook.com",
+        "smtp_port": 587,
+        "smtp_ssl": False,
+        "smtp_starttls": True,
+        "spam_mailbox": "Junk Email",
+    },
+}
 INLINE_GENERIC_LINK_TEXTS = (
     "اضغط هنا",
     "إضغط هنا",
@@ -606,11 +634,22 @@ class AccountDialog(wx.Dialog):
             wx.EVT_KEY_DOWN,
             self.on_account_method_key,
         )
+        self.account_method_list.Bind(
+            wx.EVT_CONTEXT_MENU,
+            self.on_account_method_context,
+        )
         center.Add(self.account_method_list, 0, wx.EXPAND | wx.BOTTOM, 10)
 
+        buttons = wx.BoxSizer(wx.HORIZONTAL)
+        ok_button = wx.Button(self.panel, label="موافق")
+        set_accessible(ok_button, "موافق لاختيار طريقة إضافة الحساب")
+        ok_button.SetDefault()
+        ok_button.Bind(wx.EVT_BUTTON, self.on_account_method_activate)
+        buttons.Add(ok_button, 0, wx.ALL, 6)
         cancel_button = wx.Button(self.panel, id=wx.ID_CANCEL, label="إلغاء")
         set_accessible(cancel_button, "إلغاء إضافة الحساب")
-        center.Add(cancel_button, 0, wx.ALIGN_CENTER | wx.TOP, 4)
+        buttons.Add(cancel_button, 0, wx.ALL, 6)
+        center.Add(buttons, 0, wx.ALIGN_CENTER)
         root.Add(center, 0, wx.ALIGN_CENTER)
         self.finish_panel(root, self.account_method_list)
 
@@ -626,6 +665,10 @@ class AccountDialog(wx.Dialog):
             self.on_account_method_activate()
             return
         event.Skip()
+
+    def on_account_method_context(self, event: wx.ContextMenuEvent) -> None:
+        self._select_context_list_item(self.account_method_list, event)
+        self.on_account_method_activate()
 
     def on_browser_method(self, _event: wx.CommandEvent) -> None:
         self.show_oauth_provider_view()
@@ -665,9 +708,18 @@ class AccountDialog(wx.Dialog):
             wx.EVT_KEY_DOWN,
             self.on_oauth_provider_key,
         )
+        self.oauth_provider_list.Bind(
+            wx.EVT_CONTEXT_MENU,
+            self.on_oauth_provider_context,
+        )
         center.Add(self.oauth_provider_list, 0, wx.EXPAND | wx.BOTTOM, 10)
 
         buttons = wx.BoxSizer(wx.HORIZONTAL)
+        ok_button = wx.Button(self.panel, label="موافق")
+        set_accessible(ok_button, "موافق لاختيار خدمة البريد")
+        ok_button.SetDefault()
+        ok_button.Bind(wx.EVT_BUTTON, self.on_oauth_provider_activate)
+        buttons.Add(ok_button, 0, wx.ALL, 6)
         back_button = wx.Button(self.panel, label="رجوع")
         set_accessible(back_button, "رجوع إلى اختيار طريقة إضافة الحساب")
         back_button.Bind(wx.EVT_BUTTON, self.on_back)
@@ -693,6 +745,10 @@ class AccountDialog(wx.Dialog):
             return
         event.Skip()
 
+    def on_oauth_provider_context(self, event: wx.ContextMenuEvent) -> None:
+        self._select_context_list_item(self.oauth_provider_list, event)
+        self.on_oauth_provider_activate()
+
     def on_oauth_provider_button(
         self,
         _event: wx.CommandEvent,
@@ -710,6 +766,29 @@ class AccountDialog(wx.Dialog):
         form_root = wx.BoxSizer(wx.VERTICAL)
         grid = wx.FlexGridSizer(cols=2, vgap=8, hgap=8)
         grid.AddGrowableCol(1, 1)
+
+        manual_provider_label = wx.StaticText(scroll, label="خدمة البريد:")
+        self.manual_provider_ids = [
+            provider_id for provider_id, _label in MANUAL_PROVIDER_CHOICES
+        ]
+        self.manual_provider = wx.Choice(
+            scroll,
+            choices=[tr(label) for _provider_id, label in MANUAL_PROVIDER_CHOICES],
+        )
+        self.manual_provider.SetSelection(
+            self.manual_provider_index_for_account(self.account)
+        )
+        set_accessible(
+            self.manual_provider,
+            "خدمة البريد",
+            "اختر Google أو Microsoft لتعبئة إعدادات الخادم المناسبة",
+        )
+        self.manual_provider.Bind(
+            wx.EVT_CHOICE,
+            self.on_manual_provider_changed,
+        )
+        grid.Add(manual_provider_label, 0, wx.ALIGN_CENTER_VERTICAL)
+        grid.Add(self.manual_provider, 1, wx.EXPAND)
 
         self.display_name = self._text(scroll, grid, "اسم الحساب:")
         self.email_address = self._text(scroll, grid, "عنوان البريد الإلكتروني:")
@@ -761,7 +840,10 @@ class AccountDialog(wx.Dialog):
         scroll.SetSizer(form_root)
         root.Add(scroll, 0, wx.ALIGN_CENTER | wx.ALL, 20)
         self._fill_manual(self.account)
-        self.finish_panel(root, self.email_address)
+        self.apply_selected_manual_provider_defaults(
+            overwrite=not bool(self.account.imap_server or self.account.smtp_server)
+        )
+        self.finish_panel(root, self.manual_provider)
 
     def on_back(self, _event: wx.CommandEvent | None = None) -> None:
         if self.mode in {"oauth2", "password"}:
@@ -788,7 +870,29 @@ class AccountDialog(wx.Dialog):
                     return
             self.on_back()
             return
+        if key_code in {wx.WXK_RETURN, wx.WXK_NUMPAD_ENTER}:
+            focus = wx.Window.FindFocus()
+            if self.mode == "method" and focus is self.account_method_list:
+                self.on_account_method_activate()
+                return
+            if self.mode == "oauth2" and focus is self.oauth_provider_list:
+                self.on_oauth_provider_activate()
+                return
         event.Skip()
+
+    @staticmethod
+    def _select_context_list_item(
+        control: wx.ListBox,
+        event: wx.ContextMenuEvent,
+    ) -> None:
+        position = event.GetPosition()
+        if position == wx.DefaultPosition:
+            return
+        hit = control.HitTest(control.ScreenToClient(position))
+        if isinstance(hit, tuple):
+            hit = hit[0]
+        if hit != wx.NOT_FOUND:
+            control.SetSelection(hit)
 
     def _text(
         self,
@@ -818,6 +922,47 @@ class AccountDialog(wx.Dialog):
         self.smtp_starttls.SetValue(account.smtp_starttls)
         self.spam_mailbox.SetValue(account.spam_mailbox)
         self.save_password.SetValue(account.save_password or not account.password)
+
+    @staticmethod
+    def manual_provider_index_for_account(account: Account) -> int:
+        email_address = account.email_address.lower()
+        server_names = f"{account.imap_server} {account.smtp_server}".lower()
+        microsoft_domains = ("@outlook.com", "@hotmail.com", "@live.com", "@msn.com")
+        if email_address.endswith(microsoft_domains) or any(
+            marker in server_names for marker in ("outlook.", "office365.")
+        ):
+            return 1
+        return 0
+
+    def selected_manual_provider_id(self) -> str:
+        selection = self.manual_provider.GetSelection()
+        if not 0 <= selection < len(self.manual_provider_ids):
+            return MANUAL_PROVIDER_GOOGLE
+        return self.manual_provider_ids[selection]
+
+    def on_manual_provider_changed(self, _event: wx.CommandEvent) -> None:
+        self.apply_selected_manual_provider_defaults(overwrite=True)
+
+    def apply_selected_manual_provider_defaults(self, overwrite: bool) -> None:
+        settings = MANUAL_PROVIDER_SETTINGS[self.selected_manual_provider_id()]
+        text_controls = {
+            "imap_server": self.imap_server,
+            "imap_port": self.imap_port,
+            "smtp_server": self.smtp_server,
+            "smtp_port": self.smtp_port,
+            "spam_mailbox": self.spam_mailbox,
+        }
+        for key, control in text_controls.items():
+            if overwrite or not control.GetValue().strip():
+                control.SetValue(str(settings[key]))
+        check_controls = {
+            "imap_ssl": self.imap_ssl,
+            "smtp_ssl": self.smtp_ssl,
+            "smtp_starttls": self.smtp_starttls,
+        }
+        for key, control in check_controls.items():
+            if overwrite:
+                control.SetValue(bool(settings[key]))
 
     def on_oauth_login(self, _event: wx.CommandEvent) -> None:
         provider_id = self.ask_oauth_provider()
@@ -954,30 +1099,7 @@ class AccountDialog(wx.Dialog):
         return account
 
     def apply_manual_defaults(self, account: Account) -> None:
-        email_address = account.email_address.lower()
-        if not self.imap_port.GetValue().strip():
-            self.imap_port.SetValue("993")
-        if not self.smtp_port.GetValue().strip():
-            self.smtp_port.SetValue("587")
-        if not self.imap_server.GetValue().strip() and email_address.endswith("@gmail.com"):
-            self.imap_server.SetValue("imap.gmail.com")
-            self.smtp_server.SetValue("smtp.gmail.com")
-            self.imap_ssl.SetValue(True)
-            self.smtp_ssl.SetValue(False)
-            self.smtp_starttls.SetValue(True)
-        if not self.imap_server.GetValue().strip() and (
-            email_address.endswith("@outlook.com")
-            or email_address.endswith("@hotmail.com")
-            or email_address.endswith("@live.com")
-            or email_address.endswith("@msn.com")
-        ):
-            self.imap_server.SetValue("outlook.office365.com")
-            self.smtp_server.SetValue("smtp-mail.outlook.com")
-            self.imap_ssl.SetValue(True)
-            self.smtp_ssl.SetValue(False)
-            self.smtp_starttls.SetValue(True)
-            if not self.spam_mailbox.GetValue().strip():
-                self.spam_mailbox.SetValue("Junk Email")
+        self.apply_selected_manual_provider_defaults(overwrite=False)
 
     def port_value(self, control: wx.TextCtrl, label: str) -> int:
         try:
@@ -1791,7 +1913,7 @@ class MailPage(wx.Panel):
         if self._multi_mode_notification_call is not None:
             self._multi_mode_notification_call.Stop()
         self._multi_mode_notification_call = wx.CallLater(
-            500,
+            300,
             self._show_multi_selection_mode_notification,
             message,
         )
@@ -4754,88 +4876,123 @@ class MainFrame(wx.Frame):
         if self.settings.language == LANGUAGE_ENGLISH:
             return f"""Power Accessible Mail
 Version: {APP_VERSION}
+Developed by Soljan.AlSharq.
+Soljan.AlSharq. is owned by Ali Al-Amir
 
-About:
-Power Accessible Mail is an email client designed for comfortable use with screen readers. It uses native Windows controls and a vertical layout for predictable keyboard navigation.
+Welcome to your email
+Power Accessible Mail is built to make reading, writing, organizing, and updating email comfortable from the keyboard. Native Windows lists and fields give screen readers predictable controls, while messages are arranged vertically so moving through your mail feels direct and familiar.
 
-Mail sections:
-- Inbox displays messages from INBOX.
-- Spam displays the detected Spam or Junk folder.
-- Sent displays messages sent by the user.
-- All Mail displays the Gmail All Mail folder when available.
+Add your account in the way that suits you
+When the application starts without an account, you can continue with Google, continue with Microsoft, sign in manually, or open the main interface without adding an account.
 
-Filtering:
-Each section can show all, starred, unread, or read messages. The Trash option loads the actual Trash folder.
+From Account options and management, choose Add account. The sign-in methods appear as a real list. Select browser sign-in or manual sign-in, then press Enter, right-click the selected item, or use the OK button beside Cancel.
 
-Multiple selection:
-In normal mode, messages appear as list items without check boxes. Press Ctrl+Shift+Space to enter multiple-selection mode and show a check box beside every message. Move with the arrow keys and press Space to check or uncheck the focused message, or click the visible check boxes with the mouse. Press Control by itself to hear the number selected, and press Escape or Ctrl+Shift+Space again to leave the mode and hide the check boxes. Entry and exit are announced after half a second. Moving above the first message or below the last message announces the list boundary. The context menu provides bulk read, star, pin, and Trash actions. Delete opens a confirmation dialog that states the message count.
+Browser sign-in opens the official Google or Microsoft consent page and never asks the application to read your browser password. Manual sign-in begins with an Email service choice. Select Google or Microsoft and the application fills the matching IMAP and SMTP settings while keeping the fields available for review. Gmail manual sign-in normally requires an app password. For Microsoft, browser sign-in is the recommended method because password-based IMAP access may be restricted by the account policy.
 
-Commands:
-- Refresh displayed content retrieves recent messages.
-- Sync all messages retrieves older messages in batches and stores them locally.
-- Load older messages retrieves one older batch.
-- Account options and management adds, reconnects, or removes an account.
-- Compose email opens a new message window.
-- Settings changes the language, message viewer, translation mode, and appearance.
+Your mail sections
+Inbox reads the real Inbox folder. Spam reads Spam or Junk. Sent holds the messages you sent. All Mail opens Gmail All Mail when it is available, which can reveal recent messages that do not carry the Inbox label.
 
-Message viewer:
-The HTML viewer exposes links and buttons as real page elements. Press Ctrl+Enter to move between the message and item viewers, and Ctrl+Space to return to the message list. The simple viewer presents the message as plain text.
+Inside each section, the filter lets you show all messages, starred messages, unread messages, read messages, or the real Trash folder. Press F5 whenever you want the newest messages. Synchronize all messages retrieves older mail in batches, and Load older messages adds one older batch from the current section.
 
-Translation:
-Ctrl+T translates the selected message to the application language. Translation can replace the message text directly in either viewer or open in a separate window, according to Settings. Translation requires an internet connection and sends the selected message text to Google Translate only when requested by the user.
+Read each message in the viewer you prefer
+The HTML viewer keeps links and buttons in their natural positions as real page elements. Use Tab or your screen reader's browsing commands to reach them, then press Enter or Space to activate them. Press Ctrl+Enter to move between the message viewer and the item viewer. Press Ctrl+Space to return directly to the message list.
 
-Updates:
-The application checks GitHub Releases after startup and can also check from Help, Check for updates. An available version opens an accessible dialog with Update now and Close buttons. Update now opens an internal progress window showing the version, release date, progress bar, and percentage. The application downloads the correct installer, verifies its SHA-256 digest, starts direct update mode, and restarts without opening a browser.
+The easy viewer removes repeated blank lines and presents a clean text version. Its item viewer collects links, buttons, and attachments under clear names. Selecting a message does not mark it as read automatically; press Space in the normal message list to switch the focused message between read and unread.
 
-Privacy and security:
-- Browser sign-in uses OAuth.
-- Locally cached messages and tokens are protected with Windows DPAPI for the current Windows account.
-- Accounts and messages are not included in distribution packages.
-- Removing an account removes its locally stored application data.
+Work with several messages at once
+In normal mode, messages are list items without check boxes. Press Ctrl+Shift+Space to enter multiple-selection mode, where every message becomes a check box. Move with the arrow keys and press Space to check or uncheck a message, or use the mouse.
+
+The application announces entry into or exit from this mode after 300 milliseconds. Press Control by itself to hear the selected count. Press Escape or Ctrl+Shift+Space again to leave the mode. Trying to move above the first item or below the last item announces the boundary. The context menu provides suitable bulk read, star, pin, and Trash commands. Delete asks for confirmation and states the number of affected messages.
+
+Write and act without leaving the keyboard
+Compose email opens a complete message window. Message actions include Reply, Star, Translate, Pin to top, move to the provider's Trash, and save attachments whenever they are available. Open the actions menu from its button or with Shift+F10.
+
+Translation when you need it
+Ctrl+T translates the current message into the application language. In Settings, choose whether the translation replaces the content inside the HTML or easy viewer, or opens in a separate window. Translation becomes available only while you are inside the message viewer. It requires an internet connection and sends the selected message text to Google Translate only when you request it.
+
+Make the application yours
+Settings lets you choose Arabic or English, the HTML or easy message viewer, translation inside the page or in a separate window, and light or dark appearance. Your choices are saved for the next launch.
+
+Updates without opening a browser
+The application checks GitHub Releases after startup, and you can check manually from Help, Check for updates. When a release is available, Update now opens an internal progress window showing its version, release date, progress bar, and percentage. The correct installer is downloaded, its SHA-256 digest is verified, and the direct update starts before the application restarts.
+
+Useful keyboard commands
+Ctrl+A opens account options and management.
+Ctrl+N composes a new message.
+Ctrl+R replies to the focused message.
+Ctrl+T translates the current message.
+F5 refreshes messages.
+F1 opens this guide.
+Ctrl+Space returns to the message list.
+Ctrl+Enter switches between message and item viewers.
+Shift+F10 opens the context and actions menu.
+Alt+F4 closes the application.
+
+Your privacy stays part of the design
+OAuth access begins only after your approval on the provider's official page. Locally cached messages, tokens, and saved credentials are protected by Windows DPAPI for the current Windows account. Distribution packages do not contain user accounts or messages. Removing an account from the application also removes its locally stored application data.
+
+Power Accessible Mail
+An accessible email experience developed by Soljan.AlSharq.
 """
         return f"""Power Accessible Mail
 الإصدار: {APP_VERSION}
+تطوير صولجان الشرق
+شركة صولجان الشرق تابعة للمالك علي الأمير
 
-فكرة البرنامج:
-برنامج بريد إلكتروني مصمم ليكون مريحا مع قارئات الشاشة. الواجهة تعتمد على قوائم وحقول Windows الأصلية، وتعرض الرسائل بشكل عمودي حتى يستطيع المستخدم التنقل بالسهم للأعلى والأسفل داخل الرسائل والقوائم.
+مرحبا بك في بريدك
+Power Accessible Mail برنامج صمم ليجعل قراءة البريد وكتابته وتنظيمه وتحديثه تجربة مريحة من لوحة المفاتيح. يعتمد على قوائم وحقول Windows الأصلية حتى يجد قارئ الشاشة عناصر واضحة ومتوقعة، ويرتب الرسائل عموديا لتتنقل بينها بالسهم للأعلى والأسفل من دون تعقيد.
 
-الأقسام الرئيسية:
-- الرسائل الواردة: تعرض رسائل INBOX.
-- الرسائل غير المرغوب بها: تعرض مجلد Spam أو Junk عند اكتشافه.
-- الرسائل المرسلة: تعرض الرسائل التي أرسلها المستخدم.
-- كل الرسائل: تعرض صندوق Gmail "كل البريد" عند توفره، وهو مفيد للرسائل الحديثة التي لا تظهر في الوارد.
+أضف حسابك بالطريقة التي تناسبك
+عندما يفتح البرنامج من دون حساب تستطيع المتابعة مع Google أو Microsoft أو التسجيل يدويا أو دخول الواجهة الرئيسية من دون إضافة حساب.
 
-التصنيف:
-كل قسم يحتوي على صندوق تصنيف يتيح عرض الكل، أو الرسائل المميزة بنجمة، أو غير المقروءة، أو المقروءة. خيار سلة المحذوفات في نهاية التصنيف يفحص صندوق السلة الحقيقي في Gmail أو IMAP ويعرض الرسائل الموجودة فيه.
+من خيارات الحسابات وإدارتها اختر إضافة حساب. تظهر طريقتا التسجيل داخل قائمة حقيقية. حدد التسجيل عبر المتصفح أو التسجيل اليدوي ثم اضغط Enter أو انقر على العنصر بالنقر الأيمن أو استخدم زر موافق الموجود بجوار إلغاء.
 
-التحديد المتعدد:
-في الوضع العادي تظهر الرسائل كعناصر قائمة من دون مربعات اختيار. اضغط Ctrl+Shift+Space للدخول إلى وضع التحديد المتعدد وإظهار مربع اختيار بجانب كل رسالة. تنقل بالأسهم واضغط Space لتحديد مربع الرسالة الحالية أو إلغاء تحديده، أو انقر على المربعات الظاهرة بالفأرة. اضغط Control وحده لسماع عدد الرسائل المحددة، واضغط Escape أو Ctrl+Shift+Space مرة أخرى للخروج من الوضع وإخفاء المربعات. يُنطق الدخول والخروج بعد نصف ثانية، كما يُنطق الوصول إلى بداية قائمة الرسائل أو نهايتها عند محاولة تجاوزها. تعرض قائمة السياق إجراءات القراءة والنجمة والتثبيت والحذف المناسبة للمجموعة، ويعرض زر Delete نافذة تأكيد تذكر عدد الرسائل.
+التسجيل عبر المتصفح يفتح صفحة Google أو Microsoft الرسمية ولا يطلب من البرنامج قراءة كلمة مرور المتصفح. أما التسجيل اليدوي فيبدأ بصندوق خدمة البريد. اختر Google أو Microsoft ليملأ البرنامج إعدادات IMAP وSMTP المناسبة، وتبقى الحقول أمامك للمراجعة. يحتاج Gmail عادة إلى كلمة مرور تطبيق عند التسجيل اليدوي، وينصح باستخدام التسجيل عبر المتصفح مع Microsoft لأن سياسة الحساب قد تمنع الدخول التقليدي بكلمة المرور.
 
-الأوامر الأساسية:
-- تحديث المحتوى المعروض: يجلب أحدث الرسائل من الخادم مع عرض نسبة التقدم.
-- مزامنة كل الرسائل: يجلب الرسائل القديمة على دفعات ويحفظها محليا.
-- تحميل رسائل أقدم: يجلب دفعة واحدة أقدم من القسم الحالي.
-- خيارات الحسابات وإدارتها: يفتح قائمة لإضافة حساب، أو إعادة تسجيل الدخول، أو إزالة حساب من البرنامج.
-- إنشاء بريد إلكتروني: يفتح نافذة كتابة رسالة جديدة.
-- الإعدادات: يفتح نافذة لاختيار لغة البرنامج، ونوع مستعرض الرسائل، والوضع الشكلي الفاتح أو المظلم.
+أقسام بريدك أمامك
+الرسائل الواردة تقرأ صندوق الوارد الحقيقي. الرسائل غير المرغوب بها تقرأ Spam أو Junk. الرسائل المرسلة تعرض ما أرسلته. قسم كل الرسائل يفتح صندوق كل البريد في Gmail عند توفره، وهو مفيد للرسائل الحديثة التي لا تحمل تصنيف الوارد.
 
-حالة القراءة:
-اختيار الرسالة لا يجعلها مقروءة تلقائيا. لتغيير التصنيف اضغط Space فوق الرسالة المحددة، فيتم تبديلها بين مقروءة وغير مقروءة.
+داخل كل قسم تستطيع عرض جميع الرسائل أو المميزة بنجمة أو غير المقروءة أو المقروءة أو الرسائل الموجودة فعليا في سلة المحذوفات. اضغط F5 متى أردت جلب الأحدث. مزامنة كل الرسائل تجلب البريد القديم على دفعات، وتحميل رسائل أقدم يضيف دفعة واحدة إلى القسم الحالي.
 
-العناصر:
-بعد اختيار رسالة، يعرض مستعرض نص الرسالة نسخة HTML مبسطة وآمنة تجعل الروابط والأزرار عناصر حقيقية لقارئ الشاشة. في وضع HTML يكون مستعرض العناصر مخفيا افتراضيا. استخدم Ctrl+Enter للتبديل بين مستعرض الرسالة ومستعرض العناصر، واستخدم Ctrl+Space للرجوع إلى قائمة الرسائل. استخدم Tab أو أوامر قارئ الشاشة للتنقل بين الروابط والأزرار، ثم اضغط Enter أو Space لفتح العنصر. إذا اخترت المستعرض السهل من الإعدادات فسيظهر مستعرض العناصر كما كان، ويعرض الروابط والأزرار والمرفقات بعناوين واضحة مثل رابط 1 أو زر 1 أو مرفق 1.
+اقرأ الرسالة بالمستعرض الذي يناسبك
+مستعرض HTML يبقي الروابط والأزرار في مواضعها الطبيعية كعناصر حقيقية. استخدم Tab أو أوامر التصفح في قارئ الشاشة للوصول إليها ثم Enter أو Space لتفعيلها. ينقلك Ctrl+Enter بين مستعرض الرسالة ومستعرض العناصر، ويعيدك Ctrl+Space مباشرة إلى قائمة الرسائل.
 
-إجراءات الرسالة:
-زر إجراءات الرسالة يفتح قائمة تحتوي على رد، ترجمة، حفظ المرفقات. الترجمة تعرض ترجمة Google لنص الرسالة داخل نافذة نصية بسيطة تحتوي على مستعرض النص وزر إغلاق واحد، وتتطلب اتصالا بالإنترنت.
+المستعرض السهل ينظف تكرار الأسطر الخالية ويعرض نصا مرتبا. ويجمع مستعرض العناصر الروابط والأزرار والمرفقات تحت أسماء واضحة. مجرد اختيار الرسالة لا يجعلها مقروءة؛ اضغط Space في قائمة الرسائل العادية للتبديل بين مقروءة وغير مقروءة.
 
-الأمان والخصوصية:
-- تسجيل الدخول عبر المتصفح يستخدم OAuth، لذلك لا يحتاج المستخدم إلى كتابة كلمة مرور Gmail داخل البرنامج.
-- الرسائل التي تُحفظ محليا تُخزن داخل كاش مشفر باستخدام Windows DPAPI لحساب Windows الحالي.
-- ملف الكاش يوجد داخل مجلد بيانات المستخدم، ولا توضع الحسابات أو الرسائل داخل نسخة التوزيع.
-- لا يقرأ البرنامج كلمات مرور المتصفح ولا يستطيع الوصول إلى حسابات المستخدم إلا بعد موافقته في صفحة تسجيل الدخول الرسمية.
+تعامل مع عدة رسائل في خطوة واحدة
+في الوضع العادي تظهر الرسائل كعناصر قائمة من دون مربعات اختيار. اضغط Ctrl+Shift+Space للدخول إلى وضع التحديد المتعدد، وعندها تتحول الرسائل إلى مربعات اختيار. تنقل بالأسهم واضغط Space لتحديد الرسالة أو إلغاء تحديدها، أو استخدم الفأرة.
 
-التحديث:
-يفحص البرنامج GitHub Releases بحثا عن إصدار أحدث بعد بدء التشغيل، ويمكن إجراء الفحص يدويا من قائمة المساعدة. عند توفر تحديث تظهر نافذة فيها زرا تحديث الآن وإغلاق. يفتح زر تحديث الآن نافذة داخلية تعرض رقم الإصدار وتاريخ الإطلاق وشريط التقدم والنسبة المئوية. ينزل البرنامج المثبت الصحيح ويتحقق من بصمة SHA-256 ثم يبدأ التحديث المباشر ويعيد تشغيل البرنامج من دون فتح المتصفح.
+ينطق البرنامج الدخول إلى هذا الوضع أو الخروج منه بعد 300 مللي ثانية. اضغط Control وحده لسماع عدد الرسائل المحددة. اخرج بالضغط على Escape أو Ctrl+Shift+Space مرة أخرى. وعند محاولة تجاوز أول عنصر أو آخر عنصر ينطق البرنامج بداية القائمة أو نهايتها. تعرض قائمة السياق أوامر القراءة والنجمة والتثبيت والحذف المناسبة للمجموعة، ويطلب Delete تأكيدا يذكر عدد الرسائل.
+
+اكتب ونفذ الأوامر من لوحة المفاتيح
+إنشاء بريد إلكتروني يفتح نافذة كاملة لكتابة رسالتك. وتشمل إجراءات الرسالة الرد والتمييز بنجمة والترجمة والتثبيت في الأعلى والنقل إلى سلة مزود البريد وحفظ المرفقات عند توفرها. افتح القائمة من زر الإجراءات أو باستخدام Shift+F10.
+
+ترجمة في مكانها أو في نافذة مستقلة
+يترجم Ctrl+T الرسالة الحالية إلى لغة البرنامج. ومن الإعدادات تستطيع اختيار عرض الترجمة مباشرة داخل مستعرض HTML أو المستعرض السهل، أو فتحها في نافذة مستقلة. لا تتفعل الترجمة إلا وأنت داخل مستعرض الرسالة. تحتاج الميزة إلى الإنترنت ولا يرسل النص إلى Google Translate إلا عندما تطلب الترجمة.
+
+اجعل البرنامج أقرب إلى طريقتك
+تتيح الإعدادات اختيار العربية أو الإنجليزية، ومستعرض HTML أو المستعرض السهل، والترجمة داخل الصفحة أو في نافذة مستقلة، والوضع الفاتح أو المظلم. يحفظ البرنامج اختياراتك ليستخدمها عند التشغيل التالي.
+
+تحديث من داخل البرنامج
+يفحص البرنامج GitHub Releases بعد التشغيل، ويمكنك الفحص يدويا من قائمة المساعدة ثم تحديث البرنامج. عند توفر إصدار جديد يفتح زر تحديث الآن نافذة تعرض الإصدار وتاريخ إطلاقه وشريط التقدم والنسبة المئوية. ينزل البرنامج المثبت الصحيح ويتحقق من بصمة SHA-256 ثم يبدأ التحديث المباشر ويعيد تشغيل التطبيق من دون فتح المتصفح.
+
+اختصارات مفيدة
+Ctrl+A يفتح خيارات الحسابات وإدارتها.
+Ctrl+N ينشئ رسالة جديدة.
+Ctrl+R يرد على الرسالة المحددة.
+Ctrl+T يترجم الرسالة الحالية.
+F5 يحدث الرسائل.
+F1 يفتح هذا الدليل.
+Ctrl+Space يرجع إلى قائمة الرسائل.
+Ctrl+Enter يتنقل بين مستعرض الرسالة ومستعرض العناصر.
+Shift+F10 يفتح قائمة السياق والإجراءات.
+Alt+F4 يغلق البرنامج.
+
+خصوصيتك جزء من تصميم البرنامج
+لا يبدأ وصول OAuth إلا بعد موافقتك في الصفحة الرسمية لمزود البريد. يحمي Windows DPAPI الرسائل المخزنة محليا والرموز وبيانات الدخول المحفوظة لحساب Windows الحالي. لا تحتوي ملفات التوزيع على حسابات المستخدمين أو رسائلهم. وعند إزالة حساب من البرنامج تزال بياناته المحلية التابعة للتطبيق.
+
+Power Accessible Mail
+تجربة بريد إلكتروني ميسرة من تطوير صولجان الشرق
 """
 
     def on_check_updates(self, _event: wx.Event) -> None:
