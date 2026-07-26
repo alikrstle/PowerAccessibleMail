@@ -5,7 +5,7 @@
 - تحويل اختيارات طريقة إضافة الحساب وخدمات OAuth إلى قوائم أصلية متوافقة مع قارئ الشاشة، مع تفعيل العنصر بواسطة Enter أو النقر الأيمن أو زر موافق.
 - إضافة زر الاستمرار مع Microsoft إلى شاشة التشغيل الأول.
 - جعل خدمة البريد أول عنصر في التسجيل اليدوي، مع اختيار Google أو Microsoft وتعبئة خوادم IMAP وSMTP المناسبة.
-- تقليل مهلة نطق الدخول والخروج من وضع التحديد المتعدد إلى 300 مللي ثانية.
+- تقليل مهلة نطق الدخول والخروج من وضع التحديد المتعدد ونطق عدد الرسائل المحددة إلى 150 مللي ثانية.
 - إعادة كتابة دليل المستخدم ونصوص المثبت بالعربية والإنجليزية بأسلوب مباشر، وإضافة الدليلين إلى النسخ المحمولة.
 - إضافة محدث داخلي ينزل المثبت الصحيح من GitHub من دون فتح المتصفح.
 - عرض رقم الإصدار وتاريخ الإطلاق وشريط التقدم والنسبة المئوية أثناء التنزيل.
@@ -20,7 +20,7 @@
 - Converted account-method and OAuth-service choices to native screen-reader-accessible lists with Enter, right-click, and OK-button activation.
 - Added Continue with Microsoft to the first-run sign-in screen.
 - Made Email service the first manual-sign-in field, with Google and Microsoft choices that fill the matching IMAP and SMTP settings.
-- Reduced multiple-selection entry and exit announcements to 300 milliseconds.
+- Reduced multiple-selection entry, exit, and selected-message-count announcements to 150 milliseconds.
 - Rewrote the Arabic and English user guides and installer text in a direct narrative style, and included both guides in portable packages.
 - Added an internal updater that downloads the correct GitHub installer without opening a browser.
 - Shows the version, release date, progress bar, and percentage while downloading.

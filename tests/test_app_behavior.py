@@ -16,6 +16,7 @@ from accessible_mail.app import (
     FILTER_STARRED,
     MANUAL_PROVIDER_GOOGLE,
     MANUAL_PROVIDER_MICROSOFT,
+    MULTI_SELECTION_ANNOUNCEMENT_DELAY_MS,
     MailPage,
     MainFrame,
     UpdateAvailableDialog,
@@ -298,7 +299,7 @@ class AppBehaviorTests(unittest.TestCase):
         event.Skip.assert_called_once_with()
 
     @patch("accessible_mail.app.wx.CallLater")
-    def test_mode_change_notification_is_delayed_300_milliseconds(
+    def test_mode_change_notification_is_delayed_150_milliseconds(
         self,
         call_later: Mock,
     ) -> None:
@@ -310,10 +311,29 @@ class AppBehaviorTests(unittest.TestCase):
         MailPage.schedule_multi_selection_mode_notification(page, "تم التفعيل")
 
         call_later.assert_called_once_with(
-            300,
+            MULTI_SELECTION_ANNOUNCEMENT_DELAY_MS,
             page._show_multi_selection_mode_notification,
             "تم التفعيل",
         )
+        self.assertEqual(MULTI_SELECTION_ANNOUNCEMENT_DELAY_MS, 150)
+
+    @patch("accessible_mail.app.wx.CallLater")
+    def test_selection_count_is_delayed_150_milliseconds(
+        self,
+        call_later: Mock,
+    ) -> None:
+        page = SimpleNamespace(
+            _selection_count_announce_call=None,
+            _announce_scheduled_selection_count=Mock(),
+        )
+
+        MailPage.schedule_selection_count_announcement(page)
+
+        call_later.assert_called_once_with(
+            MULTI_SELECTION_ANNOUNCEMENT_DELAY_MS,
+            page._announce_scheduled_selection_count,
+        )
+        self.assertEqual(MULTI_SELECTION_ANNOUNCEMENT_DELAY_MS, 150)
 
     @patch("accessible_mail.app.wx.GetTopLevelParent")
     def test_mode_change_notification_uses_unified_in_app_notification(

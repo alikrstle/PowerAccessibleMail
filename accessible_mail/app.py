@@ -69,6 +69,7 @@ from .updater import (
 INITIAL_MESSAGE_LIMIT = 50
 MAX_MEMORY_MESSAGE_CONTENTS = 20
 MESSAGE_SELECTION_DELAY_MS = 140
+MULTI_SELECTION_ANNOUNCEMENT_DELAY_MS = 150
 FILTER_ALL = "الكل"
 FILTER_STARRED = "الرسائل المميزة بنجمة"
 FILTER_UNREAD = "غير مقروءة"
@@ -1920,7 +1921,7 @@ class MailPage(wx.Panel):
         if self._selection_count_announce_call is not None:
             self._selection_count_announce_call.Stop()
         self._selection_count_announce_call = wx.CallLater(
-            250,
+            MULTI_SELECTION_ANNOUNCEMENT_DELAY_MS,
             self._announce_scheduled_selection_count,
         )
 
@@ -1933,7 +1934,7 @@ class MailPage(wx.Panel):
         if self._multi_mode_notification_call is not None:
             self._multi_mode_notification_call.Stop()
         self._multi_mode_notification_call = wx.CallLater(
-            300,
+            MULTI_SELECTION_ANNOUNCEMENT_DELAY_MS,
             self._show_multi_selection_mode_notification,
             message,
         )
@@ -4955,7 +4956,7 @@ The easy viewer removes repeated blank lines and presents a clean text version. 
 Work with several messages at once
 In normal mode, messages are list items without check boxes. Press Ctrl+Shift+Space to enter multiple-selection mode, where every message becomes a check box. Move with the arrow keys and press Space to check or uncheck a message, or use the mouse.
 
-The application announces entry into or exit from this mode after 300 milliseconds. Press Control by itself to hear the selected count. Press Escape or Ctrl+Shift+Space again to leave the mode. Trying to move above the first item or below the last item announces the boundary. The context menu provides suitable bulk read, star, pin, and Trash commands. Delete asks for confirmation and states the number of affected messages.
+The application announces entry into or exit from this mode after 150 milliseconds. Press Control by itself to hear the selected count after the same delay. Press Escape or Ctrl+Shift+Space again to leave the mode. Trying to move above the first item or below the last item announces the boundary. The context menu provides suitable bulk read, star, pin, and Trash commands. Delete asks for confirmation and states the number of affected messages.
 
 Write and act without leaving the keyboard
 Compose email opens a complete message window. Message actions include Reply, Star, Translate, Pin to top, move to the provider's Trash, and save attachments whenever they are available. Open the actions menu from its button or with Shift+F10.
@@ -5015,7 +5016,7 @@ Power Accessible Mail برنامج صمم ليجعل قراءة البريد و�
 تعامل مع عدة رسائل في خطوة واحدة
 في الوضع العادي تظهر الرسائل كعناصر قائمة من دون مربعات اختيار. اضغط Ctrl+Shift+Space للدخول إلى وضع التحديد المتعدد، وعندها تتحول الرسائل إلى مربعات اختيار. تنقل بالأسهم واضغط Space لتحديد الرسالة أو إلغاء تحديدها، أو استخدم الفأرة.
 
-ينطق البرنامج الدخول إلى هذا الوضع أو الخروج منه بعد 300 مللي ثانية. اضغط Control وحده لسماع عدد الرسائل المحددة. اخرج بالضغط على Escape أو Ctrl+Shift+Space مرة أخرى. وعند محاولة تجاوز أول عنصر أو آخر عنصر ينطق البرنامج بداية القائمة أو نهايتها. تعرض قائمة السياق أوامر القراءة والنجمة والتثبيت والحذف المناسبة للمجموعة، ويطلب Delete تأكيدا يذكر عدد الرسائل.
+ينطق البرنامج الدخول إلى هذا الوضع أو الخروج منه بعد 150 مللي ثانية. اضغط Control وحده لسماع عدد الرسائل المحددة بعد المهلة نفسها. اخرج بالضغط على Escape أو Ctrl+Shift+Space مرة أخرى. وعند محاولة تجاوز أول عنصر أو آخر عنصر ينطق البرنامج بداية القائمة أو نهايتها. تعرض قائمة السياق أوامر القراءة والنجمة والتثبيت والحذف المناسبة للمجموعة، ويطلب Delete تأكيدا يذكر عدد الرسائل.
 
 اكتب ونفذ الأوامر من لوحة المفاتيح
 إنشاء بريد إلكتروني يفتح نافذة كاملة لكتابة رسالتك. وتشمل إجراءات الرسالة الرد والتمييز بنجمة والترجمة والتثبيت في الأعلى والنقل إلى سلة مزود البريد وحفظ المرفقات عند توفرها. افتح القائمة من زر الإجراءات أو باستخدام Shift+F10.
