@@ -23,29 +23,6 @@ LOCAL_CALLBACK_PORTS = range(8765, 8785)
 
 
 OAUTH_PROVIDERS: dict[str, dict[str, Any]] = {
-    "google": {
-        "name": "Google / Gmail",
-        "authorization_endpoint": "https://accounts.google.com/o/oauth2/v2/auth",
-        "token_endpoint": "https://oauth2.googleapis.com/token",
-        "scopes": [
-            "openid",
-            "email",
-            "profile",
-            "https://mail.google.com/",
-        ],
-        "extra_authorize": {
-            "access_type": "offline",
-            "prompt": "consent select_account",
-        },
-        "imap_server": "imap.gmail.com",
-        "imap_port": 993,
-        "imap_ssl": True,
-        "smtp_server": "smtp.gmail.com",
-        "smtp_port": 587,
-        "smtp_ssl": False,
-        "smtp_starttls": True,
-        "spam_mailbox": "",
-    },
     "google_gmail_api": {
         "name": "Google / Gmail",
         "authorization_endpoint": "https://accounts.google.com/o/oauth2/v2/auth",

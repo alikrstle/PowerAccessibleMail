@@ -201,10 +201,6 @@ def oauth_clients_paths() -> list[Path]:
 
 def load_oauth_clients() -> dict[str, dict[str, str]]:
     clients: dict[str, dict[str, str]] = {
-        "google": {
-            "client_id": os.environ.get("ACCESSIBLE_MAIL_GOOGLE_CLIENT_ID", ""),
-            "client_secret": os.environ.get("ACCESSIBLE_MAIL_GOOGLE_CLIENT_SECRET", ""),
-        },
         "google_gmail_api": {
             "client_id": os.environ.get("ACCESSIBLE_MAIL_GOOGLE_GMAIL_API_CLIENT_ID", ""),
             "client_secret": os.environ.get("ACCESSIBLE_MAIL_GOOGLE_GMAIL_API_CLIENT_SECRET", ""),
@@ -224,9 +220,9 @@ def load_oauth_clients() -> dict[str, dict[str, str]]:
         if not isinstance(payload, dict):
             continue
         for provider_id, values in payload.items():
-            if not isinstance(values, dict):
+            if provider_id not in clients or not isinstance(values, dict):
                 continue
-            current = clients.setdefault(provider_id, {})
+            current = clients[provider_id]
             for key in ["client_id", "client_secret"]:
                 value = values.get(key)
                 if isinstance(value, str) and value.strip():
@@ -253,6 +249,13 @@ def load_accounts() -> list[Account]:
                     token = unprotect_secret(protected_token)
                     if token:
                         setattr(account, field_name, token)
+            if account.oauth_provider == "google":
+                account.oauth_provider = "google_gmail_api"
+                account.oauth_client_id = ""
+                account.oauth_client_secret = ""
+                account.oauth_access_token = ""
+                account.oauth_refresh_token = ""
+                account.oauth_token_expiry = 0.0
             accounts.append(account)
     return accounts
 

@@ -104,6 +104,9 @@ if ($unexpectedOAuthKeys.Count -gt 0 -or
 if ([string]::IsNullOrWhiteSpace([string]$oauthConfig.google_gmail_api.client_id)) {
     throw "The Google Gmail API client_id is required."
 }
+if ([string]::IsNullOrWhiteSpace([string]$oauthConfig.microsoft.client_id)) {
+    throw "The Microsoft client_id is required."
+}
 
 foreach ($directory in @($BuildRoot, $DistRoot, $ReleaseDir, $PackageDir)) {
     Remove-ProjectDirectory -Path $directory
@@ -169,6 +172,9 @@ if ($bundledOAuthKeys.Count -ne 2 -or
     $bundledOAuthKeys -notcontains "microsoft" -or
     [string]::IsNullOrWhiteSpace(
         [string]$bundledOAuthConfig.google_gmail_api.client_id
+    ) -or
+    [string]::IsNullOrWhiteSpace(
+        [string]$bundledOAuthConfig.microsoft.client_id
     )) {
     throw "The bundled OAuth file is not the expected unified configuration."
 }

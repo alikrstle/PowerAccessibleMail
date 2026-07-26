@@ -141,7 +141,13 @@ $bundledOAuthConfig = Get-Content -LiteralPath $bundledOAuth[0].FullName -Raw |
 $bundledOAuthKeys = @($bundledOAuthConfig.PSObject.Properties.Name)
 if ($bundledOAuthKeys.Count -ne 2 -or
     $bundledOAuthKeys -notcontains "google_gmail_api" -or
-    $bundledOAuthKeys -notcontains "microsoft") {
+    $bundledOAuthKeys -notcontains "microsoft" -or
+    [string]::IsNullOrWhiteSpace(
+        [string]$bundledOAuthConfig.google_gmail_api.client_id
+    ) -or
+    [string]::IsNullOrWhiteSpace(
+        [string]$bundledOAuthConfig.microsoft.client_id
+    )) {
     throw "The release does not contain the unified OAuth configuration."
 }
 

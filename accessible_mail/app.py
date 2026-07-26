@@ -3503,7 +3503,7 @@ class MainFrame(wx.Frame):
                 self,
             )
             return
-        provider_id = account.oauth_provider or "google"
+        provider_id = account.oauth_provider or "google_gmail_api"
         oauth_clients = load_oauth_clients()
         provider_client = oauth_clients.get(provider_id, {})
         client_id = provider_client.get("client_id", "") or account.oauth_client_id

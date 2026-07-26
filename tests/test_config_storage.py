@@ -21,6 +21,38 @@ from accessible_mail.models import Account
 
 
 class ConfigStorageTests(unittest.TestCase):
+    def test_legacy_full_google_account_requires_gmail_api_reauthentication(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "accounts.json"
+            path.write_text(
+                json.dumps(
+                    [
+                        {
+                            "email_address": "person@gmail.com",
+                            "oauth_provider": "google",
+                            "oauth_client_id": "obsolete-client",
+                            "oauth_client_secret": "obsolete-secret",
+                            "oauth_access_token": "obsolete-access",
+                            "oauth_refresh_token": "obsolete-refresh",
+                            "oauth_token_expiry": 9999999999,
+                        }
+                    ]
+                ),
+                encoding="utf-8",
+            )
+
+            with patch("accessible_mail.config.accounts_path", return_value=path):
+                accounts = load_accounts()
+
+        self.assertEqual(len(accounts), 1)
+        account = accounts[0]
+        self.assertEqual(account.oauth_provider, "google_gmail_api")
+        self.assertEqual(account.oauth_client_id, "")
+        self.assertEqual(account.oauth_client_secret, "")
+        self.assertEqual(account.oauth_access_token, "")
+        self.assertEqual(account.oauth_refresh_token, "")
+        self.assertEqual(account.oauth_token_expiry, 0.0)
+
     def test_limited_profile_accounts_are_merged_into_unified_profile(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             appdata = Path(directory)

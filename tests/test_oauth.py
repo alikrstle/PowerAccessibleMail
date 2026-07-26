@@ -3,6 +3,7 @@ from __future__ import annotations
 import unittest
 
 from accessible_mail.oauth import (
+    OAUTH_PROVIDERS,
     available_provider_ids,
     google_provider_id,
     oauth_callback_error_message,
@@ -56,6 +57,7 @@ class OAuthErrorTests(unittest.TestCase):
         )
         self.assertEqual(provider_id_from_name("Google / Gmail"), "google_gmail_api")
         self.assertEqual(google_provider_id(), "google_gmail_api")
+        self.assertNotIn("google", OAUTH_PROVIDERS)
 
 
 if __name__ == "__main__":

@@ -44,7 +44,7 @@ class OAuthClientConfigTests(unittest.TestCase):
         self.assertEqual(path.parent.name, "PowerAccessibleMail")
         self.assertEqual(path.name, "settings.json")
 
-    def test_gmail_api_credentials_do_not_fall_back_to_full_gmail_env(self) -> None:
+    def test_legacy_full_gmail_environment_is_ignored(self) -> None:
         env = {
             "ACCESSIBLE_MAIL_GOOGLE_CLIENT_ID": "full-client-id",
             "ACCESSIBLE_MAIL_GOOGLE_CLIENT_SECRET": "full-client-secret",
@@ -54,12 +54,11 @@ class OAuthClientConfigTests(unittest.TestCase):
             with patch.object(config, "oauth_clients_paths", return_value=[]):
                 clients = config.load_oauth_clients()
 
-        self.assertEqual(clients["google"]["client_id"], "full-client-id")
-        self.assertEqual(clients["google"]["client_secret"], "full-client-secret")
+        self.assertEqual(set(clients), {"google_gmail_api", "microsoft"})
         self.assertEqual(clients["google_gmail_api"]["client_id"], "")
         self.assertEqual(clients["google_gmail_api"]["client_secret"], "")
 
-    def test_gmail_api_credentials_use_separate_env_names(self) -> None:
+    def test_gmail_api_credentials_use_unified_env_names(self) -> None:
         env = {
             "ACCESSIBLE_MAIL_GOOGLE_CLIENT_ID": "full-client-id",
             "ACCESSIBLE_MAIL_GOOGLE_CLIENT_SECRET": "full-client-secret",
@@ -71,12 +70,11 @@ class OAuthClientConfigTests(unittest.TestCase):
             with patch.object(config, "oauth_clients_paths", return_value=[]):
                 clients = config.load_oauth_clients()
 
-        self.assertEqual(clients["google"]["client_id"], "full-client-id")
-        self.assertEqual(clients["google"]["client_secret"], "full-client-secret")
+        self.assertNotIn("google", clients)
         self.assertEqual(clients["google_gmail_api"]["client_id"], "limited-client-id")
         self.assertEqual(clients["google_gmail_api"]["client_secret"], "limited-client-secret")
 
-    def test_explicit_edition_file_excludes_shared_root_credentials(self) -> None:
+    def test_explicit_oauth_file_ignores_legacy_full_google_credentials(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:
             root = Path(temporary_directory)
             explicit_file = root / "limited.json"
@@ -86,7 +84,8 @@ class OAuthClientConfigTests(unittest.TestCase):
                         "google_gmail_api": {
                             "client_id": "limited-file-id",
                             "client_secret": "limited-file-secret",
-                        }
+                        },
+                        "google": {"client_id": "obsolete-full-id"},
                     }
                 ),
                 encoding="utf-8",
@@ -109,8 +108,26 @@ class OAuthClientConfigTests(unittest.TestCase):
                         clients = config.load_oauth_clients()
 
         self.assertNotIn((root / "oauth_clients.json").resolve(), paths)
-        self.assertEqual(clients["google"]["client_id"], "")
+        self.assertNotIn("google", clients)
         self.assertEqual(clients["google_gmail_api"]["client_id"], "limited-file-id")
+
+    def test_build_requires_both_unified_oauth_client_ids(self) -> None:
+        project_root = Path(__file__).resolve().parents[1]
+        app_build = (project_root / "build_power_accessible_mail.ps1").read_text(
+            encoding="utf-8"
+        )
+        release_build = (
+            project_root / "build_release_power_accessible_mail.ps1"
+        ).read_text(encoding="utf-8")
+
+        for source in (app_build, release_build):
+            self.assertIn(
+                "$bundledOAuthConfig.google_gmail_api.client_id",
+                source,
+            )
+            self.assertIn("$bundledOAuthConfig.microsoft.client_id", source)
+        self.assertIn("$oauthConfig.google_gmail_api.client_id", app_build)
+        self.assertIn("$oauthConfig.microsoft.client_id", app_build)
 
 
 if __name__ == "__main__":
