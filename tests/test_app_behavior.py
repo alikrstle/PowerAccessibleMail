@@ -702,6 +702,7 @@ class AppBehaviorTests(unittest.TestCase):
         MainFrame.finish_account_dialog(frame, dialog)
 
         frame.show_notification.assert_called_once_with("تمت إضافة الحساب بنجاح.")
+        frame._load_accounts_to_choice.assert_called_once_with(account.id)
         dialog.Destroy.assert_called_once_with()
 
     def test_oauth_provider_button_starts_login_directly(self) -> None:
@@ -799,8 +800,12 @@ class AppBehaviorTests(unittest.TestCase):
 
     @patch("accessible_mail.app.wx.CallLater")
     @patch("accessible_mail.app.announce_to_screen_reader")
+    @patch("accessible_mail.app.restore_control_focus")
+    @patch("accessible_mail.app.focused_control", return_value=None)
     def test_in_app_notification_uses_interrupting_screen_reader_path(
         self,
+        _focused_control: Mock,
+        restore_focus: Mock,
         announce: Mock,
         call_later: Mock,
     ) -> None:
@@ -826,6 +831,7 @@ class AppBehaviorTests(unittest.TestCase):
             frame.notification_bar,
             "تم التفعيل",
         )
+        restore_focus.assert_called_once_with(None)
         call_later.assert_called_once_with(8000, frame.dismiss_notification)
 
     def test_both_builds_bundle_the_nvda_controller_client(self) -> None:
@@ -1013,21 +1019,70 @@ class AppBehaviorTests(unittest.TestCase):
         frame_with_account = SimpleNamespace(
             accounts=[Account(email_address="existing@example.com")],
             _startup_login_shown=False,
+            account_choice=SimpleNamespace(SetFocus=Mock()),
         )
         MainFrame.show_initial_login_if_needed(frame_with_account)
         dialog_class.assert_not_called()
+        frame_with_account.account_choice.SetFocus.assert_called_once_with()
 
         frame_without_account = SimpleNamespace(
             accounts=[],
             _startup_login_shown=False,
             finish_account_dialog=Mock(return_value=False),
-            command_list=SimpleNamespace(SetFocus=Mock()),
+            account_choice=SimpleNamespace(SetFocus=Mock()),
         )
         MainFrame.show_initial_login_if_needed(frame_without_account)
 
         dialog_class.assert_called_once_with(frame_without_account, startup=True)
         self.assertTrue(frame_without_account._startup_login_shown)
-        frame_without_account.command_list.SetFocus.assert_called_once_with()
+        frame_without_account.account_choice.SetFocus.assert_called_once_with()
+
+    def test_busy_state_keeps_navigation_controls_enabled(self) -> None:
+        frame = SimpleNamespace(
+            SetStatusText=Mock(),
+            account_choice=SimpleNamespace(Enable=Mock()),
+            command_list=SimpleNamespace(Enable=Mock()),
+        )
+
+        MainFrame.set_busy(frame, True, "جار التحديث")
+
+        frame.SetStatusText.assert_called_once_with("جار التحديث")
+        frame.account_choice.Enable.assert_not_called()
+        frame.command_list.Enable.assert_not_called()
+
+    def test_account_change_refreshes_and_keeps_account_focus(self) -> None:
+        frame = SimpleNamespace(
+            refresh_all=Mock(),
+            account_choice=SimpleNamespace(SetFocus=Mock()),
+        )
+
+        MainFrame.on_account_changed(frame)
+
+        frame.refresh_all.assert_called_once_with()
+        frame.account_choice.SetFocus.assert_called_once_with()
+
+    def test_account_choice_reload_selects_requested_account(self) -> None:
+        focus_owner = object()
+        first = Account(id="first", email_address="first@example.com")
+        second = Account(id="second", email_address="second@example.com")
+        frame = SimpleNamespace(
+            accounts=[first, second],
+            account_choice=SimpleNamespace(Set=Mock(), SetSelection=Mock()),
+            refresh_all=Mock(),
+            SetStatusText=Mock(),
+        )
+
+        with (
+            patch("accessible_mail.app.focused_control", return_value=focus_owner),
+            patch("accessible_mail.app.restore_control_focus") as restore_focus,
+            patch("accessible_mail.app.wx.CallAfter") as call_after,
+        ):
+            MainFrame._load_accounts_to_choice(frame, second.id)
+
+        frame.account_choice.Set.assert_called_once_with([first.label, second.label])
+        frame.account_choice.SetSelection.assert_called_once_with(1)
+        restore_focus.assert_called_once_with(focus_owner)
+        call_after.assert_called_once_with(frame.refresh_all)
 
     def test_oauth_services_and_manual_form_have_ok_buttons(self) -> None:
         oauth_source = inspect.getsource(AccountDialog.show_oauth_provider_view)

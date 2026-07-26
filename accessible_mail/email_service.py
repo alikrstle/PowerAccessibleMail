@@ -646,18 +646,46 @@ class EmailService:
         )
 
     def _select(self, conn: imaplib.IMAP4, mailbox: str, readonly: bool) -> int:
-        typ, data = conn.select(f'"{mailbox}"', readonly=readonly)
-        if typ != "OK":
-            typ, data = conn.select(mailbox, readonly=readonly)
-        if typ != "OK":
-            detail = data[0].decode("utf-8", errors="replace") if data else mailbox
-            raise MailError(f"تعذر فتح مجلد البريد: {detail}")
-        if data and data[0]:
-            try:
-                return int(data[0])
-            except (TypeError, ValueError):
-                return 0
-        return 0
+        value = mailbox.strip() or "INBOX"
+        escaped = value.replace("\\", "\\\\").replace('"', '\\"')
+        quoted = f'"{escaped}"'
+        if re.fullmatch(r"[A-Za-z0-9._/-]+", value):
+            mailbox_arguments = [value, quoted]
+        else:
+            mailbox_arguments = [quoted, value]
+
+        attempts = [readonly]
+        if readonly:
+            # Some Microsoft IMAP servers reject EXAMINE but accept SELECT.
+            # Message reads still use BODY.PEEK, so this fallback does not mark mail read.
+            attempts.append(False)
+
+        last_detail = value
+        for use_readonly in attempts:
+            for mailbox_argument in dict.fromkeys(mailbox_arguments):
+                try:
+                    typ, data = conn.select(
+                        mailbox_argument,
+                        readonly=use_readonly,
+                    )
+                except imaplib.IMAP4.error as exc:
+                    last_detail = str(exc) or value
+                    continue
+                if typ == "OK":
+                    if data and data[0]:
+                        try:
+                            return int(data[0])
+                        except (TypeError, ValueError):
+                            return 0
+                    return 0
+                if data:
+                    detail = data[0]
+                    if isinstance(detail, bytes):
+                        last_detail = detail.decode("utf-8", errors="replace")
+                    else:
+                        last_detail = str(detail)
+
+        raise MailError(f"تعذر فتح مجلد البريد: {last_detail}")
 
     def _fetch_summary_batch(
         self,

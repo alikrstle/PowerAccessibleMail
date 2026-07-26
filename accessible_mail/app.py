@@ -146,6 +146,24 @@ def set_accessible(control: wx.Window, name: str, description: str = "") -> None
         control.SetToolTip(tr(description))
 
 
+def focused_control() -> wx.Window | None:
+    try:
+        return wx.Window.FindFocus()
+    except Exception:
+        return None
+
+
+def restore_control_focus(control: wx.Window | None) -> None:
+    if control is None:
+        return
+    try:
+        if control.IsBeingDeleted() or not control.IsEnabled():
+            return
+        control.SetFocus()
+    except Exception:
+        return
+
+
 def announce_to_screen_reader(control: wx.Window, message: str) -> bool:
     localized = tr(message)
     if interrupt_and_speak(localized):
@@ -1445,6 +1463,7 @@ class MailPage(wx.Panel):
             self.current_content_key = None
 
     def apply_filter(self, preserve_key: tuple[str, str] | None = None) -> None:
+        focus_owner = focused_control()
         if preserve_key is None:
             preserve_key = self.focused_message_key() or self.selected_message_key()
         selected_keys = (
@@ -1501,6 +1520,7 @@ class MailPage(wx.Panel):
             self._suppress_selection_event = False
         if getattr(self, "multi_select_mode", False):
             self.update_multi_selection_status()
+        restore_control_focus(focus_owner)
 
     def on_filter(self, _event: wx.CommandEvent) -> None:
         if self.on_filter_changed and self.selected_filter_key() == "trash":
@@ -3273,6 +3293,7 @@ class MainFrame(wx.Frame):
         account_row = wx.BoxSizer(wx.HORIZONTAL)
         account_row.Add(wx.StaticText(panel, label="الحساب:"), 0, wx.ALIGN_CENTER_VERTICAL | wx.ALL, 6)
         self.account_choice = wx.Choice(panel)
+        self.account_choice.SetMinSize((360, -1))
         set_accessible(self.account_choice, "اختيار حساب البريد")
         account_row.Add(self.account_choice, 1, wx.EXPAND | wx.ALL, 6)
         top_row.Add(account_row, 1, wx.EXPAND)
@@ -3290,6 +3311,7 @@ class MainFrame(wx.Frame):
             style=wx.LB_SINGLE,
         )
         self.command_list.SetSelection(0)
+        self.command_list.SetMinSize((280, 150))
         set_accessible(
             self.command_list,
             "قائمة أوامر البرنامج",
@@ -3381,7 +3403,7 @@ class MainFrame(wx.Frame):
 
         self.command_list.Bind(wx.EVT_LISTBOX_DCLICK, self.on_command_activated)
         self.command_list.Bind(wx.EVT_CHAR_HOOK, self.on_command_key)
-        self.account_choice.Bind(wx.EVT_CHOICE, self.on_refresh)
+        self.account_choice.Bind(wx.EVT_CHOICE, self.on_account_changed)
 
         self._create_menu()
         self._create_accelerators()
@@ -3508,22 +3530,39 @@ class MainFrame(wx.Frame):
             page.has_translatable_content() and control in {page.viewer, page.html_viewer, page.actions_button},
         )
 
-    def _load_accounts_to_choice(self) -> None:
+    def _load_accounts_to_choice(
+        self,
+        preferred_account_id: str | None = None,
+    ) -> None:
+        focus_owner = focused_control()
         self.account_choice.Set([account.label for account in self.accounts])
         if self.accounts:
-            self.account_choice.SetSelection(0)
+            selection = next(
+                (
+                    index
+                    for index, account in enumerate(self.accounts)
+                    if account.id == preferred_account_id
+                ),
+                0,
+            )
+            self.account_choice.SetSelection(selection)
+            restore_control_focus(focus_owner)
             wx.CallAfter(self.refresh_all)
         else:
+            restore_control_focus(focus_owner)
             self.SetStatusText("لا يوجد حساب. افتح خيارات الحسابات وإدارتها للبدء.")
 
     def show_initial_login_if_needed(self) -> None:
-        if self.accounts or self._startup_login_shown:
+        if self.accounts:
+            wx.CallAfter(self.account_choice.SetFocus)
+            return
+        if self._startup_login_shown:
             return
         self._startup_login_shown = True
         dialog = AccountDialog(self, startup=True)
         account_added = self.finish_account_dialog(dialog)
         if not account_added and not self.accounts:
-            wx.CallAfter(self.command_list.SetFocus)
+            wx.CallAfter(self.account_choice.SetFocus)
 
     def show_welcome_notification(self) -> None:
         self.show_notification("مرحبا بكم في برنامج Power Accessible Mail")
@@ -3764,7 +3803,7 @@ class MainFrame(wx.Frame):
             else:
                 self.accounts.append(new_account)
             save_accounts(self.accounts)
-            self._load_accounts_to_choice()
+            self._load_accounts_to_choice(new_account.id)
             message = "تمت إضافة الحساب بنجاح." if account_added else "تم تحديث الحساب بنجاح."
             self.show_notification(message)
             wx.CallAfter(self.account_choice.SetFocus)
@@ -3773,6 +3812,7 @@ class MainFrame(wx.Frame):
         return account_saved
 
     def show_notification(self, message: str, timeout_ms: int = 8000) -> None:
+        focus_owner = focused_control()
         if self._notification_timer and self._notification_timer.IsRunning():
             self._notification_timer.Stop()
         localized = tr(message)
@@ -3780,13 +3820,16 @@ class MainFrame(wx.Frame):
         self.notification_bar.ShowMessage(localized, wx.ICON_INFORMATION)
         self.SetStatusText(message)
         self.main_panel.Layout()
+        restore_control_focus(focus_owner)
         announce_to_screen_reader(self.notification_bar, message)
         self._notification_timer = wx.CallLater(timeout_ms, self.dismiss_notification)
 
     def dismiss_notification(self) -> None:
+        focus_owner = focused_control()
         if self.notification_bar.IsShown():
             self.notification_bar.Dismiss()
             self.main_panel.Layout()
+        restore_control_focus(focus_owner)
         self._notification_timer = None
 
     def on_reauthenticate_account(self, _event: wx.Event | None = None) -> None:
@@ -3887,7 +3930,15 @@ class MainFrame(wx.Frame):
             for page in self.pages.values():
                 page.set_messages([])
 
-        self._load_accounts_to_choice()
+        next_account_id = (
+            self.accounts[
+                min(max(remove_index, 0), len(self.accounts) - 1)
+            ].id
+            if self.accounts
+            else None
+        )
+        self._load_accounts_to_choice(next_account_id)
+        wx.CallAfter(self.account_choice.SetFocus)
         if cache_error:
             wx.MessageBox(
                 f"تمت إزالة الحساب، لكن تعذر حذف كاش الرسائل المحلي:\n{cache_error}",
@@ -3900,6 +3951,10 @@ class MainFrame(wx.Frame):
 
     def on_refresh(self, _event: wx.Event | None = None) -> None:
         self.refresh_all()
+
+    def on_account_changed(self, _event: wx.Event | None = None) -> None:
+        self.refresh_all()
+        self.account_choice.SetFocus()
 
     def refresh_all(self) -> None:
         account = self.selected_account()
@@ -3914,11 +3969,9 @@ class MainFrame(wx.Frame):
             self.displayed_account_id = account.id
             self.content_cache.clear()
             self.current_content = None
-            self.pages["inbox"].set_messages([])
-            self.pages["spam"].set_messages([])
-            self.pages["sent"].set_messages([])
-            self.pages["all"].set_messages([])
             for page in self.pages.values():
+                page.deactivate_html_viewer()
+                page.set_messages([])
                 page.set_trash_messages([])
 
         all_mailbox = self._all_mailboxes_by_account.get(account.id, "")
@@ -5323,11 +5376,6 @@ Power Accessible Mail
 
     def set_busy(self, busy: bool, message: str) -> None:
         self.SetStatusText(message)
-        for control in [
-            self.command_list,
-            self.account_choice,
-        ]:
-            control.Enable(not busy)
 
 
 def run() -> None:

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import imaplib
 import unittest
 
 from accessible_mail.email_service import EmailService
@@ -89,6 +90,22 @@ class FakeConnection:
     def uid(self, command: str, uid: str, operation: str, flag: str) -> tuple[str, list[bytes]]:
         self.uid_operations.append((command, uid, operation, flag))
         return "OK", [b"OK"]
+
+
+class FakeSelectConnection:
+    def __init__(
+        self,
+        responses: list[tuple[str, list[bytes]] | Exception],
+    ) -> None:
+        self.responses = list(responses)
+        self.select_calls: list[tuple[str, bool]] = []
+
+    def select(self, mailbox: str, readonly: bool = False) -> tuple[str, list[bytes]]:
+        self.select_calls.append((mailbox, readonly))
+        response = self.responses.pop(0)
+        if isinstance(response, Exception):
+            raise response
+        return response
 
 
 class FakeSyncService(EmailService):
@@ -185,6 +202,47 @@ class EmailServiceSyncTests(unittest.TestCase):
         self.assertEqual(service.fetch_ranges, [(76, 125)])
         self.assertEqual(messages[0].uid, "125")
         self.assertEqual(messages[-1].uid, "76")
+
+    def test_select_uses_unquoted_inbox_first(self) -> None:
+        service = EmailService.__new__(EmailService)
+        connection = FakeSelectConnection([("OK", [b"12"])])
+
+        count = service._select(connection, "INBOX", readonly=True)
+
+        self.assertEqual(count, 12)
+        self.assertEqual(connection.select_calls, [("INBOX", True)])
+
+    def test_select_falls_back_to_select_when_examine_is_rejected(self) -> None:
+        service = EmailService.__new__(EmailService)
+        error = imaplib.IMAP4.error("BAD Command Argument Error. 12")
+        connection = FakeSelectConnection(
+            [
+                error,
+                error,
+                ("OK", [b"8"]),
+            ]
+        )
+
+        count = service._select(connection, "INBOX", readonly=True)
+
+        self.assertEqual(count, 8)
+        self.assertEqual(
+            connection.select_calls,
+            [
+                ("INBOX", True),
+                ('"INBOX"', True),
+                ("INBOX", False),
+            ],
+        )
+
+    def test_select_quotes_mailbox_names_with_spaces(self) -> None:
+        service = EmailService.__new__(EmailService)
+        connection = FakeSelectConnection([("OK", [b"3"])])
+
+        count = service._select(connection, "Junk Email", readonly=True)
+
+        self.assertEqual(count, 3)
+        self.assertEqual(connection.select_calls, [('"Junk Email"', True)])
 
     def test_list_messages_does_not_hide_oauth_failure_behind_cache(self) -> None:
         initial = [MessageSummary(uid="125", mailbox="INBOX")]
