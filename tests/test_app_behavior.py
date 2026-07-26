@@ -17,6 +17,7 @@ from accessible_mail.app import (
     MailPage,
     MainFrame,
     UpdateAvailableDialog,
+    UpdateDownloadDialog,
     announce_to_screen_reader,
     run_bulk_operations,
 )
@@ -307,7 +308,7 @@ class AppBehaviorTests(unittest.TestCase):
         MailPage.schedule_multi_selection_mode_notification(page, "تم التفعيل")
 
         call_later.assert_called_once_with(
-            1000,
+            500,
             page._show_multi_selection_mode_notification,
             "تم التفعيل",
         )
@@ -575,9 +576,8 @@ class AppBehaviorTests(unittest.TestCase):
         self.assertIn('label=tr("تحديث الآن")', source)
         self.assertIn('label=tr("إغلاق")', source)
 
-    @patch("accessible_mail.app.webbrowser.open")
     @patch("accessible_mail.app.UpdateAvailableDialog")
-    def test_update_now_opens_installer_url(self, dialog_class: Mock, open_url: Mock) -> None:
+    def test_update_now_starts_internal_updater(self, dialog_class: Mock) -> None:
         dialog = dialog_class.return_value
         dialog.ShowModal.return_value = wx.ID_OK
         result = UpdateCheckResult(
@@ -587,13 +587,25 @@ class AppBehaviorTests(unittest.TestCase):
             latest_version="1.2.8",
             download_url="https://example.com/PowerAccessibleMailSetup.exe",
         )
-        frame = SimpleNamespace(_update_dialog_open=False, SetStatusText=Mock())
+        frame = SimpleNamespace(
+            _update_dialog_open=False,
+            start_internal_update=Mock(),
+        )
 
         MainFrame.show_update_available(frame, result)
 
-        open_url.assert_called_once_with(result.download_url)
+        frame.start_internal_update.assert_called_once_with(result)
         dialog.Destroy.assert_called_once_with()
         self.assertFalse(frame._update_dialog_open)
+
+    def test_internal_update_progress_window_exposes_requested_details(self) -> None:
+        source = inspect.getsource(UpdateDownloadDialog.__init__)
+        progress_source = inspect.getsource(UpdateDownloadDialog.set_progress)
+
+        self.assertIn("الإصدار الجديد:", source)
+        self.assertIn("تاريخ الإطلاق:", source)
+        self.assertIn("wx.Gauge", source)
+        self.assertIn("percent", progress_source)
 
     def test_update_mode_skips_normal_installer_pages(self) -> None:
         project_root = Path(__file__).resolve().parents[1]
@@ -608,6 +620,8 @@ class AppBehaviorTests(unittest.TestCase):
             "wpReady",
         ):
             self.assertIn(f"PageID = {page_name}", source)
+        self.assertIn("UPDATEFROMAPP", source)
+        self.assertIn("IsInternalUpdate", source)
 
     def test_release_installer_name_uses_target_architecture(self) -> None:
         project_root = Path(__file__).resolve().parents[1]
@@ -707,6 +721,13 @@ class AppBehaviorTests(unittest.TestCase):
         provider_id.assert_called_once_with()
         dialog.start_oauth_login.assert_called_once_with("google_gmail_api")
 
+    def test_startup_microsoft_button_starts_microsoft_provider(self) -> None:
+        dialog = SimpleNamespace(start_oauth_login=Mock())
+
+        AccountDialog.on_continue_with_microsoft(dialog, Mock())
+
+        dialog.start_oauth_login.assert_called_once_with("microsoft")
+
     def test_startup_login_uses_requested_accessible_control_order(self) -> None:
         source = inspect.getsource(AccountDialog.show_startup_view)
         ordered_labels = (
@@ -716,6 +737,7 @@ class AppBehaviorTests(unittest.TestCase):
             "كلمة المرور:",
             "تسجيل الدخول بالبريد وكلمة المرور",
             "الاستمرار مع Google",
+            "الاستمرار مع Microsoft",
             "الاستمرار بدون إضافة حساب",
         )
         positions = [source.index(label) for label in ordered_labels]
@@ -731,6 +753,16 @@ class AppBehaviorTests(unittest.TestCase):
         self.assertEqual(account.imap_server, "imap.gmail.com")
         self.assertEqual(account.smtp_server, "smtp.gmail.com")
         self.assertEqual(account.smtp_port, 587)
+
+    def test_basic_microsoft_login_configures_manual_mail_servers(self) -> None:
+        account = Account(email_address="person@msn.com")
+
+        configured = AccountDialog.configure_known_manual_provider(account)
+
+        self.assertTrue(configured)
+        self.assertEqual(account.imap_server, "outlook.office365.com")
+        self.assertEqual(account.smtp_server, "smtp-mail.outlook.com")
+        self.assertEqual(account.spam_mailbox, "Junk Email")
 
     def test_unknown_manual_provider_requires_detailed_server_view(self) -> None:
         account = Account(email_address="person@example.org")
@@ -816,6 +848,53 @@ class AppBehaviorTests(unittest.TestCase):
         dialog.show_manual_view.assert_called_once_with()
         method_source = inspect.getsource(AccountDialog.show_method_view)
         self.assertNotIn('label="موافق"', method_source)
+        self.assertIn("wx.ListBox", method_source)
+
+    def test_account_method_list_activates_selected_item(self) -> None:
+        dialog = SimpleNamespace(
+            account_method_list=SimpleNamespace(GetSelection=lambda: 0),
+            show_oauth_provider_view=Mock(),
+            show_manual_view=Mock(),
+        )
+
+        AccountDialog.on_account_method_activate(dialog)
+
+        dialog.show_oauth_provider_view.assert_called_once_with()
+        dialog.account_method_list.GetSelection = lambda: 1
+        AccountDialog.on_account_method_activate(dialog)
+        dialog.show_manual_view.assert_called_once_with()
+
+    def test_enter_activates_account_method_list_item(self) -> None:
+        event = SimpleNamespace(GetKeyCode=lambda: wx.WXK_RETURN, Skip=Mock())
+        dialog = SimpleNamespace(on_account_method_activate=Mock())
+
+        AccountDialog.on_account_method_key(dialog, event)
+
+        dialog.on_account_method_activate.assert_called_once_with()
+        event.Skip.assert_not_called()
+
+    def test_oauth_provider_list_activates_selected_service(self) -> None:
+        dialog = SimpleNamespace(
+            oauth_provider_list=SimpleNamespace(GetSelection=lambda: 1),
+            oauth_provider_ids=["google_gmail_api", "microsoft"],
+            start_oauth_login=Mock(),
+        )
+
+        AccountDialog.on_oauth_provider_activate(dialog)
+
+        dialog.start_oauth_login.assert_called_once_with("microsoft")
+
+    def test_enter_activates_oauth_provider_list_item(self) -> None:
+        event = SimpleNamespace(
+            GetKeyCode=lambda: wx.WXK_NUMPAD_ENTER,
+            Skip=Mock(),
+        )
+        dialog = SimpleNamespace(on_oauth_provider_activate=Mock())
+
+        AccountDialog.on_oauth_provider_key(dialog, event)
+
+        dialog.on_oauth_provider_activate.assert_called_once_with()
+        event.Skip.assert_not_called()
 
     def test_escape_from_account_dialog_returns_to_main_interface(self) -> None:
         event = SimpleNamespace(GetKeyCode=lambda: wx.WXK_ESCAPE, Skip=Mock())
@@ -866,7 +945,10 @@ class AppBehaviorTests(unittest.TestCase):
         manual_source = inspect.getsource(AccountDialog.show_manual_view)
 
         self.assertNotIn('label="موافق"', oauth_source)
-        self.assertIn("on_oauth_provider_button", oauth_source)
+        self.assertIn("wx.ListBox", oauth_source)
+        self.assertIn("on_oauth_provider_activate", oauth_source)
+        self.assertIn('label="رجوع"', oauth_source)
+        self.assertIn('label="إلغاء"', oauth_source)
         self.assertIn('label="موافق"', manual_source)
         self.assertIn("on_manual_ok", manual_source)
 

@@ -1,5 +1,5 @@
 Power Accessible Mail
-Version: 1.2.10
+Version: 1.2.11
 
 Build: identical features in the x64 and x86 packages
 Developer: Soljan.AlSharq.

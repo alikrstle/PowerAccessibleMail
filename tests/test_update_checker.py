@@ -39,20 +39,24 @@ class UpdateCheckerTests(unittest.TestCase):
     def github_release(self) -> dict[str, object]:
         return {
             "tag_name": "v1.2.9",
+            "published_at": "2026-07-25T18:30:00Z",
             "html_url": "https://github.com/alikrstle/PowerAccessibleMail/releases/tag/v1.2.9",
             "body": "Accessibility and performance improvements.",
             "assets": [
                 {
                     "name": "PowerAccessibleMailSetup-1.2.9-win-x64.exe",
                     "browser_download_url": "https://github.com/download/x64.exe",
+                    "digest": f"sha256:{'a' * 64}",
                 },
                 {
                     "name": "PowerAccessibleMailSetup-1.2.9-win-x86-UNSIGNED.exe",
                     "browser_download_url": "https://github.com/download/x86-unsigned.exe",
+                    "digest": f"sha256:{'b' * 64}",
                 },
                 {
                     "name": "PowerAccessibleMailSetup-1.2.9-win-x86.exe",
                     "browser_download_url": "https://github.com/download/x86.exe",
+                    "digest": f"sha256:{'c' * 64}",
                 },
             ],
         }
@@ -77,6 +81,8 @@ class UpdateCheckerTests(unittest.TestCase):
         self.assertTrue(result.available)
         self.assertEqual(result.latest_version, "1.2.9")
         self.assertEqual(result.download_url, "https://github.com/download/x64.exe")
+        self.assertEqual(result.sha256, "a" * 64)
+        self.assertEqual(result.release_date, "2026-07-25T18:30:00Z")
         self.assertIn("Accessibility", result.notes)
         request = urlopen.call_args.args[0]
         self.assertEqual(request.get_header("Accept"), "application/vnd.github+json")
@@ -100,6 +106,7 @@ class UpdateCheckerTests(unittest.TestCase):
 
         self.assertTrue(result.available)
         self.assertEqual(result.download_url, "https://github.com/download/x86.exe")
+        self.assertEqual(result.sha256, "c" * 64)
 
     @patch.dict(
         "os.environ",
@@ -275,6 +282,8 @@ class UpdateCheckerTests(unittest.TestCase):
             {
                 "version": "1.3.0",
                 "download_url": "https://updates.example.com/setup.exe",
+                "sha256": "d" * 64,
+                "release_date": "2026-08-01",
                 "notes": "Release notes",
             }
         )
@@ -287,6 +296,8 @@ class UpdateCheckerTests(unittest.TestCase):
             result.download_url,
             "https://updates.example.com/setup.exe",
         )
+        self.assertEqual(result.sha256, "d" * 64)
+        self.assertEqual(result.release_date, "2026-08-01")
 
     @patch(
         "accessible_mail.update_checker.load_update_manifest_url",
@@ -303,7 +314,10 @@ class UpdateCheckerTests(unittest.TestCase):
                 "version": "1.3.0",
                 "downloads": {
                     "x64": "https://updates.example.com/x64.exe",
-                    "x86": "https://updates.example.com/x86.exe",
+                    "x86": {
+                        "url": "https://updates.example.com/x86.exe",
+                        "sha256": f"sha256:{'e' * 64}",
+                    },
                 },
             }
         )
@@ -311,6 +325,7 @@ class UpdateCheckerTests(unittest.TestCase):
         result = check_for_updates("1.2.8", architecture=ARCHITECTURE_X86)
 
         self.assertEqual(result.download_url, "https://updates.example.com/x86.exe")
+        self.assertEqual(result.sha256, "e" * 64)
 
     def test_equivalent_versions_compare_equally(self) -> None:
         self.assertEqual(version_key("v1.2"), version_key("1.2.0"))

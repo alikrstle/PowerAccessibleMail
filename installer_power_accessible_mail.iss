@@ -1,5 +1,5 @@
 ﻿#define MyAppName "Power Accessible Mail"
-#define MyAppVersion "1.2.10"
+#define MyAppVersion "1.2.11"
 #define MyAppPublisher "Soljan.AlSharq."
 #define MyAppExeName "Power Accessible Mail.exe"
 #define MyAppIcon "assets\branding\power_accessible_mail.ico"
@@ -41,7 +41,7 @@ ArchitecturesInstallIn64BitMode=x64compatible
 #else
 ArchitecturesAllowed=x86compatible
 #endif
-VersionInfoVersion=1.2.10.0
+VersionInfoVersion=1.2.11.0
 VersionInfoCompany={#MyAppPublisher}
 VersionInfoDescription={#MyAppName} Installer
 VersionInfoProductName={#MyAppName}
@@ -98,6 +98,7 @@ Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; Tasks: de
 Filename: "{app}\README_AR.txt"; Description: "{cm:ReadLocalizedReadme}"; Flags: shellexec nowait postinstall skipifsilent; Languages: arabic
 Filename: "{app}\README_EN.txt"; Description: "{cm:ReadLocalizedReadme}"; Flags: shellexec nowait postinstall skipifsilent; Languages: english
 Filename: "{app}\{#MyAppExeName}"; Description: "{cm:LaunchLocalizedApp}"; Flags: nowait postinstall skipifsilent
+Filename: "{app}\{#MyAppExeName}"; Flags: nowait skipifdoesntexist; Check: IsInternalUpdate
 
 [Code]
 var
@@ -106,6 +107,11 @@ var
   UpdateMessage: TNewStaticText;
   InstalledVersion: String;
   UpdateMode: Boolean;
+
+function IsInternalUpdate: Boolean;
+begin
+  Result := ExpandConstant('{param:UPDATEFROMAPP|0}') = '1';
+end;
 
 function ReadInstalledVersion(var Version: String): Boolean;
 begin

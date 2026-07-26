@@ -58,6 +58,12 @@ from .oauth import (
     run_browser_oauth_flow,
 )
 from .update_checker import UpdateCheckResult, check_for_updates, updates_configured
+from .updater import (
+    UpdateDownloadCancelled,
+    can_install_update,
+    download_update_installer,
+    launch_update_installer,
+)
 
 
 INITIAL_MESSAGE_LIMIT = 50
@@ -449,6 +455,22 @@ class AccountDialog(wx.Dialog):
         self.continue_google_button.Bind(wx.EVT_BUTTON, self.on_continue_with_google)
         center.Add(self.continue_google_button, 0, wx.EXPAND | wx.BOTTOM, 10)
 
+        self.continue_microsoft_button = wx.Button(
+            content_panel,
+            label="الاستمرار مع Microsoft",
+            size=(360, 44),
+        )
+        set_accessible(
+            self.continue_microsoft_button,
+            "الاستمرار مع Microsoft",
+            "فتح تسجيل الدخول إلى Microsoft",
+        )
+        self.continue_microsoft_button.Bind(
+            wx.EVT_BUTTON,
+            self.on_continue_with_microsoft,
+        )
+        center.Add(self.continue_microsoft_button, 0, wx.EXPAND | wx.BOTTOM, 10)
+
         self.continue_without_account_button = wx.Button(
             content_panel,
             label="الاستمرار بدون إضافة حساب",
@@ -527,7 +549,9 @@ class AccountDialog(wx.Dialog):
             account.smtp_ssl = False
             account.smtp_starttls = True
             return True
-        if email_address.endswith(("@outlook.com", "@hotmail.com", "@live.com")):
+        if email_address.endswith(
+            ("@outlook.com", "@hotmail.com", "@live.com", "@msn.com")
+        ):
             account.imap_server = "outlook.office365.com"
             account.imap_port = 993
             account.imap_ssl = True
@@ -541,6 +565,9 @@ class AccountDialog(wx.Dialog):
 
     def on_continue_with_google(self, _event: wx.CommandEvent) -> None:
         self.start_oauth_login(google_provider_id())
+
+    def on_continue_with_microsoft(self, _event: wx.CommandEvent) -> None:
+        self.start_oauth_login("microsoft")
 
     def on_continue_without_account(self, _event: wx.CommandEvent | None = None) -> None:
         self.close_to_main_interface()
@@ -556,29 +583,49 @@ class AccountDialog(wx.Dialog):
             14,
         )
 
-        browser_button = wx.Button(
+        self.account_method_list = wx.ListBox(
             self.panel,
-            label="تسجيل الدخول عبر المتصفح",
-            size=(340, 46),
+            choices=[
+                tr("تسجيل الدخول عبر المتصفح"),
+                tr("تسجيل الدخول اليدوي"),
+            ],
+            size=(360, 110),
+            style=wx.LB_SINGLE,
         )
-        set_accessible(browser_button, "تسجيل الدخول عبر المتصفح")
-        browser_button.Bind(wx.EVT_BUTTON, self.on_browser_method)
-        center.Add(browser_button, 0, wx.EXPAND | wx.BOTTOM, 10)
-
-        manual_button = wx.Button(
-            self.panel,
-            label="تسجيل الدخول اليدوي",
-            size=(340, 46),
+        self.account_method_list.SetSelection(0)
+        set_accessible(
+            self.account_method_list,
+            "طريقة إضافة الحساب",
+            "اختر طريقة إضافة الحساب واضغط Enter",
         )
-        set_accessible(manual_button, "تسجيل الدخول اليدوي")
-        manual_button.Bind(wx.EVT_BUTTON, self.on_manual_method)
-        center.Add(manual_button, 0, wx.EXPAND | wx.BOTTOM, 10)
+        self.account_method_list.Bind(
+            wx.EVT_LISTBOX_DCLICK,
+            self.on_account_method_activate,
+        )
+        self.account_method_list.Bind(
+            wx.EVT_KEY_DOWN,
+            self.on_account_method_key,
+        )
+        center.Add(self.account_method_list, 0, wx.EXPAND | wx.BOTTOM, 10)
 
         cancel_button = wx.Button(self.panel, id=wx.ID_CANCEL, label="إلغاء")
         set_accessible(cancel_button, "إلغاء إضافة الحساب")
         center.Add(cancel_button, 0, wx.ALIGN_CENTER | wx.TOP, 4)
         root.Add(center, 0, wx.ALIGN_CENTER)
-        self.finish_panel(root, browser_button)
+        self.finish_panel(root, self.account_method_list)
+
+    def on_account_method_activate(self, _event: wx.Event | None = None) -> None:
+        selection = self.account_method_list.GetSelection()
+        if selection == 0:
+            self.show_oauth_provider_view()
+        elif selection == 1:
+            self.show_manual_view()
+
+    def on_account_method_key(self, event: wx.KeyEvent) -> None:
+        if event.GetKeyCode() in {wx.WXK_RETURN, wx.WXK_NUMPAD_ENTER}:
+            self.on_account_method_activate()
+            return
+        event.Skip()
 
     def on_browser_method(self, _event: wx.CommandEvent) -> None:
         self.show_oauth_provider_view()
@@ -592,31 +639,59 @@ class AccountDialog(wx.Dialog):
         center = wx.BoxSizer(wx.VERTICAL)
         center.Add(wx.StaticText(self.panel, label="اختر خدمة البريد:"), 0, wx.ALIGN_CENTER | wx.ALL, 8)
 
-        provider_buttons: list[wx.Button] = []
-        for provider_name in provider_display_names():
-            provider_id = provider_id_from_name(provider_name)
-            provider_button = wx.Button(self.panel, label=provider_name, size=(300, -1))
-            set_accessible(
-                provider_button,
-                f"تسجيل الدخول إلى {provider_name}",
-                "اضغط لفتح المتصفح وبدء تسجيل الدخول",
-            )
-            provider_button.Bind(
-                wx.EVT_BUTTON,
-                lambda event, selected_provider=provider_id: self.on_oauth_provider_button(
-                    event,
-                    selected_provider,
-                ),
-            )
-            center.Add(provider_button, 0, wx.EXPAND | wx.ALL, 6)
-            provider_buttons.append(provider_button)
+        provider_names = provider_display_names()
+        self.oauth_provider_ids = [
+            provider_id_from_name(provider_name)
+            for provider_name in provider_names
+        ]
+        self.oauth_provider_list = wx.ListBox(
+            self.panel,
+            choices=[tr(provider_name) for provider_name in provider_names],
+            size=(360, 120),
+            style=wx.LB_SINGLE,
+        )
+        if provider_names:
+            self.oauth_provider_list.SetSelection(0)
+        set_accessible(
+            self.oauth_provider_list,
+            "اختر خدمة البريد",
+            "اختر خدمة البريد واضغط Enter لفتح تسجيل الدخول",
+        )
+        self.oauth_provider_list.Bind(
+            wx.EVT_LISTBOX_DCLICK,
+            self.on_oauth_provider_activate,
+        )
+        self.oauth_provider_list.Bind(
+            wx.EVT_KEY_DOWN,
+            self.on_oauth_provider_key,
+        )
+        center.Add(self.oauth_provider_list, 0, wx.EXPAND | wx.BOTTOM, 10)
 
+        buttons = wx.BoxSizer(wx.HORIZONTAL)
         back_button = wx.Button(self.panel, label="رجوع")
         set_accessible(back_button, "رجوع إلى اختيار طريقة إضافة الحساب")
         back_button.Bind(wx.EVT_BUTTON, self.on_back)
-        center.Add(back_button, 0, wx.ALIGN_CENTER | wx.ALL, 8)
+        buttons.Add(back_button, 0, wx.ALL, 6)
+        cancel_button = wx.Button(self.panel, id=wx.ID_CANCEL, label="إلغاء")
+        set_accessible(cancel_button, "إلغاء إضافة الحساب")
+        buttons.Add(cancel_button, 0, wx.ALL, 6)
+        center.Add(buttons, 0, wx.ALIGN_CENTER)
         root.Add(center, 0, wx.ALIGN_CENTER)
-        self.finish_panel(root, provider_buttons[0] if provider_buttons else back_button)
+        self.finish_panel(
+            root,
+            self.oauth_provider_list if provider_names else back_button,
+        )
+
+    def on_oauth_provider_activate(self, _event: wx.Event | None = None) -> None:
+        selection = self.oauth_provider_list.GetSelection()
+        if 0 <= selection < len(self.oauth_provider_ids):
+            self.start_oauth_login(self.oauth_provider_ids[selection])
+
+    def on_oauth_provider_key(self, event: wx.KeyEvent) -> None:
+        if event.GetKeyCode() in {wx.WXK_RETURN, wx.WXK_NUMPAD_ENTER}:
+            self.on_oauth_provider_activate()
+            return
+        event.Skip()
 
     def on_oauth_provider_button(
         self,
@@ -801,9 +876,10 @@ class AccountDialog(wx.Dialog):
             names,
         )
         try:
-            current_name = self.oauth_provider.GetStringSelection() if hasattr(self, "oauth_provider") else ""
-            if current_name in names:
-                dialog.SetSelection(names.index(current_name))
+            if hasattr(self, "oauth_provider_list"):
+                current_selection = self.oauth_provider_list.GetSelection()
+                if 0 <= current_selection < len(names):
+                    dialog.SetSelection(current_selection)
             if dialog.ShowModal() != wx.ID_OK:
                 return None
             return provider_id_from_name(dialog.GetStringSelection())
@@ -811,19 +887,20 @@ class AccountDialog(wx.Dialog):
             dialog.Destroy()
 
     def selected_oauth_provider_id(self) -> str:
-        return provider_id_from_name(self.oauth_provider.GetStringSelection())
+        selection = self.oauth_provider_list.GetSelection()
+        if not 0 <= selection < len(self.oauth_provider_ids):
+            raise OAuthError("مزود OAuth غير معروف.")
+        return self.oauth_provider_ids[selection]
 
     def _select_oauth_provider(self, provider_id: str) -> None:
-        if not hasattr(self, "oauth_provider"):
+        if not hasattr(self, "oauth_provider_list"):
             return
-        for index, name in enumerate(provider_display_names()):
-            try:
-                if provider_id_from_name(name) == provider_id:
-                    self.oauth_provider.SetSelection(index)
-                    return
-            except OAuthError:
-                continue
-        self.oauth_provider.SetSelection(0)
+        try:
+            index = self.oauth_provider_ids.index(provider_id)
+        except ValueError:
+            index = 0
+        if self.oauth_provider_ids:
+            self.oauth_provider_list.SetSelection(index)
 
     def on_ok(self, event: wx.CommandEvent) -> None:
         try:
@@ -892,6 +969,7 @@ class AccountDialog(wx.Dialog):
             email_address.endswith("@outlook.com")
             or email_address.endswith("@hotmail.com")
             or email_address.endswith("@live.com")
+            or email_address.endswith("@msn.com")
         ):
             self.imap_server.SetValue("outlook.office365.com")
             self.smtp_server.SetValue("smtp-mail.outlook.com")
@@ -1713,7 +1791,7 @@ class MailPage(wx.Panel):
         if self._multi_mode_notification_call is not None:
             self._multi_mode_notification_call.Stop()
         self._multi_mode_notification_call = wx.CallLater(
-            1000,
+            500,
             self._show_multi_selection_mode_notification,
             message,
         )
@@ -2908,7 +2986,7 @@ class UpdateAvailableDialog(wx.Dialog):
 
         buttons = wx.BoxSizer(wx.HORIZONTAL)
         self.update_button = wx.Button(self, wx.ID_OK, label=tr("تحديث الآن"))
-        set_accessible(self.update_button, "فتح رابط تنزيل التحديث")
+        set_accessible(self.update_button, "تنزيل التحديث وتثبيته")
         self.update_button.SetDefault()
         buttons.Add(self.update_button, 0, wx.ALL, 8)
         self.close_button = wx.Button(self, wx.ID_CANCEL, label=tr("إغلاق"))
@@ -2919,6 +2997,102 @@ class UpdateAvailableDialog(wx.Dialog):
         apply_layout_direction(self)
         self.CentreOnParent()
         wx.CallAfter(self.update_button.SetFocus)
+
+
+class UpdateDownloadDialog(wx.Dialog):
+    def __init__(
+        self,
+        parent: wx.Window,
+        version: str,
+        release_date: str,
+        cancel_callback: Callable[[], None],
+    ) -> None:
+        super().__init__(parent, title=tr("تحديث البرنامج"), size=(560, 280))
+        self.cancel_callback = cancel_callback
+        root = wx.BoxSizer(wx.VERTICAL)
+
+        self.version_label = wx.StaticText(
+            self,
+            label=tr(f"الإصدار الجديد: {version}"),
+        )
+        set_accessible(self.version_label, f"الإصدار الجديد: {version}")
+        root.Add(self.version_label, 0, wx.EXPAND | wx.ALL, 12)
+
+        displayed_date = (
+            release_date.split("T", 1)[0]
+            if release_date
+            else tr("غير متوفر")
+        )
+        update_summary = tr(
+            f"الإصدار الجديد: {version}. تاريخ الإطلاق: {displayed_date}."
+        )
+        self.release_date_label = wx.StaticText(
+            self,
+            label=tr(f"تاريخ الإطلاق: {displayed_date}"),
+        )
+        set_accessible(
+            self.release_date_label,
+            f"تاريخ الإطلاق: {displayed_date}",
+        )
+        root.Add(
+            self.release_date_label,
+            0,
+            wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM,
+            12,
+        )
+
+        self.status = wx.StaticText(self, label=tr("جار تنزيل التحديث: 0%."))
+        set_accessible(self.status, "حالة تنزيل التحديث")
+        root.Add(
+            self.status,
+            0,
+            wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM,
+            12,
+        )
+
+        self.progress = wx.Gauge(self, range=100)
+        self.progress.SetValue(0)
+        set_accessible(self.progress, "تقدم تنزيل التحديث")
+        root.Add(
+            self.progress,
+            0,
+            wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM,
+            14,
+        )
+
+        self.cancel_button = wx.Button(self, label=tr("إلغاء"))
+        set_accessible(self.cancel_button, "إلغاء تنزيل التحديث")
+        self.cancel_button.Bind(wx.EVT_BUTTON, self.on_cancel)
+        root.Add(self.cancel_button, 0, wx.ALIGN_CENTER | wx.BOTTOM, 12)
+
+        self.SetSizer(root)
+        apply_layout_direction(self)
+        self.CentreOnParent()
+        self.Bind(wx.EVT_CLOSE, self.on_cancel)
+        wx.CallAfter(announce_to_screen_reader, self, update_summary)
+        wx.CallAfter(self.cancel_button.SetFocus)
+
+    def set_progress(self, downloaded: int, total: int) -> None:
+        if total > 0:
+            percent = max(0, min(100, round((downloaded / total) * 100)))
+            self.progress.SetValue(percent)
+            message = tr(f"جار تنزيل التحديث: {percent}%.")
+        else:
+            self.progress.Pulse()
+            megabytes = downloaded / (1024 * 1024)
+            message = tr(f"جار تنزيل التحديث: {megabytes:.1f} ميغابايت.")
+        self.status.SetLabel(message)
+        self.status.SetName(message)
+        self.progress.SetName(message)
+
+    def on_cancel(self, event: wx.Event) -> None:
+        self.cancel_callback()
+        self.cancel_button.Disable()
+        message = tr("جار إلغاء تنزيل التحديث.")
+        self.status.SetLabel(message)
+        self.status.SetName(message)
+        if isinstance(event, wx.CloseEvent) and event.CanVeto():
+            event.Veto()
 
 
 class MainFrame(wx.Frame):
@@ -2948,6 +3122,9 @@ class MainFrame(wx.Frame):
         self._startup_update_call: wx.CallLater | None = None
         self._startup_update_check_started = False
         self._update_dialog_open = False
+        self._update_download_active = False
+        self._update_progress_dialog: UpdateDownloadDialog | None = None
+        self._update_cancel_event: threading.Event | None = None
         self._startup_login_shown = False
         self._active_worker_count = 0
         self.pages: dict[str, MailPage] = {}
@@ -4591,7 +4768,7 @@ Filtering:
 Each section can show all, starred, unread, or read messages. The Trash option loads the actual Trash folder.
 
 Multiple selection:
-In normal mode, messages appear as list items without check boxes. Press Ctrl+Shift+Space to enter multiple-selection mode and show a check box beside every message. Move with the arrow keys and press Space to check or uncheck the focused message, or click the visible check boxes with the mouse. Press Control by itself to hear the number selected, and press Escape or Ctrl+Shift+Space again to leave the mode and hide the check boxes. Entry and exit are announced after one second. Moving above the first message or below the last message announces the list boundary. The context menu provides bulk read, star, pin, and Trash actions. Delete opens a confirmation dialog that states the message count.
+In normal mode, messages appear as list items without check boxes. Press Ctrl+Shift+Space to enter multiple-selection mode and show a check box beside every message. Move with the arrow keys and press Space to check or uncheck the focused message, or click the visible check boxes with the mouse. Press Control by itself to hear the number selected, and press Escape or Ctrl+Shift+Space again to leave the mode and hide the check boxes. Entry and exit are announced after half a second. Moving above the first message or below the last message announces the list boundary. The context menu provides bulk read, star, pin, and Trash actions. Delete opens a confirmation dialog that states the message count.
 
 Commands:
 - Refresh displayed content retrieves recent messages.
@@ -4608,7 +4785,7 @@ Translation:
 Ctrl+T translates the selected message to the application language. Translation can replace the message text directly in either viewer or open in a separate window, according to Settings. Translation requires an internet connection and sends the selected message text to Google Translate only when requested by the user.
 
 Updates:
-The application checks GitHub Releases after startup and can also check from Help, Check for updates. An available version opens an accessible dialog with Update now and Close buttons.
+The application checks GitHub Releases after startup and can also check from Help, Check for updates. An available version opens an accessible dialog with Update now and Close buttons. Update now opens an internal progress window showing the version, release date, progress bar, and percentage. The application downloads the correct installer, verifies its SHA-256 digest, starts direct update mode, and restarts without opening a browser.
 
 Privacy and security:
 - Browser sign-in uses OAuth.
@@ -4632,7 +4809,7 @@ Privacy and security:
 كل قسم يحتوي على صندوق تصنيف يتيح عرض الكل، أو الرسائل المميزة بنجمة، أو غير المقروءة، أو المقروءة. خيار سلة المحذوفات في نهاية التصنيف يفحص صندوق السلة الحقيقي في Gmail أو IMAP ويعرض الرسائل الموجودة فيه.
 
 التحديد المتعدد:
-في الوضع العادي تظهر الرسائل كعناصر قائمة من دون مربعات اختيار. اضغط Ctrl+Shift+Space للدخول إلى وضع التحديد المتعدد وإظهار مربع اختيار بجانب كل رسالة. تنقل بالأسهم واضغط Space لتحديد مربع الرسالة الحالية أو إلغاء تحديده، أو انقر على المربعات الظاهرة بالفأرة. اضغط Control وحده لسماع عدد الرسائل المحددة، واضغط Escape أو Ctrl+Shift+Space مرة أخرى للخروج من الوضع وإخفاء المربعات. يُنطق الدخول والخروج بعد ثانية واحدة، كما يُنطق الوصول إلى بداية قائمة الرسائل أو نهايتها عند محاولة تجاوزها. تعرض قائمة السياق إجراءات القراءة والنجمة والتثبيت والحذف المناسبة للمجموعة، ويعرض زر Delete نافذة تأكيد تذكر عدد الرسائل.
+في الوضع العادي تظهر الرسائل كعناصر قائمة من دون مربعات اختيار. اضغط Ctrl+Shift+Space للدخول إلى وضع التحديد المتعدد وإظهار مربع اختيار بجانب كل رسالة. تنقل بالأسهم واضغط Space لتحديد مربع الرسالة الحالية أو إلغاء تحديده، أو انقر على المربعات الظاهرة بالفأرة. اضغط Control وحده لسماع عدد الرسائل المحددة، واضغط Escape أو Ctrl+Shift+Space مرة أخرى للخروج من الوضع وإخفاء المربعات. يُنطق الدخول والخروج بعد نصف ثانية، كما يُنطق الوصول إلى بداية قائمة الرسائل أو نهايتها عند محاولة تجاوزها. تعرض قائمة السياق إجراءات القراءة والنجمة والتثبيت والحذف المناسبة للمجموعة، ويعرض زر Delete نافذة تأكيد تذكر عدد الرسائل.
 
 الأوامر الأساسية:
 - تحديث المحتوى المعروض: يجلب أحدث الرسائل من الخادم مع عرض نسبة التقدم.
@@ -4658,7 +4835,7 @@ Privacy and security:
 - لا يقرأ البرنامج كلمات مرور المتصفح ولا يستطيع الوصول إلى حسابات المستخدم إلا بعد موافقته في صفحة تسجيل الدخول الرسمية.
 
 التحديث:
-يفحص البرنامج GitHub Releases بحثا عن إصدار أحدث بعد بدء التشغيل، ويمكن إجراء الفحص يدويا من قائمة المساعدة. عند توفر تحديث تظهر نافذة فيها زرا تحديث الآن وإغلاق.
+يفحص البرنامج GitHub Releases بحثا عن إصدار أحدث بعد بدء التشغيل، ويمكن إجراء الفحص يدويا من قائمة المساعدة. عند توفر تحديث تظهر نافذة فيها زرا تحديث الآن وإغلاق. يفتح زر تحديث الآن نافذة داخلية تعرض رقم الإصدار وتاريخ الإطلاق وشريط التقدم والنسبة المئوية. ينزل البرنامج المثبت الصحيح ويتحقق من بصمة SHA-256 ثم يبدأ التحديث المباشر ويعيد تشغيل البرنامج من دون فتح المتصفح.
 """
 
     def on_check_updates(self, _event: wx.Event) -> None:
@@ -4682,13 +4859,13 @@ Privacy and security:
                     self,
                 )
                 return
-            if result.download_url:
+            if can_install_update(result):
                 self.show_update_available(result)
                 return
             wx.MessageBox(
                 tr(result.message)
                 + "\n\n"
-                + tr("يوجد تحديث لكن لا يتوفر رابط تنزيل صالح."),
+                + tr("يوجد تحديث لكن لا يتوفر مثبت مباشر موثق ببصمة SHA-256."),
                 tr("تحديث متاح"),
                 wx.OK | wx.ICON_INFORMATION,
                 self,
@@ -4704,7 +4881,7 @@ Privacy and security:
 
         def target() -> None:
             result = check_for_updates(APP_VERSION, timeout=8)
-            if result.available and result.download_url:
+            if result.available and can_install_update(result):
                 wx.CallAfter(self.show_update_available, result)
 
         threading.Thread(target=target, daemon=True).start()
@@ -4716,11 +4893,106 @@ Privacy and security:
         dialog = UpdateAvailableDialog(self, result)
         try:
             if dialog.ShowModal() == wx.ID_OK:
-                webbrowser.open(result.download_url)
-                self.SetStatusText(tr("تم فتح رابط تنزيل التحديث."))
+                self.start_internal_update(result)
         finally:
             dialog.Destroy()
             self._update_dialog_open = False
+
+    def start_internal_update(self, result: UpdateCheckResult) -> None:
+        if self._update_download_active:
+            return
+        if not can_install_update(result):
+            wx.MessageBox(
+                tr("تعذر بدء التحديث لأن المثبت أو بصمة SHA-256 غير صالحين."),
+                tr("تحديث البرنامج"),
+                wx.OK | wx.ICON_ERROR,
+                self,
+            )
+            return
+
+        self._update_download_active = True
+        cancel_event = threading.Event()
+        self._update_cancel_event = cancel_event
+        dialog = UpdateDownloadDialog(
+            self,
+            result.latest_version,
+            result.release_date,
+            cancel_event.set,
+        )
+        self._update_progress_dialog = dialog
+        dialog.Show()
+        self.SetStatusText(tr("جار تنزيل التحديث داخل البرنامج."))
+
+        def progress(downloaded: int, total: int) -> None:
+            wx.CallAfter(
+                self.update_internal_download_progress,
+                downloaded,
+                total,
+            )
+
+        def target() -> None:
+            try:
+                installer = download_update_installer(
+                    result,
+                    progress=progress,
+                    cancel_event=cancel_event,
+                )
+            except Exception as exc:
+                wx.CallAfter(self.finish_internal_update, None, exc)
+            else:
+                wx.CallAfter(self.finish_internal_update, installer, None)
+
+        threading.Thread(target=target, daemon=True).start()
+
+    def update_internal_download_progress(
+        self,
+        downloaded: int,
+        total: int,
+    ) -> None:
+        if self._update_progress_dialog is not None:
+            self._update_progress_dialog.set_progress(downloaded, total)
+
+    def finish_internal_update(
+        self,
+        installer: Path | None,
+        error: Exception | None,
+    ) -> None:
+        dialog = self._update_progress_dialog
+        self._update_progress_dialog = None
+        self._update_cancel_event = None
+        self._update_download_active = False
+        if dialog is not None:
+            dialog.Destroy()
+
+        if isinstance(error, UpdateDownloadCancelled):
+            self.show_notification("تم إلغاء تنزيل التحديث.")
+            return
+        if error is not None:
+            wx.MessageBox(
+                tr(str(error)),
+                tr("تعذر تحديث البرنامج"),
+                wx.OK | wx.ICON_ERROR,
+                self,
+            )
+            self.SetStatusText(tr("فشل تنزيل التحديث."))
+            return
+        if installer is None:
+            return
+        try:
+            launch_update_installer(installer)
+        except Exception as exc:
+            wx.MessageBox(
+                tr(str(exc)),
+                tr("تعذر تشغيل مثبت التحديث"),
+                wx.OK | wx.ICON_ERROR,
+                self,
+            )
+            return
+        self.show_notification(
+            "اكتمل تنزيل التحديث. سيغلق البرنامج ويبدأ التثبيت الآن."
+        )
+        self.SetStatusText(tr("جار بدء تثبيت التحديث."))
+        wx.CallLater(500, self.Close)
 
     def current_page(self) -> MailPage | None:
         page = self.notebook.GetCurrentPage()

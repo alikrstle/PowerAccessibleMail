@@ -16,12 +16,12 @@ VSVersionInfo(
         [
           StringStruct('CompanyName', 'Soljan.AlSharq.'),
           StringStruct('FileDescription', 'Power Accessible Mail'),
-          StringStruct('FileVersion', '1.2.10.0'),
+          StringStruct('FileVersion', '1.2.11.0'),
           StringStruct('InternalName', 'Power Accessible Mail'),
           StringStruct('LegalCopyright', 'Copyright (c) 2026 Soljan.AlSharq.'),
           StringStruct('OriginalFilename', 'Power Accessible Mail.exe'),
           StringStruct('ProductName', 'Power Accessible Mail'),
-          StringStruct('ProductVersion', '1.2.10')
+          StringStruct('ProductVersion', '1.2.11')
         ]
       )
     ]),

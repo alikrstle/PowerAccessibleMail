@@ -165,9 +165,9 @@ run.bat
 عند نشر إصدار جديد:
 
 1. أنشئ GitHub Release منشورا، وليس Draft أو Pre-release.
-2. استخدم وسم إصدار مثل `v1.2.10`.
-3. ارفع `PowerAccessibleMailSetup-1.2.10-win-x64-UNSIGNED.exe` عند عدم توفر شهادة توقيع.
-4. ارفع `PowerAccessibleMailSetup-1.2.10-win-x86-UNSIGNED.exe` عند عدم توفر شهادة توقيع.
+2. استخدم وسم إصدار مثل `v1.2.11`.
+3. ارفع `PowerAccessibleMailSetup-1.2.11-win-x64-UNSIGNED.exe` عند عدم توفر شهادة توقيع.
+4. ارفع `PowerAccessibleMailSetup-1.2.11-win-x86-UNSIGNED.exe` عند عدم توفر شهادة توقيع.
 5. ارفع ملفات ZIP وملفات بصمة SHA-256 للمعماريتين إلى الإصدار نفسه.
 
 المستودع الافتراضي هو `alikrstle/PowerAccessibleMail`. يمكن تغييره لأغراض التطوير عبر:
@@ -178,10 +178,10 @@ run.bat
 
 ```json
 {
-  "version": "1.2.10",
+  "version": "1.2.11",
   "downloads": {
-    "x64": "https://example.com/PowerAccessibleMailSetup-1.2.10-win-x64.exe",
-    "x86": "https://example.com/PowerAccessibleMailSetup-1.2.10-win-x86.exe"
+    "x64": "https://example.com/PowerAccessibleMailSetup-1.2.11-win-x64.exe",
+    "x86": "https://example.com/PowerAccessibleMailSetup-1.2.11-win-x86.exe"
   },
   "notes": "تحسينات في استلام الرسائل ودعم المرفقات."
 }

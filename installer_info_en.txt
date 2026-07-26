@@ -1,7 +1,7 @@
 Application information
 
 Application: Power Accessible Mail
-Version: 1.2.10
+Version: 1.2.11
 Developer: Soljan.AlSharq.
 Owner: Ali Al-Amir
 Company: Soljan.AlSharq.

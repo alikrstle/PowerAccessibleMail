@@ -28,6 +28,8 @@ class UpdateCheckResult:
     current_version: str
     latest_version: str = ""
     download_url: str = ""
+    sha256: str = ""
+    release_date: str = ""
     notes: str = ""
     message: str = ""
 
@@ -165,11 +167,36 @@ def _check_manifest(
 
     latest_version = str(manifest.get("version", "")).strip()
     downloads = manifest.get("downloads")
-    architecture_url = downloads.get(architecture) if isinstance(downloads, dict) else ""
+    architecture_download = (
+        downloads.get(architecture)
+        if isinstance(downloads, dict)
+        else ""
+    )
+    if isinstance(architecture_download, dict):
+        architecture_url = (
+            architecture_download.get("download_url")
+            or architecture_download.get("url")
+            or ""
+        )
+        architecture_sha256 = architecture_download.get("sha256")
+    else:
+        architecture_url = architecture_download
+        architecture_sha256 = ""
     download_url = str(
         architecture_url
         or manifest.get("download_url")
         or manifest.get("url")
+        or ""
+    ).strip()
+    checksums = manifest.get("sha256")
+    if isinstance(checksums, dict):
+        manifest_sha256 = checksums.get(architecture)
+    else:
+        manifest_sha256 = checksums
+    sha256 = normalize_sha256(architecture_sha256 or manifest_sha256)
+    release_date = str(
+        manifest.get("release_date")
+        or manifest.get("published_at")
         or ""
     ).strip()
     notes = str(manifest.get("notes", "")).strip()
@@ -184,6 +211,8 @@ def _check_manifest(
         current_version=current_version,
         latest_version=latest_version,
         download_url=download_url,
+        sha256=sha256,
+        release_date=release_date,
         notes=notes,
     )
 
@@ -260,15 +289,23 @@ def _check_github_release(
         )
 
     release_url = _https_url(release.get("html_url"))
-    download_url = (
-        select_installer_asset(release.get("assets"), architecture)
-        or release_url
+    download_url, sha256 = select_installer_asset_details(
+        release.get("assets"),
+        architecture,
     )
+    download_url = download_url or release_url
+    release_date = str(
+        release.get("published_at")
+        or release.get("created_at")
+        or ""
+    ).strip()
     notes = str(release.get("body") or "").strip()
     return _result_for_release(
         current_version=current_version,
         latest_version=latest_version,
         download_url=download_url,
+        sha256=sha256,
+        release_date=release_date,
         notes=notes,
     )
 
@@ -368,9 +405,16 @@ def _read_json_response(request: urllib.request.Request, timeout: int) -> object
 
 
 def select_installer_asset(assets: object, architecture: str) -> str:
+    return select_installer_asset_details(assets, architecture)[0]
+
+
+def select_installer_asset_details(
+    assets: object,
+    architecture: str,
+) -> tuple[str, str]:
     if not isinstance(assets, list):
-        return ""
-    candidates: list[tuple[int, str]] = []
+        return "", ""
+    candidates: list[tuple[int, str, str]] = []
     for asset in assets:
         if not isinstance(asset, dict):
             continue
@@ -380,11 +424,17 @@ def select_installer_asset(assets: object, architecture: str) -> str:
             continue
         score = _installer_asset_score(name, architecture)
         if score >= 0:
-            candidates.append((score, url))
+            candidates.append(
+                (
+                    score,
+                    url,
+                    normalize_sha256(asset.get("digest")),
+                )
+            )
     if not candidates:
-        return ""
+        return "", ""
     candidates.sort(key=lambda item: item[0], reverse=True)
-    return candidates[0][1]
+    return candidates[0][1], candidates[0][2]
 
 
 def _installer_asset_score(name: str, architecture: str) -> int:
@@ -406,6 +456,8 @@ def _result_for_release(
     latest_version: str,
     download_url: str,
     notes: str,
+    sha256: str = "",
+    release_date: str = "",
 ) -> UpdateCheckResult:
     available = version_key(latest_version) > version_key(current_version)
     message = (
@@ -419,6 +471,8 @@ def _result_for_release(
         current_version=current_version,
         latest_version=latest_version,
         download_url=download_url,
+        sha256=normalize_sha256(sha256),
+        release_date=release_date,
         notes=notes,
         message=message,
     )
@@ -447,6 +501,13 @@ def _https_url(value: object) -> str:
     if urllib.parse.urlparse(url).scheme.lower() == "https":
         return url
     return ""
+
+
+def normalize_sha256(value: object) -> str:
+    checksum = str(value or "").strip().lower()
+    if checksum.startswith("sha256:"):
+        checksum = checksum[7:]
+    return checksum if re.fullmatch(r"[0-9a-f]{64}", checksum) else ""
 
 
 def _version_from_tag(tag: str) -> str:
