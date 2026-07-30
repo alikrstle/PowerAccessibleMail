@@ -342,12 +342,38 @@ ENGLISH_TRANSLATIONS: dict[str, str] = {
     "إصدار GitHub لا يحتوي على رقم إصدار صالح.": "The GitHub release does not contain a valid version number.",
     "لا يوجد إصدار منشور في GitHub Releases حتى الآن.": "No release has been published in GitHub Releases yet.",
     "يوجد تحديث لكن لا يتوفر رابط تنزيل صالح.": "An update is available, but no valid download link was provided.",
+    "إعادة تسجيل الدخول قيد التنفيذ بالفعل.": "Browser sign-in is already in progress.",
+    "جار انتظار تسجيل الدخول عبر المتصفح...": "Waiting for browser sign-in...",
+    "تعذر فتح المتصفح لإكمال تسجيل الدخول.": "The browser could not be opened to complete sign-in.",
+    "تم إلغاء تسجيل الدخول عبر المتصفح.": "Browser sign-in was canceled.",
+    "رفض البرنامج الاتصال بخدمة OAuth غير آمنة.": "The application refused an insecure OAuth connection.",
+    "أعادت خدمة OAuth التوجيه إلى اتصال غير آمن.": "The OAuth service redirected to an insecure connection.",
+    "استجابة خدمة OAuth أكبر من الحجم المسموح.": "The OAuth response exceeds the allowed size.",
+    "أرسلت خدمة OAuth استجابة غير صالحة.": "The OAuth service returned an invalid response.",
+    "رابط ملف التحديثات غير آمن. يجب استخدام HTTPS.": "The update manifest URL is insecure. HTTPS is required.",
+    "رفض البرنامج مصدر تحديثات غير آمن.": "The application refused an insecure update source.",
+    "أعاد خادم التحديثات التوجيه إلى اتصال غير آمن.": "The update server redirected to an insecure connection.",
+    "استجابة التحديثات أكبر من الحجم المسموح.": "The update response exceeds the allowed size.",
+    "اسم مثبت التحديث لا يطابق رقم الإصدار المتاح.": "The update installer name does not match the available version.",
+    "معمارية مثبت التحديث لا تطابق معمارية البرنامج الحالي.": "The update installer architecture does not match the running application.",
+    "رفض البرنامج تنزيل التحديث من اتصال غير آمن.": "The application refused to download the update over an insecure connection.",
+    "تحذير أمان المرفق": "Attachment security warning",
+    "تم منع فتح رابط غير آمن من الرسالة.": "An unsafe link in the message was blocked.",
+    "تم إلغاء فتح المرفق غير الآمن.": "Opening the unsafe attachment was canceled.",
 }
 
 
 _ENGLISH_TO_ARABIC = {english: arabic for arabic, english in ENGLISH_TRANSLATIONS.items()}
 
 _DYNAMIC_ENGLISH: tuple[tuple[re.Pattern[str], str], ...] = (
+    (
+        re.compile(
+            r"^المرفق (.+) قد يشغّل أو يحتوي على تعليمات برمجية ضارة\.\n\n"
+            r"هل تريد فتحه رغم ذلك؟$"
+        ),
+        "The attachment {0} may run commands or contain malicious code.\n\n"
+        "Do you want to open it anyway?",
+    ),
     (
         re.compile(r"^الإصدار الجديد: (.+)\. تاريخ الإطلاق: (.+)\.$"),
         "New version: {0}. Release date: {1}.",

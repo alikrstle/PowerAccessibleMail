@@ -62,4 +62,4 @@ Power Accessible Mail's use and transfer of information received from Google API
 
 For privacy or support questions, contact:
 
-`PUT-YOUR-SUPPORT-EMAIL-HERE`
+`support@soljan-alsharq.com`

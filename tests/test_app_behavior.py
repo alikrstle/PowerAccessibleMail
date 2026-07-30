@@ -24,6 +24,7 @@ from accessible_mail.app import (
     announce_to_screen_reader,
     run_bulk_operations,
 )
+from accessible_mail.main_frame import call_after_if_open
 from accessible_mail.config import (
     LANGUAGE_ENGLISH,
     THEME_LIGHT,
@@ -31,15 +32,64 @@ from accessible_mail.config import (
     VIEWER_HTML,
     ProgramSettings,
 )
-from accessible_mail.models import Account, MessageSummary
+from accessible_mail.models import Account, LinkItem, MessageSummary
 from accessible_mail.oauth import OAuthReauthenticationRequired
 from accessible_mail.update_checker import UpdateCheckResult
 
 
 class AppBehaviorTests(unittest.TestCase):
+    @patch("accessible_mail.main_frame.wx.CallAfter")
+    def test_delayed_ui_callback_is_ignored_after_close(
+        self,
+        call_after: Mock,
+    ) -> None:
+        owner = SimpleNamespace(_closing=False)
+        callback = Mock()
+
+        call_after_if_open(owner, callback, "result")
+        queued_callback = call_after.call_args.args[0]
+        owner._closing = True
+        queued_callback()
+
+        callback.assert_not_called()
+
+    @patch("accessible_mail.main_frame.cleanup_opened_attachment_session")
+    def test_close_stops_background_activity_and_cleans_session(
+        self,
+        cleanup_attachments: Mock,
+    ) -> None:
+        delayed_calls = [
+            SimpleNamespace(IsRunning=lambda: True, Stop=Mock())
+            for _index in range(3)
+        ]
+        timer = SimpleNamespace(Stop=Mock())
+        cancel_event = SimpleNamespace(set=Mock())
+        event = SimpleNamespace(Skip=Mock())
+        frame = SimpleNamespace(
+            _closing=False,
+            _message_load_call=delayed_calls[0],
+            _notification_timer=delayed_calls[1],
+            _startup_update_call=delayed_calls[2],
+            new_mail_timer=timer,
+            _update_cancel_event=cancel_event,
+        )
+
+        MainFrame.on_close(frame, event)
+
+        self.assertTrue(frame._closing)
+        for delayed_call in delayed_calls:
+            delayed_call.Stop.assert_called_once_with()
+        timer.Stop.assert_called_once_with()
+        cancel_event.set.assert_called_once_with()
+        cleanup_attachments.assert_called_once_with()
+        event.Skip.assert_called_once_with()
+
     @patch("accessible_mail.app.wx.CallAfter", side_effect=lambda function, *args: function(*args))
     @patch("accessible_mail.app.wx.Window.FindFocus", return_value=None)
-    @patch("accessible_mail.app.translate_text_with_google", return_value="Translated message")
+    @patch(
+        "accessible_mail.main_frame.translate_text_with_google",
+        return_value="Translated message",
+    )
     def test_inline_translation_updates_either_message_viewer(
         self,
         translate: Mock,
@@ -182,6 +232,36 @@ class AppBehaviorTests(unittest.TestCase):
 
         self.assertIn('<article id="message" tabindex="0"', rendered)
         self.assertNotIn('role="document"', rendered)
+
+    def test_unsafe_message_links_are_not_rendered_as_clickable_actions(self) -> None:
+        item = LinkItem("تشغيل", "javascript:alert(1)")
+
+        rendered = MailPage.message_html_action(
+            SimpleNamespace(),
+            "تشغيل",
+            item,
+        )
+
+        self.assertEqual(rendered, "تشغيل")
+
+    def test_dangerous_attachments_require_confirmation(self) -> None:
+        self.assertTrue(
+            MailPage.attachment_requires_confirmation(
+                LinkItem("invoice.exe", kind="attachment", filename="invoice.exe")
+            )
+        )
+        self.assertFalse(
+            MailPage.attachment_requires_confirmation(
+                LinkItem("invoice.pdf", kind="attachment", filename="invoice.pdf")
+            )
+        )
+
+    def test_windows_reserved_attachment_names_are_made_safe(self) -> None:
+        item = LinkItem("CON.txt", kind="attachment", filename="CON.txt")
+
+        filename = MailPage.safe_attachment_filename(SimpleNamespace(), item)
+
+        self.assertEqual(filename, "_CON.txt")
 
     def test_forward_tab_from_message_list_activates_html_viewer(self) -> None:
         event = SimpleNamespace(
@@ -354,7 +434,7 @@ class AppBehaviorTests(unittest.TestCase):
         page.announce_accessible.assert_not_called()
 
     @patch("accessible_mail.app.wx.Accessible.NotifyEvent")
-    @patch("accessible_mail.app.interrupt_and_speak", return_value=True)
+    @patch("accessible_mail.accessibility.interrupt_and_speak", return_value=True)
     def test_accessible_announcement_interrupts_nvda_directly(
         self,
         interrupt_and_speak: Mock,
@@ -369,7 +449,7 @@ class AppBehaviorTests(unittest.TestCase):
         notify_event.assert_not_called()
 
     @patch("accessible_mail.app.wx.Accessible.NotifyEvent")
-    @patch("accessible_mail.app.interrupt_and_speak", return_value=False)
+    @patch("accessible_mail.accessibility.interrupt_and_speak", return_value=False)
     def test_accessible_announcement_falls_back_to_system_alert(
         self,
         interrupt_and_speak: Mock,
@@ -513,7 +593,7 @@ class AppBehaviorTests(unittest.TestCase):
         self.assertEqual([summary.uid for summary in succeeded], ["1", "3"])
         self.assertEqual([summary.uid for summary, _exc in failed], ["2"])
 
-    @patch("accessible_mail.app.BulkDeleteDialog")
+    @patch("accessible_mail.main_frame.BulkDeleteDialog")
     def test_bulk_delete_confirms_count_and_focuses_previous_message(
         self,
         dialog_class: Mock,
@@ -598,7 +678,7 @@ class AppBehaviorTests(unittest.TestCase):
         self.assertIn('label=tr("تحديث الآن")', source)
         self.assertIn('label=tr("إغلاق")', source)
 
-    @patch("accessible_mail.app.UpdateAvailableDialog")
+    @patch("accessible_mail.main_frame.UpdateAvailableDialog")
     def test_update_now_starts_internal_updater(self, dialog_class: Mock) -> None:
         dialog = dialog_class.return_value
         dialog.ShowModal.return_value = wx.ID_OK
@@ -700,7 +780,7 @@ class AppBehaviorTests(unittest.TestCase):
         self.assertTrue(MailPage.has_translatable_content(page))
 
     @patch("accessible_mail.app.wx.CallAfter", side_effect=lambda function, *args: function(*args))
-    @patch("accessible_mail.app.save_accounts")
+    @patch("accessible_mail.main_frame.save_accounts")
     def test_account_success_uses_in_app_notification(
         self,
         _save_accounts: Mock,
@@ -732,7 +812,45 @@ class AppBehaviorTests(unittest.TestCase):
 
         dialog.start_oauth_login.assert_called_once_with("google_gmail_api")
 
-    @patch("accessible_mail.app.google_provider_id", return_value="google_gmail_api")
+    @patch("accessible_mail.account_dialog.wx.BeginBusyCursor")
+    @patch("accessible_mail.account_dialog.threading.Thread")
+    @patch("accessible_mail.account_dialog.run_browser_oauth_flow")
+    @patch(
+        "accessible_mail.account_dialog.load_oauth_clients",
+        return_value={
+            "microsoft": {
+                "client_id": "client-id",
+                "client_secret": "",
+            }
+        },
+    )
+    def test_account_oauth_wait_runs_outside_the_ui_thread(
+        self,
+        _load_clients: Mock,
+        oauth_flow: Mock,
+        thread_class: Mock,
+        _busy_cursor: Mock,
+    ) -> None:
+        dialog = SimpleNamespace(
+            _oauth_login_active=False,
+            _oauth_login_generation=0,
+            _oauth_cancel_event=None,
+            _destroyed=False,
+            account=Account(),
+            _select_oauth_provider=Mock(),
+        )
+
+        AccountDialog.start_oauth_login(dialog, "microsoft")
+
+        thread_class.assert_called_once()
+        thread_class.return_value.start.assert_called_once_with()
+        oauth_flow.assert_not_called()
+        self.assertTrue(dialog._oauth_login_active)
+
+    @patch(
+        "accessible_mail.account_dialog.google_provider_id",
+        return_value="google_gmail_api",
+    )
     def test_startup_google_button_starts_gmail_api_provider(
         self,
         provider_id: Mock,
@@ -819,9 +937,9 @@ class AppBehaviorTests(unittest.TestCase):
         )
 
     @patch("accessible_mail.app.wx.CallLater")
-    @patch("accessible_mail.app.announce_to_screen_reader")
-    @patch("accessible_mail.app.restore_control_focus")
-    @patch("accessible_mail.app.focused_control", return_value=None)
+    @patch("accessible_mail.main_frame.announce_to_screen_reader")
+    @patch("accessible_mail.main_frame.restore_control_focus")
+    @patch("accessible_mail.main_frame.focused_control", return_value=None)
     def test_in_app_notification_uses_interrupting_screen_reader_path(
         self,
         _focused_control: Mock,
@@ -1030,7 +1148,7 @@ class AppBehaviorTests(unittest.TestCase):
         event.Skip.assert_not_called()
 
     @patch("accessible_mail.app.wx.CallAfter", side_effect=lambda function, *args: function(*args))
-    @patch("accessible_mail.app.AccountDialog")
+    @patch("accessible_mail.main_frame.AccountDialog")
     def test_initial_login_is_shown_only_when_no_account_exists(
         self,
         dialog_class: Mock,
@@ -1093,16 +1211,21 @@ class AppBehaviorTests(unittest.TestCase):
         )
 
         with (
-            patch("accessible_mail.app.focused_control", return_value=focus_owner),
-            patch("accessible_mail.app.restore_control_focus") as restore_focus,
+            patch(
+                "accessible_mail.main_frame.focused_control",
+                return_value=focus_owner,
+            ),
+            patch("accessible_mail.main_frame.restore_control_focus") as restore_focus,
             patch("accessible_mail.app.wx.CallAfter") as call_after,
         ):
             MainFrame._load_accounts_to_choice(frame, second.id)
+            call_after.call_args.args[0]()
 
         frame.account_choice.Set.assert_called_once_with([first.label, second.label])
         frame.account_choice.SetSelection.assert_called_once_with(1)
         restore_focus.assert_called_once_with(focus_owner)
-        call_after.assert_called_once_with(frame.refresh_all)
+        call_after.assert_called_once()
+        frame.refresh_all.assert_called_once_with()
 
     def test_oauth_services_and_manual_form_have_ok_buttons(self) -> None:
         oauth_source = inspect.getsource(AccountDialog.show_oauth_provider_view)
@@ -1259,3 +1382,99 @@ class AppBehaviorTests(unittest.TestCase):
 
         frame.handle_oauth_reauthentication_required.assert_called_once_with(error)
         message_box.assert_not_called()
+
+    @patch("accessible_mail.main_frame.save_accounts")
+    def test_oauth_expiry_clears_the_account_that_failed_not_current_selection(
+        self,
+        save: Mock,
+    ) -> None:
+        failed_account = Account(
+            id="failed",
+            oauth_provider="microsoft",
+            oauth_access_token="failed-access",
+            oauth_refresh_token="failed-refresh",
+            oauth_token_expiry=99.0,
+        )
+        selected_account = Account(
+            id="selected",
+            oauth_provider="microsoft",
+            oauth_access_token="selected-access",
+            oauth_refresh_token="selected-refresh",
+            oauth_token_expiry=88.0,
+        )
+        frame = SimpleNamespace(
+            accounts=[failed_account, selected_account],
+            selected_account=lambda: selected_account,
+            show_notification=Mock(),
+            SetStatusText=Mock(),
+        )
+        error = OAuthReauthenticationRequired(
+            "أعد تسجيل الدخول",
+            account_id=failed_account.id,
+        )
+
+        MainFrame.handle_oauth_reauthentication_required(frame, error)
+
+        self.assertEqual(failed_account.oauth_access_token, "")
+        self.assertEqual(failed_account.oauth_refresh_token, "")
+        self.assertEqual(failed_account.oauth_token_expiry, 0.0)
+        self.assertEqual(selected_account.oauth_access_token, "selected-access")
+        save.assert_called_once_with(frame.accounts)
+
+    @patch("accessible_mail.main_frame.save_accounts")
+    @patch("accessible_mail.main_frame.run_browser_oauth_flow")
+    @patch(
+        "accessible_mail.main_frame.load_oauth_clients",
+        return_value={
+            "microsoft": {
+                "client_id": "client-id",
+                "client_secret": "",
+            }
+        },
+    )
+    def test_reauthentication_uses_the_main_background_worker(
+        self,
+        _load_clients: Mock,
+        oauth_flow: Mock,
+        save: Mock,
+    ) -> None:
+        account = Account(
+            id="account",
+            oauth_provider="microsoft",
+            email_address="old@example.com",
+        )
+        result = SimpleNamespace(
+            provider_id="microsoft",
+            access_token="new-access",
+            refresh_token="new-refresh",
+            expires_at=1234.0,
+            email_address="new@example.com",
+            display_name="New User",
+        )
+        oauth_flow.return_value = result
+        run_worker = Mock()
+        frame = SimpleNamespace(
+            _reauthentication_active=False,
+            selected_account=lambda: account,
+            accounts=[account],
+            run_worker=run_worker,
+            content_cache={"old": object()},
+            SetStatusText=Mock(),
+            refresh_all=Mock(),
+            show_notification=Mock(),
+        )
+
+        MainFrame.on_reauthenticate_account(frame)
+
+        oauth_flow.assert_not_called()
+        run_worker.assert_called_once()
+        _message, work, done, _failed = run_worker.call_args.args
+        done(work())
+
+        oauth_flow.assert_called_once_with("microsoft", "client-id", "")
+        self.assertFalse(frame._reauthentication_active)
+        self.assertEqual(account.oauth_access_token, "new-access")
+        self.assertEqual(account.email_address, "new@example.com")
+        self.assertFalse(frame.content_cache)
+        save.assert_called_once_with(frame.accounts)
+        frame.refresh_all.assert_called_once_with()

@@ -11,12 +11,17 @@ import urllib.request
 from collections.abc import Callable
 from pathlib import Path
 
-from .update_checker import UpdateCheckResult, normalize_sha256
+from .update_checker import UpdateCheckResult, current_architecture, normalize_sha256
 
 
 MAX_INSTALLER_BYTES = 250 * 1024 * 1024
 DOWNLOAD_CHUNK_BYTES = 128 * 1024
 ProgressCallback = Callable[[int, int], None]
+INSTALLER_NAME_PATTERN = re.compile(
+    r"PowerAccessibleMailSetup-(?P<version>[0-9A-Za-z.+-]+)-"
+    r"win-(?P<architecture>x64|x86)(?:-UNSIGNED)?\.exe",
+    flags=re.IGNORECASE,
+)
 
 
 class UpdateInstallError(RuntimeError):
@@ -28,24 +33,47 @@ class UpdateDownloadCancelled(UpdateInstallError):
 
 
 def installer_name_from_url(url: str) -> str:
+    return installer_details_from_url(url)[0]
+
+
+def installer_details_from_url(url: str) -> tuple[str, str, str]:
     parsed = urllib.parse.urlparse(str(url or "").strip())
-    if parsed.scheme.lower() != "https":
-        return ""
+    if parsed.scheme.lower() != "https" or not parsed.netloc:
+        return "", "", ""
     name = Path(urllib.parse.unquote(parsed.path)).name
-    if not re.fullmatch(
-        r"PowerAccessibleMailSetup-[0-9A-Za-z.+-]+-win-(?:x64|x86)"
-        r"(?:-UNSIGNED)?\.exe",
+    match = INSTALLER_NAME_PATTERN.fullmatch(name)
+    if not match:
+        return "", "", ""
+    return (
         name,
-        flags=re.IGNORECASE,
+        match.group("version"),
+        match.group("architecture").lower(),
+    )
+
+
+def normalized_update_version(value: str) -> str:
+    version = str(value or "").strip()
+    if version[:1].lower() == "v":
+        version = version[1:]
+    if (
+        not re.fullmatch(r"[0-9A-Za-z.+-]+", version)
+        or not any(character.isalnum() for character in version)
     ):
         return ""
-    return name
+    return version
 
 
 def can_install_update(result: UpdateCheckResult) -> bool:
+    installer_name, installer_version, installer_architecture = (
+        installer_details_from_url(result.download_url)
+    )
+    latest_version = normalized_update_version(result.latest_version)
     return bool(
         result.available
-        and installer_name_from_url(result.download_url)
+        and installer_name
+        and latest_version
+        and installer_version.casefold() == latest_version.casefold()
+        and installer_architecture == current_architecture()
         and normalize_sha256(result.sha256)
     )
 
@@ -58,10 +86,24 @@ def download_update_installer(
     target_root: Path | None = None,
     timeout: int = 90,
 ) -> Path:
-    installer_name = installer_name_from_url(result.download_url)
+    installer_name, installer_version, installer_architecture = (
+        installer_details_from_url(result.download_url)
+    )
     if not installer_name:
         raise UpdateInstallError(
             "لا يتوفر مثبت مباشر صالح لهذا التحديث."
+        )
+    latest_version = normalized_update_version(result.latest_version)
+    if (
+        not latest_version
+        or installer_version.casefold() != latest_version.casefold()
+    ):
+        raise UpdateInstallError(
+            "اسم مثبت التحديث لا يطابق رقم الإصدار المتاح."
+        )
+    if installer_architecture != current_architecture():
+        raise UpdateInstallError(
+            "معمارية مثبت التحديث لا تطابق معمارية البرنامج الحالي."
         )
     expected_sha256 = normalize_sha256(result.sha256)
     if not expected_sha256:
@@ -73,7 +115,7 @@ def download_update_installer(
         Path(tempfile.gettempdir())
         / "PowerAccessibleMail"
         / "updates"
-        / result.latest_version
+        / latest_version
     )
     root.mkdir(parents=True, exist_ok=True)
     destination = root / installer_name

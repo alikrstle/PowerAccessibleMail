@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import base64
+import math
 from dataclasses import asdict, dataclass, field
 from email.utils import parsedate_to_datetime
 from typing import Any
@@ -37,14 +38,64 @@ class Account:
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> "Account":
-        values = {field_name: data.get(field_name) for field_name in cls.__dataclass_fields__}
         account = cls()
-        for key, value in values.items():
-            if value is not None:
-                setattr(account, key, value)
-        account.imap_port = int(account.imap_port or 993)
-        account.smtp_port = int(account.smtp_port or 587)
+        for field_name in cls.__dataclass_fields__:
+            if field_name not in data or data[field_name] is None:
+                continue
+            current = getattr(account, field_name)
+            value = data[field_name]
+            if isinstance(current, bool):
+                value = cls._boolean_value(value, current)
+            elif isinstance(current, int):
+                value = cls._integer_value(value, current)
+            elif isinstance(current, float):
+                value = cls._float_value(value, current)
+            elif isinstance(current, str):
+                value = value if isinstance(value, str) else current
+            setattr(account, field_name, value)
+
+        account.id = account.id.strip() or str(uuid4())
+        account.imap_port = cls._port_value(account.imap_port, 993)
+        account.smtp_port = cls._port_value(account.smtp_port, 587)
+        if not math.isfinite(account.oauth_token_expiry):
+            account.oauth_token_expiry = 0.0
+        else:
+            account.oauth_token_expiry = max(0.0, account.oauth_token_expiry)
+        if account.auth_method not in {"oauth2", "password"}:
+            account.auth_method = "oauth2"
         return account
+
+    @staticmethod
+    def _boolean_value(value: Any, default: bool) -> bool:
+        if isinstance(value, bool):
+            return value
+        if isinstance(value, (int, float)):
+            return bool(value)
+        if isinstance(value, str):
+            normalized = value.strip().casefold()
+            if normalized in {"1", "true", "yes", "on"}:
+                return True
+            if normalized in {"0", "false", "no", "off"}:
+                return False
+        return default
+
+    @staticmethod
+    def _integer_value(value: Any, default: int) -> int:
+        try:
+            return int(value)
+        except (TypeError, ValueError, OverflowError):
+            return default
+
+    @staticmethod
+    def _float_value(value: Any, default: float) -> float:
+        try:
+            return float(value)
+        except (TypeError, ValueError, OverflowError):
+            return default
+
+    @staticmethod
+    def _port_value(value: int, default: int) -> int:
+        return value if 1 <= value <= 65535 else default
 
     def to_dict(self) -> dict[str, Any]:
         data = asdict(self)

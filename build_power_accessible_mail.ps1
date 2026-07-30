@@ -17,6 +17,7 @@ $DistRoot = Join-Path $PSScriptRoot "dist-$Architecture"
 $ReleaseRoot = Join-Path $PSScriptRoot "release"
 $ReleaseDir = Join-Path $ReleaseRoot "win-$Architecture"
 $AppDistDir = Join-Path $DistRoot $AppName
+$AppDistExe = Join-Path $AppDistDir "$AppName.exe"
 $PackageDir = Join-Path $ReleaseRoot "package-win-$Architecture"
 $PackageAppDir = Join-Path $PackageDir $AppName
 $OAuthClients = Join-Path $PSScriptRoot "oauth_clients.json"
@@ -72,6 +73,26 @@ $expectedBits = if ($Architecture -eq "x64") { 64 } else { 32 }
 $pythonBits = & $PythonPath -c "import struct; print(struct.calcsize('P') * 8)"
 if ([int]$pythonBits -ne $expectedBits) {
     throw "The $Architecture build requires $expectedBits-bit Python. Current Python reports: $pythonBits"
+}
+$expectedMachine = if ($Architecture -eq "x64") { 0x8664 } else { 0x014C }
+$bootloaderFolder = if ($Architecture -eq "x64") {
+    "Windows-64bit-intel"
+}
+else {
+    "Windows-32bit-intel"
+}
+$bootloaderMachine = & $PythonPath -c @"
+from pathlib import Path
+import pefile
+import PyInstaller
+path = Path(PyInstaller.__file__).resolve().parent / "bootloader" / "$bootloaderFolder" / "runw.exe"
+print(pefile.PE(str(path), fast_load=True).FILE_HEADER.Machine)
+"@
+if ($LASTEXITCODE -ne 0 -or [int]$bootloaderMachine -ne $expectedMachine) {
+    throw (
+        "The $Architecture PyInstaller bootloader has the wrong PE architecture. " +
+        "Force-reinstall PyInstaller with $PythonPath before building."
+    )
 }
 
 $actualNvdaControllerHash = (
@@ -158,6 +179,13 @@ finally {
 
 if (-not (Test-Path -LiteralPath $AppDistDir)) {
     throw "Expected dist folder was not created: $AppDistDir"
+}
+$appMachine = & $PythonPath -c @"
+import pefile
+print(pefile.PE(r"$AppDistExe", fast_load=True).FILE_HEADER.Machine)
+"@
+if ($LASTEXITCODE -ne 0 -or [int]$appMachine -ne $expectedMachine) {
+    throw "The built application PE architecture does not match $Architecture."
 }
 
 $bundledOAuth = @(Get-ChildItem -LiteralPath $AppDistDir -Recurse -File -Filter "oauth_clients.json")

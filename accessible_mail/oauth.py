@@ -72,6 +72,7 @@ OAUTH_PROVIDERS: dict[str, dict[str, Any]] = {
         "spam_mailbox": "Junk Email",
     },
 }
+MAX_OAUTH_RESPONSE_BYTES = 1024 * 1024
 
 
 class OAuthError(RuntimeError):
@@ -79,7 +80,9 @@ class OAuthError(RuntimeError):
 
 
 class OAuthReauthenticationRequired(OAuthError):
-    pass
+    def __init__(self, message: str, account_id: str = "") -> None:
+        super().__init__(message)
+        self.account_id = account_id
 
 
 @dataclass(slots=True)
@@ -137,6 +140,7 @@ def run_browser_oauth_flow(
     client_id: str,
     client_secret: str = "",
     timeout_seconds: int = 300,
+    cancel_event: threading.Event | None = None,
 ) -> OAuthFlowResult:
     provider = OAUTH_PROVIDERS.get(provider_id)
     if not provider:
@@ -171,8 +175,19 @@ def run_browser_oauth_flow(
     auth_params.update(provider.get("extra_authorize", {}))
     authorize_url = provider["authorization_endpoint"] + "?" + urllib.parse.urlencode(auth_params)
 
-    webbrowser.open(authorize_url)
-    if not server.oauth_event.wait(timeout_seconds):
+    if not webbrowser.open(authorize_url):
+        server.server_close()
+        raise OAuthError("تعذر فتح المتصفح لإكمال تسجيل الدخول.")
+    deadline = time.monotonic() + timeout_seconds
+    while not server.oauth_event.is_set():
+        if cancel_event is not None and cancel_event.is_set():
+            server.server_close()
+            raise OAuthError("تم إلغاء تسجيل الدخول عبر المتصفح.")
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            break
+        server.oauth_event.wait(min(0.25, remaining))
+    if not server.oauth_event.is_set():
         server.server_close()
         raise OAuthError(
             "انتهى وقت انتظار تسجيل الدخول عبر المتصفح. إذا بقيت صفحة Google على "
@@ -219,7 +234,8 @@ def ensure_access_token(account: Account) -> bool:
         return False
     if not account.oauth_refresh_token:
         raise OAuthReauthenticationRequired(
-            "انتهت صلاحية تسجيل الدخول. افتح خيارات الحسابات وإدارتها ثم اختر إعادة تسجيل الدخول للحساب."
+            "انتهت صلاحية تسجيل الدخول. افتح خيارات الحسابات وإدارتها ثم اختر إعادة تسجيل الدخول للحساب.",
+            account.id,
         )
 
     provider = OAUTH_PROVIDERS.get(account.oauth_provider)
@@ -236,7 +252,11 @@ def ensure_access_token(account: Account) -> bool:
     if account.oauth_provider == "microsoft":
         data["scope"] = " ".join(provider["scopes"])
 
-    payload = _post_form(provider["token_endpoint"], data)
+    try:
+        payload = _post_form(provider["token_endpoint"], data)
+    except OAuthReauthenticationRequired as exc:
+        exc.account_id = account.id
+        raise
     access_token = str(payload.get("access_token") or "")
     if not access_token:
         raise OAuthError("تعذر تحديث رمز OAuth.")
@@ -365,6 +385,9 @@ def _exchange_code_for_token(
 
 
 def _post_form(url: str, data: dict[str, str]) -> dict[str, Any]:
+    parsed_url = urllib.parse.urlparse(url)
+    if parsed_url.scheme.lower() != "https" or not parsed_url.netloc:
+        raise OAuthError("رفض البرنامج الاتصال بخدمة OAuth غير آمنة.")
     encoded = urllib.parse.urlencode(data).encode("utf-8")
     request = urllib.request.Request(
         url,
@@ -374,7 +397,22 @@ def _post_form(url: str, data: dict[str, str]) -> dict[str, Any]:
     )
     try:
         with urllib.request.urlopen(request, timeout=45) as response:
-            return json.loads(response.read().decode("utf-8"))
+            final_url = str(response.geturl() or url)
+            parsed_final_url = urllib.parse.urlparse(final_url)
+            if (
+                parsed_final_url.scheme.lower() != "https"
+                or not parsed_final_url.netloc
+            ):
+                raise OAuthError(
+                    "أعادت خدمة OAuth التوجيه إلى اتصال غير آمن."
+                )
+            payload = response.read(MAX_OAUTH_RESPONSE_BYTES + 1)
+            if len(payload) > MAX_OAUTH_RESPONSE_BYTES:
+                raise OAuthError("استجابة خدمة OAuth أكبر من الحجم المسموح.")
+            decoded = json.loads(payload.decode("utf-8"))
+            if not isinstance(decoded, dict):
+                raise OAuthError("أرسلت خدمة OAuth استجابة غير صالحة.")
+            return decoded
     except urllib.error.HTTPError as exc:
         detail = exc.read().decode("utf-8", errors="replace")
         error_code = ""

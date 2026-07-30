@@ -1,9 +1,12 @@
 from __future__ import annotations
 
 import imaplib
+import threading
+import time
 import unittest
+from unittest.mock import Mock, patch
 
-from accessible_mail.email_service import EmailService
+from accessible_mail.email_service import EmailService, MailError
 from accessible_mail.mail_service_router import MailServiceRouter
 from accessible_mail.models import Account, LinkItem, MessageContent, MessageSummary
 from accessible_mail.oauth import OAuthError
@@ -79,7 +82,7 @@ class FailingMarkReadCache(FakeCache):
 
 class FakeConnection:
     def __init__(self) -> None:
-        self.uid_operations: list[tuple[str, str, str, str]] = []
+        self.uid_operations: list[tuple[object, ...]] = []
 
     def __enter__(self) -> "FakeConnection":
         return self
@@ -87,8 +90,8 @@ class FakeConnection:
     def __exit__(self, *_args: object) -> bool:
         return False
 
-    def uid(self, command: str, uid: str, operation: str, flag: str) -> tuple[str, list[bytes]]:
-        self.uid_operations.append((command, uid, operation, flag))
+    def uid(self, command: str, *args: object) -> tuple[str, list[bytes]]:
+        self.uid_operations.append((command, *args))
         return "OK", [b"OK"]
 
 
@@ -431,6 +434,109 @@ class EmailServiceSyncTests(unittest.TestCase):
 
         self.assertTrue(service._cached_content_needs_attachment_refresh(summary, cached))
         self.assertFalse(service._cached_content_needs_attachment_refresh(summary, fresh))
+
+    def test_opening_cached_unread_message_updates_server_read_state(self) -> None:
+        summary = MessageSummary(uid="1", mailbox="INBOX", is_read=False)
+        cached = MessageContent(summary=summary, text="cached body", links=[])
+        cache = Mock()
+        cache.get_content.return_value = cached
+        service = EmailService(cache=cache)
+        service.set_message_read = Mock()
+
+        result = service.fetch_message(self.account, summary)
+
+        service.set_message_read.assert_called_once_with(
+            self.account,
+            summary,
+            True,
+        )
+        self.assertTrue(result.summary.is_read)
+
+    def test_missing_trash_mailbox_never_permanently_deletes_message(self) -> None:
+        service = FakeSyncService(message_count=1)
+        service.list_mailboxes = lambda _conn: []
+        summary = MessageSummary(uid="1", mailbox="INBOX")
+
+        with self.assertRaisesRegex(MailError, "لم تُحذف الرسالة"):
+            service.move_message_to_trash(self.account, summary)
+
+        self.assertEqual(service.connection.uid_operations, [])
+
+    def test_trash_move_uses_uid_expunge_without_global_expunge(self) -> None:
+        service = FakeSyncService(message_count=1)
+        service.resolve_trash_mailbox = lambda _account, _conn: "Trash"
+        service.cache.delete_message = Mock()
+        summary = MessageSummary(uid="7", mailbox="INBOX")
+
+        service.move_message_to_trash(self.account, summary)
+
+        self.assertEqual(
+            [operation[0] for operation in service.connection.uid_operations],
+            ["copy", "store", "expunge"],
+        )
+        self.assertEqual(
+            service.connection.uid_operations[-1],
+            ("expunge", "7"),
+        )
+        service.cache.delete_message.assert_called_once_with(
+            self.account,
+            "INBOX",
+            "7",
+        )
+
+    def test_deleted_imap_summaries_are_not_returned(self) -> None:
+        connection = Mock()
+        connection.fetch.return_value = (
+            "OK",
+            [
+                (
+                    b'1 (UID 7 FLAGS (\\Deleted) INTERNALDATE "1-Jan-2026")',
+                    b"From: old@example.com\r\nSubject: deleted\r\n\r\n",
+                ),
+                (
+                    b'2 (UID 8 FLAGS () INTERNALDATE "1-Jan-2026")',
+                    b"From: new@example.com\r\nSubject: visible\r\n\r\n",
+                ),
+            ],
+        )
+        service = EmailService(cache=Mock())
+
+        summaries = service._fetch_summary_batch(connection, "INBOX", "1:2")
+
+        self.assertEqual([summary.uid for summary in summaries], ["8"])
+
+    def test_oauth_token_refresh_is_serialized_per_account(self) -> None:
+        service = EmailService(cache=Mock())
+        account = Account(
+            id="account",
+            oauth_provider="microsoft",
+            oauth_access_token="token",
+        )
+        active = 0
+        max_active = 0
+        state_lock = threading.Lock()
+
+        def ensure(_account: Account) -> bool:
+            nonlocal active, max_active
+            with state_lock:
+                active += 1
+                max_active = max(max_active, active)
+            time.sleep(0.02)
+            with state_lock:
+                active -= 1
+            return False
+
+        with patch("accessible_mail.email_service.ensure_access_token", side_effect=ensure):
+            threads = [
+                threading.Thread(target=service._oauth_token, args=(account,))
+                for _index in range(2)
+            ]
+            for thread in threads:
+                thread.start()
+            for thread in threads:
+                thread.join()
+
+        self.assertEqual(max_active, 1)
 
     def test_sort_timestamp_falls_back_to_header_date(self) -> None:
         older = MessageSummary(

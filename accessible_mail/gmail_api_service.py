@@ -117,9 +117,8 @@ class GmailApiService:
             and not is_plain_text_placeholder(cached.text)
         ):
             if mark_read and not cached.summary.is_read:
+                self.set_message_read(account, summary, True)
                 cached.summary.is_read = True
-                summary.is_read = True
-                self.cache.mark_read(account, summary.mailbox, summary.uid, True)
             else:
                 cached.summary.is_read = summary.is_read
             return cached
@@ -566,7 +565,8 @@ class GmailApiService:
                     raise OAuthReauthenticationRequired(
                         "صلاحية حساب Gmail المحفوظة قديمة أو ناقصة. افتح خيارات "
                         "الحسابات وإدارتها ثم اختر إعادة تسجيل الدخول للحساب، ووافق "
-                        "على صلاحية Gmail المطلوبة."
+                        "على صلاحية Gmail المطلوبة.",
+                        account.id,
                     ) from exc
                 authentication_denied = exc.code == 401 or (
                     exc.code == 403
@@ -583,7 +583,8 @@ class GmailApiService:
                 if authentication_denied and not rate_limited:
                     raise OAuthReauthenticationRequired(
                         "رفضت Google صلاحية الوصول إلى Gmail. "
-                        "افتح خيارات الحسابات وإدارتها ثم اختر إعادة تسجيل الدخول للحساب."
+                        "افتح خيارات الحسابات وإدارتها ثم اختر إعادة تسجيل الدخول للحساب.",
+                        account.id,
                     ) from exc
                 raise MailError(f"تعذر الاتصال بـ Gmail API: {exc.code} {detail}") from exc
             except (urllib.error.URLError, TimeoutError, OSError) as exc:

@@ -3,10 +3,33 @@ from __future__ import annotations
 import unittest
 from email.message import EmailMessage
 
-from accessible_mail.email_utils import extract_body, is_plain_text_placeholder, normalize_message_text
+from accessible_mail.email_utils import (
+    extract_body,
+    is_plain_text_placeholder,
+    normalize_message_text,
+    safe_external_url,
+)
 
 
 class EmailUtilsTests(unittest.TestCase):
+    def test_only_explicit_safe_external_url_schemes_can_be_opened(self) -> None:
+        self.assertEqual(
+            safe_external_url("https://example.com/message?id=1"),
+            "https://example.com/message?id=1",
+        )
+        self.assertEqual(
+            safe_external_url("mailto:support@example.com"),
+            "mailto:support@example.com",
+        )
+        for unsafe in (
+            "javascript:alert(1)",
+            "file:///C:/Windows/System32/calc.exe",
+            "data:text/html,unsafe",
+            "https://",
+            "https://example.com/\r\nX-Test: injected",
+        ):
+            self.assertEqual(safe_external_url(unsafe), "")
+
     def test_arabic_empty_body_message_is_treated_as_a_refetchable_placeholder(self) -> None:
         self.assertTrue(is_plain_text_placeholder("لا يوجد نص قابل للعرض داخل هذه الرسالة."))
 

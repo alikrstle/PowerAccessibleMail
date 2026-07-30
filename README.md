@@ -120,6 +120,26 @@ run.bat
 
 تستخدم نسخة `x64` البيئة `.venv`، وتستخدم نسخة `x86` البيئة `.venv-x86`. ينتج البناء مثبتا ونسخة محمولة وبصمات SHA-256 لكل معمارية.
 
+قبل البناء، يمكن التحقق من البيئتين والمصدر المشترك وقفل الحزم والاختبارات بأمر واحد:
+
+```powershell
+.\test_all_architectures.ps1
+```
+
+إذا نُقل مجلد المشروع إلى مسار جديد، فقد تبقى مشغلات البيئة الافتراضية مرتبطة بالمسار القديم. أصلح البيئتين من Python الأساسي المطابق ثم أعد الفحص:
+
+```powershell
+& "$env:LOCALAPPDATA\Programs\Python\Python314\python.exe" -m venv --upgrade .venv
+& "$env:LOCALAPPDATA\Programs\Python\Python314-32\python.exe" -m venv --upgrade .venv-x86
+.\test_all_architectures.ps1
+```
+
+يتحقق الفاحص أيضا من معمارية bootloader الخاص بـPyInstaller، لا من معمارية Python فقط. إذا أبلغ عن bootloader غير مطابق، أعد تثبيت PyInstaller داخل البيئة المتأثرة:
+
+```powershell
+.\.venv\Scripts\python.exe -m pip install --force-reinstall --no-deps pyinstaller==6.20.0
+```
+
 ## ملاحظات مهمة للحسابات
 
 الطريقة المعتمدة الآن هي تسجيل الدخول عبر المتصفح. لا تستخدم كلمة مرور الحساب الأصلية ولا كلمة مرور تطبيق داخل البرنامج.
@@ -146,7 +166,7 @@ run.bat
 - على Windows: `%APPDATA%\PowerAccessibleMail\accounts.json`
 - على الأنظمة الأخرى: `~/.accessible_mail/accounts.json`
 
-إذا اخترت حفظ رموز OAuth، ستحفظ محليا داخل هذا الملف لتسهيل التشغيل. من الأفضل لاحقا استبدال ذلك بتخزين آمن مثل Windows Credential Manager.
+إذا اخترت حفظ كلمة المرور اليدوية أو رموز OAuth، تُخزن داخل هذا الملف بعد حمايتها باستخدام Windows DPAPI لحساب Windows الحالي. لا يكتب البرنامج هذه الأسرار كنص صريح، ويفشل الحفظ إذا تعذرت حمايتها.
 
 ## التخزين المحلي المشفر
 
@@ -165,9 +185,9 @@ run.bat
 عند نشر إصدار جديد:
 
 1. أنشئ GitHub Release منشورا، وليس Draft أو Pre-release.
-2. استخدم وسم إصدار مثل `v1.2.11`.
-3. ارفع `PowerAccessibleMailSetup-1.2.11-win-x64-UNSIGNED.exe` عند عدم توفر شهادة توقيع.
-4. ارفع `PowerAccessibleMailSetup-1.2.11-win-x86-UNSIGNED.exe` عند عدم توفر شهادة توقيع.
+2. استخدم وسم إصدار مثل `v1.2.12`.
+3. ارفع `PowerAccessibleMailSetup-1.2.12-win-x64-UNSIGNED.exe` عند عدم توفر شهادة توقيع.
+4. ارفع `PowerAccessibleMailSetup-1.2.12-win-x86-UNSIGNED.exe` عند عدم توفر شهادة توقيع.
 5. ارفع ملفات ZIP وملفات بصمة SHA-256 للمعماريتين إلى الإصدار نفسه.
 
 المستودع الافتراضي هو `alikrstle/PowerAccessibleMail`. يمكن تغييره لأغراض التطوير عبر:
@@ -178,11 +198,13 @@ run.bat
 
 ```json
 {
-  "version": "1.2.11",
+  "version": "1.2.12",
   "downloads": {
-    "x64": "https://example.com/PowerAccessibleMailSetup-1.2.11-win-x64.exe",
-    "x86": "https://example.com/PowerAccessibleMailSetup-1.2.11-win-x86.exe"
+    "x64": "https://example.com/PowerAccessibleMailSetup-1.2.12-win-x64.exe",
+    "x86": "https://example.com/PowerAccessibleMailSetup-1.2.12-win-x86.exe"
   },
   "notes": "تحسينات في استلام الرسائل ودعم المرفقات."
 }
 ```
+
+يجب أن يستخدم رابط ملف JSON وروابط التنزيل HTTPS. لا يشغّل المحدث الداخلي مثبتا إلا إذا طابق اسم المنتج ورقم الإصدار ومعمارية البرنامج الحالية وتوفرت بصمة SHA-256 صحيحة.

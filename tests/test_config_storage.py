@@ -164,6 +164,86 @@ class ConfigStorageTests(unittest.TestCase):
             self.assertEqual(loaded[0].oauth_access_token, "access-token")
             self.assertEqual(loaded[0].oauth_refresh_token, "refresh-token")
 
+    def test_malformed_account_values_are_normalized_without_breaking_startup(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "accounts.json"
+            path.write_text(
+                json.dumps(
+                    [
+                        {
+                            "id": ["invalid"],
+                            "email_address": "person@example.com",
+                            "auth_method": "unknown",
+                            "imap_port": "not-a-port",
+                            "smtp_port": 99999,
+                            "imap_ssl": "false",
+                            "save_oauth_tokens": "true",
+                            "oauth_token_expiry": "invalid",
+                        }
+                    ]
+                ),
+                encoding="utf-8",
+            )
+
+            with patch("accessible_mail.config.accounts_path", return_value=path):
+                accounts = load_accounts()
+
+        self.assertEqual(len(accounts), 1)
+        account = accounts[0]
+        self.assertTrue(account.id)
+        self.assertEqual(account.auth_method, "oauth2")
+        self.assertEqual(account.imap_port, 993)
+        self.assertEqual(account.smtp_port, 587)
+        self.assertFalse(account.imap_ssl)
+        self.assertTrue(account.save_oauth_tokens)
+        self.assertEqual(account.oauth_token_expiry, 0.0)
+
+    def test_non_finite_oauth_expiry_is_reset(self) -> None:
+        for value in ("nan", "inf", "-inf"):
+            with self.subTest(value=value):
+                account = Account.from_dict({"oauth_token_expiry": value})
+                self.assertEqual(account.oauth_token_expiry, 0.0)
+
+    def test_empty_and_duplicate_account_ids_are_replaced(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "accounts.json"
+            path.write_text(
+                json.dumps(
+                    [
+                        {"id": "", "email_address": "one@example.com"},
+                        {"id": "shared", "email_address": "two@example.com"},
+                        {"id": "shared", "email_address": "three@example.com"},
+                    ]
+                ),
+                encoding="utf-8",
+            )
+
+            with patch("accessible_mail.config.accounts_path", return_value=path):
+                accounts = load_accounts()
+
+        account_ids = [account.id for account in accounts]
+        self.assertTrue(all(account_ids))
+        self.assertEqual(len(account_ids), len(set(account_ids)))
+
+    def test_password_save_fails_closed_when_secret_protection_fails(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "accounts.json"
+            account = Account(
+                auth_method="password",
+                email_address="person@example.com",
+                password="secret",
+                save_password=True,
+            )
+
+            with (
+                patch("accessible_mail.config.accounts_path", return_value=path),
+                patch("accessible_mail.config.protect_secret", return_value=""),
+            ):
+                with self.assertRaisesRegex(RuntimeError, "تشفير كلمة مرور"):
+                    save_accounts([account])
+
+            self.assertFalse(path.exists())
+
 
 if __name__ == "__main__":
     unittest.main()

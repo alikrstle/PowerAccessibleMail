@@ -8,11 +8,11 @@ import threading
 import time
 import urllib.error
 import urllib.parse
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 from accessible_mail.email_service import MailError
 from accessible_mail.gmail_api_service import GmailApiService
-from accessible_mail.models import Account, MessageSummary
+from accessible_mail.models import Account, MessageContent, MessageSummary
 from accessible_mail.oauth import OAuthReauthenticationRequired
 
 
@@ -238,6 +238,23 @@ class GmailApiServiceTests(unittest.TestCase):
                     )
         finally:
             http_error.close()
+
+    def test_opening_cached_unread_message_updates_gmail_read_state(self) -> None:
+        summary = MessageSummary(uid="message", mailbox="INBOX", is_read=False)
+        cached = MessageContent(summary=summary, text="cached body", links=[])
+
+        class FakeCache:
+            def get_content(self, *_args):
+                return cached
+
+        service = GmailApiService(cache=FakeCache())
+        service.set_message_read = Mock()
+        account = Account(id="account", oauth_provider="google_gmail_api")
+
+        result = service.fetch_message(account, summary)
+
+        service.set_message_read.assert_called_once_with(account, summary, True)
+        self.assertTrue(result.summary.is_read)
 
     def test_content_uses_html_when_plain_part_is_only_a_placeholder(self) -> None:
         service = GmailApiService()

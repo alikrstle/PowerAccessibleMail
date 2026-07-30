@@ -7,7 +7,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from accessible_mail.update_checker import UpdateCheckResult
+from accessible_mail.update_checker import UpdateCheckResult, current_architecture
 from accessible_mail.updater import (
     UpdateDownloadCancelled,
     UpdateInstallError,
@@ -43,6 +43,7 @@ class DownloadResponse:
 
 class InternalUpdaterTests(unittest.TestCase):
     def update_result(self, payload: bytes) -> UpdateCheckResult:
+        architecture = current_architecture()
         return UpdateCheckResult(
             configured=True,
             available=True,
@@ -51,7 +52,7 @@ class InternalUpdaterTests(unittest.TestCase):
             download_url=(
                 "https://github.com/alikrstle/PowerAccessibleMail/releases/"
                 "download/v1.2.11/"
-                "PowerAccessibleMailSetup-1.2.11-win-x64-UNSIGNED.exe"
+                f"PowerAccessibleMailSetup-1.2.11-win-{architecture}-UNSIGNED.exe"
             ),
             sha256=hashlib.sha256(payload).hexdigest(),
             release_date="2026-08-01T10:00:00Z",
@@ -79,6 +80,31 @@ class InternalUpdaterTests(unittest.TestCase):
         self.assertTrue(can_install_update(result))
         result.sha256 = ""
         self.assertFalse(can_install_update(result))
+
+    def test_internal_update_requires_matching_version_and_architecture(self) -> None:
+        result = self.update_result(b"MZinstaller")
+        other_architecture = "x86" if current_architecture() == "x64" else "x64"
+
+        result.download_url = result.download_url.replace(
+            f"win-{current_architecture()}",
+            f"win-{other_architecture}",
+        )
+        self.assertFalse(can_install_update(result))
+        with self.assertRaisesRegex(UpdateInstallError, "معمارية"):
+            download_update_installer(result)
+
+        result = self.update_result(b"MZinstaller")
+        result.latest_version = "../1.2.11"
+        self.assertFalse(can_install_update(result))
+        with self.assertRaisesRegex(UpdateInstallError, "رقم الإصدار"):
+            download_update_installer(result)
+
+        result = self.update_result(b"MZinstaller")
+        result.latest_version = ".."
+        result.download_url = result.download_url.replace("1.2.11", "..")
+        self.assertFalse(can_install_update(result))
+        with self.assertRaisesRegex(UpdateInstallError, "رقم الإصدار"):
+            download_update_installer(result)
 
     @patch("accessible_mail.updater.urllib.request.urlopen")
     def test_download_verifies_sha256_and_reports_progress(self, urlopen) -> None:

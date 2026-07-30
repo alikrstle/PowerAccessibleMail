@@ -4,6 +4,7 @@ import base64
 import imaplib
 import re
 import smtplib
+import threading
 import time
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -20,7 +21,12 @@ from .email_utils import (
 )
 from .message_builder import build_outgoing_message
 from .models import Account, MessageContent, MessageSummary
-from .oauth import OAuthError, ensure_access_token, xoauth2_auth_string
+from .oauth import (
+    OAuthError,
+    OAuthReauthenticationRequired,
+    ensure_access_token,
+    xoauth2_auth_string,
+)
 from .secure_store import MessageCache
 
 
@@ -96,6 +102,8 @@ class EmailService:
     ) -> None:
         self.on_account_updated = on_account_updated
         self.cache = cache or MessageCache()
+        self._oauth_locks: dict[str, threading.Lock] = {}
+        self._oauth_locks_guard = threading.Lock()
 
     def list_messages(
         self,
@@ -214,9 +222,8 @@ class EmailService:
             and not is_plain_text_placeholder(cached.text)
         ):
             if mark_read and not cached.summary.is_read:
+                self.set_message_read(account, summary, True)
                 cached.summary.is_read = True
-                summary.is_read = True
-                self.cache.mark_read(account, summary.mailbox, summary.uid, True)
             else:
                 cached.summary.is_read = summary.is_read
             return cached
@@ -232,7 +239,7 @@ class EmailService:
             if not text:
                 text = "لا يوجد نص قابل للعرض داخل هذه الرسالة."
             if mark_read and not summary.is_read:
-                conn.uid("store", summary.uid, "+FLAGS", "(\\Seen)")
+                self._set_message_flag(conn, summary.uid, "\\Seen", True)
                 summary.is_read = True
             content = MessageContent(summary=summary, text=text, links=links)
             self.cache.upsert_content(account, content)
@@ -246,8 +253,7 @@ class EmailService:
     ) -> None:
         with self._imap(account) as conn:
             self._select(conn, summary.mailbox, readonly=False)
-            operation = "+FLAGS" if is_read else "-FLAGS"
-            conn.uid("store", summary.uid, operation, "(\\Seen)")
+            self._set_message_flag(conn, summary.uid, "\\Seen", is_read)
         summary.is_read = is_read
         try:
             self.cache.mark_read(account, summary.mailbox, summary.uid, is_read)
@@ -262,8 +268,7 @@ class EmailService:
     ) -> None:
         with self._imap(account) as conn:
             self._select(conn, summary.mailbox, readonly=False)
-            operation = "+FLAGS" if is_starred else "-FLAGS"
-            conn.uid("store", summary.uid, operation, "(\\Flagged)")
+            self._set_message_flag(conn, summary.uid, "\\Flagged", is_starred)
         summary.is_starred = is_starred
         self.cache.update_summary_flags(account, summary.mailbox, summary.uid, is_starred=is_starred)
 
@@ -279,15 +284,21 @@ class EmailService:
     def move_message_to_trash(self, account: Account, summary: MessageSummary) -> None:
         with self._imap(account) as conn:
             trash_mailbox = self.resolve_trash_mailbox(account, conn)
+            if not trash_mailbox:
+                raise MailError(
+                    "تعذر العثور على مجلد سلة المهملات. لم تُحذف الرسالة."
+                )
             self._select(conn, summary.mailbox, readonly=False)
-            if trash_mailbox:
-                typ, _data = conn.uid("copy", summary.uid, f'"{trash_mailbox}"')
-                if typ != "OK":
-                    typ, _data = conn.uid("copy", summary.uid, trash_mailbox)
-                if typ != "OK":
-                    raise MailError("تعذر نقل الرسالة إلى سلة المهملات.")
-            conn.uid("store", summary.uid, "+FLAGS", "(\\Deleted)")
-            conn.expunge()
+            typ, _data = conn.uid("copy", summary.uid, f'"{trash_mailbox}"')
+            if typ != "OK":
+                typ, _data = conn.uid("copy", summary.uid, trash_mailbox)
+            if typ != "OK":
+                raise MailError("تعذر نقل الرسالة إلى سلة المهملات.")
+            self._set_message_flag(conn, summary.uid, "\\Deleted", True)
+            try:
+                conn.uid("expunge", summary.uid)
+            except (OSError, imaplib.IMAP4.error):
+                pass
         self.cache.delete_message(account, summary.mailbox, summary.uid)
 
     def cached_messages(
@@ -573,16 +584,30 @@ class EmailService:
             )
         else:
             conn = imaplib.IMAP4(account.imap_server, account.imap_port, timeout=30)
-        if account.uses_oauth:
-            token = self._oauth_token(account)
-            conn.authenticate(
-                "XOAUTH2",
-                lambda _response: xoauth2_auth_string(account.login_name, token),
-            )
-        else:
-            if not account.password:
-                raise MailError("كلمة مرور الحساب اليدوي غير محفوظة.")
-            conn.login(account.login_name, account.password)
+        try:
+            if account.uses_oauth:
+                token = self._oauth_token(account)
+                try:
+                    conn.authenticate(
+                        "XOAUTH2",
+                        lambda _response: xoauth2_auth_string(account.login_name, token),
+                    )
+                except imaplib.IMAP4.error as exc:
+                    raise OAuthReauthenticationRequired(
+                        "رفض مزود البريد صلاحية تسجيل الدخول. افتح خيارات الحسابات "
+                        "وإدارتها ثم اختر إعادة تسجيل الدخول للحساب.",
+                        account.id,
+                    ) from exc
+            else:
+                if not account.password:
+                    raise MailError("كلمة مرور الحساب اليدوي غير محفوظة.")
+                conn.login(account.login_name, account.password)
+        except Exception:
+            try:
+                conn.logout()
+            except (OSError, imaplib.IMAP4.error):
+                pass
+            raise
         return conn
 
     def _smtp_login(self, smtp: smtplib.SMTP, account: Account) -> None:
@@ -593,17 +618,40 @@ class EmailService:
             ).decode("ascii")
             code, response = smtp.docmd("AUTH", "XOAUTH2 " + encoded)
             if code not in {235, 503}:
-                raise smtplib.SMTPAuthenticationError(code, response)
+                raise OAuthReauthenticationRequired(
+                    "رفض مزود البريد صلاحية إرسال الرسائل. افتح خيارات الحسابات "
+                    "وإدارتها ثم اختر إعادة تسجيل الدخول للحساب.",
+                    account.id,
+                )
             return
         if not account.password:
             raise MailError("كلمة مرور الحساب اليدوي غير محفوظة.")
         smtp.login(account.login_name, account.password)
 
     def _oauth_token(self, account: Account) -> str:
-        changed = ensure_access_token(account)
-        if changed and self.on_account_updated:
-            self.on_account_updated(account)
-        return account.oauth_access_token
+        with self._oauth_locks_guard:
+            lock = self._oauth_locks.setdefault(account.id, threading.Lock())
+        with lock:
+            changed = ensure_access_token(account)
+            if changed and self.on_account_updated:
+                self.on_account_updated(account)
+            return account.oauth_access_token
+
+    def _set_message_flag(
+        self,
+        conn: imaplib.IMAP4,
+        uid: str,
+        flag: str,
+        enabled: bool,
+    ) -> None:
+        operation = "+FLAGS" if enabled else "-FLAGS"
+        typ, data = conn.uid("store", uid, operation, f"({flag})")
+        if typ == "OK":
+            return
+        detail = data[0] if data else ""
+        if isinstance(detail, bytes):
+            detail = detail.decode("utf-8", errors="replace")
+        raise MailError(f"تعذر تحديث حالة الرسالة على الخادم: {detail}")
 
     def _is_auth_failure(self, exc: Exception) -> bool:
         if isinstance(exc, OAuthError):
@@ -706,7 +754,11 @@ class EmailService:
             meta = part[0]
             header_bytes = part[1] if isinstance(part[1], bytes) else b""
             uid_match = re.search(rb"\bUID\s+(\d+)", meta)
-            if not uid_match or not header_bytes:
+            if (
+                not uid_match
+                or not header_bytes
+                or re.search(rb"\\Deleted\b", meta, flags=re.IGNORECASE)
+            ):
                 continue
             summaries.append(
                 self._summary_from_header(

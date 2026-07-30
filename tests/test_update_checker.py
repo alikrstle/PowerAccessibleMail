@@ -327,6 +327,38 @@ class UpdateCheckerTests(unittest.TestCase):
         self.assertEqual(result.download_url, "https://updates.example.com/x86.exe")
         self.assertEqual(result.sha256, "e" * 64)
 
+    @patch(
+        "accessible_mail.update_checker.load_update_manifest_url",
+        return_value="http://updates.example.com/latest.json",
+    )
+    @patch("accessible_mail.update_checker.urllib.request.urlopen")
+    def test_insecure_manifest_url_is_rejected_without_network_request(
+        self,
+        urlopen,
+        _manifest,
+    ) -> None:
+        result = check_for_updates("1.2.8")
+
+        self.assertFalse(result.available)
+        self.assertIn("HTTPS", result.message)
+        urlopen.assert_not_called()
+
+    @patch(
+        "accessible_mail.update_checker.load_update_manifest_url",
+        return_value="https://updates.example.com/latest.json",
+    )
+    @patch("accessible_mail.update_checker.urllib.request.urlopen")
+    def test_manifest_redirect_to_http_is_rejected(self, urlopen, _manifest) -> None:
+        urlopen.return_value = FakeResponse(
+            {"version": "1.3.0"},
+            final_url="http://updates.example.com/latest.json",
+        )
+
+        result = check_for_updates("1.2.8")
+
+        self.assertFalse(result.available)
+        self.assertIn("غير آمن", result.message)
+
     def test_equivalent_versions_compare_equally(self) -> None:
         self.assertEqual(version_key("v1.2"), version_key("1.2.0"))
 

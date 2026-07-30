@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import base64
 import re
+import urllib.parse
 from dataclasses import replace
 from email.header import decode_header, make_header
 from email.message import EmailMessage, Message
@@ -34,6 +35,7 @@ GENERIC_LINK_TITLES = {
     "المزيد",
     "اقرأ المزيد",
 }
+SAFE_EXTERNAL_URL_SCHEMES = frozenset({"http", "https", "mailto"})
 PLAIN_TEXT_PLACEHOLDER_PHRASES = (
     "لا يوجد نص قابل للعرض داخل هذه الرسالة",
     "plain text version not available",
@@ -77,6 +79,25 @@ def header_to_text(value: object) -> str:
         return str(make_header(decode_header(str(value)))).strip()
     except Exception:
         return str(value).strip()
+
+
+def safe_external_url(value: object) -> str:
+    url = str(value or "").strip()
+    if not url or any(character.isspace() or ord(character) < 32 for character in url):
+        return ""
+    try:
+        parsed = urllib.parse.urlsplit(url)
+        scheme = parsed.scheme.casefold()
+        if scheme not in SAFE_EXTERNAL_URL_SCHEMES:
+            return ""
+        if scheme in {"http", "https"}:
+            if not parsed.netloc or not parsed.hostname:
+                return ""
+        elif not parsed.path:
+            return ""
+        return url
+    except ValueError:
+        return ""
 
 
 class _HtmlToTextParser(HTMLParser):

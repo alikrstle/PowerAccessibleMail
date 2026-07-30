@@ -4,12 +4,12 @@
 
 - Product: `Power Accessible Mail`
 - Company display name: `Soljan.AlSharq.`
-- Planned company domain: `soljan-alsharq.com`
-- Planned support address: `support@soljan-alsharq.com`
+- Company domain: `soljan-alsharq.com`
+- Support address: `support@soljan-alsharq.com`
 - Planned privacy address: `privacy@soljan-alsharq.com`
 
-Do not publish the planned email addresses in the Google OAuth configuration until
-the domain is registered and both addresses can receive mail.
+The support address is published and can be used in Google OAuth configuration.
+Do not publish the planned privacy address until it can receive mail.
 
 ## Logo
 

@@ -91,6 +91,14 @@ def check_for_updates(
     )
     manifest_url = load_update_manifest_url()
     if manifest_url:
+        manifest_url = _https_url(manifest_url)
+        if not manifest_url:
+            return UpdateCheckResult(
+                configured=True,
+                available=False,
+                current_version=current_version,
+                message="رابط ملف التحديثات غير آمن. يجب استخدام HTTPS.",
+            )
         return _check_manifest(
             manifest_url,
             current_version,
@@ -397,7 +405,13 @@ def _find_public_installer(
 
 
 def _read_json_response(request: urllib.request.Request, timeout: int) -> object:
+    request_url = request.full_url
+    if not _https_url(request_url):
+        raise ValueError("رفض البرنامج مصدر تحديثات غير آمن.")
     with urllib.request.urlopen(request, timeout=timeout) as response:
+        final_url = str(getattr(response, "geturl", lambda: request_url)() or request_url)
+        if not _https_url(final_url):
+            raise ValueError("أعاد خادم التحديثات التوجيه إلى اتصال غير آمن.")
         payload = response.read(MAX_UPDATE_RESPONSE_BYTES + 1)
     if len(payload) > MAX_UPDATE_RESPONSE_BYTES:
         raise ValueError("استجابة التحديثات أكبر من الحجم المسموح.")
@@ -498,7 +512,8 @@ def _github_connection_error(current_version: str, details: str) -> UpdateCheckR
 
 def _https_url(value: object) -> str:
     url = str(value or "").strip()
-    if urllib.parse.urlparse(url).scheme.lower() == "https":
+    parsed = urllib.parse.urlparse(url)
+    if parsed.scheme.lower() == "https" and parsed.netloc:
         return url
     return ""
 

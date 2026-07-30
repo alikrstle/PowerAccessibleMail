@@ -26,4 +26,4 @@ Power Accessible Mail هو برنامج بريد إلكتروني مكتبي م�
 
 ## الدعم
 
-للدعم: ضع بريد الدعم هنا.
+للدعم: support@soljan-alsharq.com

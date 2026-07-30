@@ -30,6 +30,20 @@ class TranslationTests(unittest.TestCase):
             tr("هل تريد حذف 25 رسالة وإرسالها إلى سلة المحذوفات؟"),
             "Do you want to delete 25 message(s) and send them to Trash?",
         )
+        self.assertEqual(
+            tr("معمارية مثبت التحديث لا تطابق معمارية البرنامج الحالي."),
+            "The update installer architecture does not match the running application.",
+        )
+        self.assertEqual(
+            tr(
+                "المرفق invoice.exe قد يشغّل أو يحتوي على تعليمات برمجية ضارة.\n\n"
+                "هل تريد فتحه رغم ذلك؟"
+            ),
+            (
+                "The attachment invoice.exe may run commands or contain malicious code.\n\n"
+                "Do you want to open it anyway?"
+            ),
+        )
 
     def test_interface_text_can_switch_back_to_arabic(self) -> None:
         set_language(LANGUAGE_ARABIC)

@@ -1,5 +1,5 @@
 Power Accessible Mail
-Version 1.2.11
+Version 1.2.12
 Developed by Soljan.AlSharq.
 Soljan.AlSharq. is owned by Ali Al-Amir
 
@@ -73,7 +73,7 @@ Press Ctrl+Shift+Space to enter multiple selection mode where every message beco
 
 Move with the arrow keys and press Space to check or uncheck a message or use the mouse
 
-The application announces entry into or exit from this mode after 300 milliseconds
+The application announces entry into or exit from this mode after 150 milliseconds
 
 Press Control by itself to hear the selected count
 

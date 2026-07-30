@@ -8,13 +8,14 @@ import sys
 import threading
 from dataclasses import asdict, dataclass
 from pathlib import Path
+from uuid import uuid4
 
 from .models import Account
 
 
 APP_NAME = os.environ.get("POWER_ACCESSIBLE_MAIL_APP_NAME", "PowerAccessibleMail")
 APP_TITLE = os.environ.get("POWER_ACCESSIBLE_MAIL_APP_TITLE", "Power Accessible Mail")
-APP_VERSION = "1.2.11"
+APP_VERSION = "1.2.12"
 PASSWORD_PREFIX = "dpapi:"
 LEGACY_PROFILE_NAMES = ("PowerAccessibleMailGmailApiLimited",)
 LANGUAGE_ARABIC = "ar"
@@ -236,9 +237,13 @@ def load_accounts() -> list[Account]:
     if not isinstance(payload, list):
         return []
     accounts: list[Account] = []
+    account_ids: set[str] = set()
     for item in payload:
         if isinstance(item, dict):
             account = Account.from_dict(item)
+            if account.id in account_ids:
+                account.id = str(uuid4())
+            account_ids.add(account.id)
             protected_password = item.get("password_protected")
             if isinstance(protected_password, str) and protected_password:
                 account.password = unprotect_secret(protected_password)
@@ -266,9 +271,12 @@ def save_accounts(accounts: list[Account]) -> None:
         data = account.to_dict()
         if account.auth_method == "password" and account.save_password and account.password:
             protected_password = protect_secret(account.password)
-            if protected_password:
-                data["password_protected"] = protected_password
-                data["save_password"] = True
+            if not protected_password:
+                raise RuntimeError(
+                    "تعذر تشفير كلمة مرور الحساب قبل حفظها."
+                )
+            data["password_protected"] = protected_password
+            data["save_password"] = True
         if account.save_oauth_tokens:
             for field_name in ("oauth_access_token", "oauth_refresh_token"):
                 token = str(getattr(account, field_name, "") or "")
