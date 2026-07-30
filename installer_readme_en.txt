@@ -1,5 +1,5 @@
 Power Accessible Mail
-Version 1.2.12
+Version 1.2.13
 Developed by Soljan.AlSharq.
 Soljan.AlSharq. is owned by Ali Al-Amir
 
@@ -55,7 +55,7 @@ Use Tab or your screen reader browsing commands to reach them then press Enter o
 
 Press Ctrl+Enter to move between the message viewer and the item viewer
 
-Press Ctrl+Space to return directly to the message list
+Press Escape to return directly to the message list
 
 The easy viewer removes repeated blank lines and presents clean text
 
@@ -125,7 +125,7 @@ Ctrl+R replies to the focused message
 Ctrl+T translates the current message
 F5 refreshes messages
 F1 opens the application guide
-Ctrl+Space returns to the message list
+Escape returns to the message list from the message or item viewer
 Ctrl+Enter switches between message and item viewers
 Shift+F10 opens the context and actions menu
 Alt+F4 closes the application

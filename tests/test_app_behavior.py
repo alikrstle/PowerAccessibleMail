@@ -103,7 +103,6 @@ class AppBehaviorTests(unittest.TestCase):
             take_translation_return_control=Mock(return_value=None),
             set_viewer_action_ranges=Mock(),
             set_viewer_text=Mock(),
-            focus_message_viewer=Mock(),
             restore_context_focus=Mock(),
         )
         frame = SimpleNamespace(
@@ -124,8 +123,53 @@ class AppBehaviorTests(unittest.TestCase):
         translate.assert_called_once_with("Original message", target_language=LANGUAGE_ENGLISH)
         page.set_viewer_action_ranges.assert_called_once_with("Translated message", [])
         page.set_viewer_text.assert_called_once_with("Translated message")
-        page.focus_message_viewer.assert_called_once_with()
         frame.show_translation_dialog.assert_not_called()
+
+    @patch("accessible_mail.app.wx.CallAfter", side_effect=lambda function, *args: function(*args))
+    @patch("accessible_mail.app.wx.Window.FindFocus", return_value=None)
+    @patch(
+        "accessible_mail.main_frame.translate_text_with_google",
+        return_value="Translated message",
+    )
+    def test_late_inline_translation_does_not_replace_another_message(
+        self,
+        _translate: Mock,
+        _find_focus: Mock,
+        _call_after: Mock,
+    ) -> None:
+        original_summary = SimpleNamespace(uid="message-1")
+        current_summary = SimpleNamespace(uid="message-2")
+        page = SimpleNamespace(
+            selected_summary=Mock(side_effect=[original_summary, current_summary]),
+            viewer=SimpleNamespace(GetValue=lambda: "Original message"),
+            take_translation_return_control=Mock(return_value=None),
+            set_viewer_action_ranges=Mock(),
+            set_viewer_text=Mock(),
+            restore_context_focus=Mock(),
+        )
+        frame = SimpleNamespace(
+            current_page=lambda: page,
+            can_translate_current_message=Mock(return_value=True),
+            current_content=SimpleNamespace(
+                summary=original_summary,
+                text="Original message",
+            ),
+            settings=ProgramSettings(
+                language=LANGUAGE_ENGLISH,
+                translation_mode=TRANSLATION_INLINE,
+            ),
+            run_worker=lambda _message, work, done, _failed: done(work()),
+            SetStatusText=Mock(),
+            show_translation_dialog=Mock(),
+        )
+
+        MainFrame.on_translate_current_message(frame)
+
+        page.set_viewer_action_ranges.assert_not_called()
+        page.set_viewer_text.assert_not_called()
+        frame.SetStatusText.assert_any_call(
+            "اكتملت ترجمة الرسالة السابقة دون تغيير الرسالة الحالية."
+        )
 
     def test_starred_filter_remains_second(self) -> None:
         self.assertEqual(FILTER_CHOICES[1], FILTER_STARRED)
@@ -140,6 +184,10 @@ class AppBehaviorTests(unittest.TestCase):
 
         self.assertIn('window.pamBridge.postMessage(command)', rendered)
         self.assertIn('pamSend("context-menu:keyboard")', rendered)
+        self.assertIn('pamSend("focus-list")', rendered)
+        self.assertIn('event.key === "Escape"', rendered)
+        self.assertNotIn('"Spacebar"', rendered)
+        self.assertIn("}, true);", rendered)
         self.assertIn("EnableContextMenu(False)", inspect.getsource(MailPage._build))
         self.assertIn("request_html_context_menu", inspect.getsource(MailPage.on_html_context_menu))
 
@@ -175,41 +223,42 @@ class AppBehaviorTests(unittest.TestCase):
         self.assertTrue(page._html_refresh_pending)
         refresh_html.assert_not_called()
 
-    def test_active_html_viewer_refreshes_new_content(self) -> None:
-        refresh_html = Mock()
+    def test_active_html_viewer_schedules_new_content_refresh(self) -> None:
+        schedule_html_refresh = Mock()
         page = SimpleNamespace(
             viewer_text="",
             viewer=SimpleNamespace(ChangeValue=Mock()),
             viewer_mode=VIEWER_HTML,
-            show_html_viewer=Mock(),
             _html_refresh_pending=False,
             _html_viewer_active=True,
-            refresh_html_viewer=refresh_html,
+            schedule_html_refresh=schedule_html_refresh,
         )
 
         MailPage.set_viewer_text(page, "message")
 
-        refresh_html.assert_called_once_with(focus_start=True)
+        schedule_html_refresh.assert_called_once_with(focus_start=True)
 
     def test_activating_html_viewer_loads_pending_content(self) -> None:
-        refresh_html = Mock()
+        schedule_html_refresh = Mock()
         page = SimpleNamespace(
             _html_viewer_active=False,
             _html_refresh_pending=True,
-            refresh_html_viewer=refresh_html,
+            schedule_html_refresh=schedule_html_refresh,
             focus_html_document_start=Mock(),
         )
 
         MailPage.activate_html_viewer(page)
 
         self.assertTrue(page._html_viewer_active)
-        refresh_html.assert_called_once_with(focus_start=True)
+        schedule_html_refresh.assert_called_once_with(focus_start=True)
         page.focus_html_document_start.assert_not_called()
 
     def test_html_focus_script_is_compatible_and_places_text_caret_at_start(self) -> None:
         run_script = Mock()
         page = SimpleNamespace(
             _html_viewer_active=True,
+            _html_loading=False,
+            _html_refresh_pending=False,
             html_viewer=SimpleNamespace(SetFocus=Mock(), RunScript=run_script),
         )
 
@@ -220,6 +269,125 @@ class AppBehaviorTests(unittest.TestCase):
         self.assertNotIn("const ", script)
         self.assertIn("messageElement.focus()", script)
         self.assertIn("collapse(true)", script)
+
+    def test_html_focus_waits_until_page_load_completes(self) -> None:
+        page = SimpleNamespace(
+            _html_viewer_active=True,
+            _html_loading=True,
+            _html_refresh_pending=False,
+            _html_focus_after_load=False,
+            html_viewer=SimpleNamespace(SetFocus=Mock(), RunScript=Mock()),
+        )
+
+        MailPage.focus_html_document_start(page)
+
+        self.assertTrue(page._html_focus_after_load)
+        page.html_viewer.SetFocus.assert_not_called()
+        page.html_viewer.RunScript.assert_not_called()
+
+    def test_reactivating_loaded_html_makes_viewer_visible(self) -> None:
+        calls: list[str] = []
+        page = SimpleNamespace(
+            _html_viewer_active=False,
+            _html_refresh_pending=False,
+            _html_loading=False,
+            show_html_viewer=lambda: calls.append("show_html"),
+            focus_html_document_start=lambda: calls.append("focus_html"),
+        )
+
+        MailPage.activate_html_viewer(page)
+
+        self.assertEqual(calls, ["show_html", "focus_html"])
+
+    def test_pending_html_refresh_waits_for_current_load(self) -> None:
+        page = SimpleNamespace(
+            _html_loading=True,
+            _html_refresh_pending=True,
+            _html_viewer_active=True,
+            _html_focus_after_load=True,
+            schedule_html_refresh=Mock(),
+        )
+
+        MailPage.on_html_viewer_loaded(page, SimpleNamespace())
+
+        self.assertFalse(page._html_loading)
+        page.schedule_html_refresh.assert_called_once_with(focus_start=True)
+
+    def test_native_html_escape_returns_to_message_list(self) -> None:
+        event = SimpleNamespace(
+            GetKeyCode=lambda: wx.WXK_ESCAPE,
+            ControlDown=lambda: False,
+            AltDown=lambda: False,
+            CmdDown=lambda: False,
+            Skip=Mock(),
+        )
+        page = SimpleNamespace(focus_message_list=Mock())
+
+        MailPage.on_html_viewer_key(page, event)
+
+        page.focus_message_list.assert_called_once_with()
+        event.Skip.assert_not_called()
+
+    def test_plain_viewer_escape_returns_to_message_list_before_opening_item(self) -> None:
+        event = SimpleNamespace(
+            GetKeyCode=lambda: wx.WXK_ESCAPE,
+            ControlDown=lambda: False,
+            AltDown=lambda: False,
+            CmdDown=lambda: False,
+        )
+        page = SimpleNamespace(
+            focus_message_list=Mock(),
+            viewer_item_at_caret=Mock(),
+            open_item=Mock(),
+        )
+
+        handled = MailPage.handle_viewer_key(page, event)
+
+        self.assertTrue(handled)
+        page.focus_message_list.assert_called_once_with()
+        page.viewer_item_at_caret.assert_not_called()
+
+    def test_control_space_is_not_a_message_viewer_shortcut(self) -> None:
+        event = SimpleNamespace(
+            GetKeyCode=lambda: wx.WXK_SPACE,
+            ControlDown=lambda: True,
+            AltDown=lambda: False,
+            CmdDown=lambda: False,
+        )
+        page = SimpleNamespace(
+            focus_message_list=Mock(),
+            toggle_message_and_link_viewers=Mock(),
+        )
+
+        handled = MailPage.handle_viewer_key(page, event)
+
+        self.assertFalse(handled)
+        page.focus_message_list.assert_not_called()
+
+    def test_control_space_does_not_open_an_item(self) -> None:
+        event = SimpleNamespace(
+            GetKeyCode=lambda: wx.WXK_SPACE,
+            ControlDown=lambda: True,
+            AltDown=lambda: False,
+            CmdDown=lambda: False,
+            Skip=Mock(),
+        )
+        page = SimpleNamespace(
+            focus_message_list=Mock(),
+            toggle_message_and_link_viewers=Mock(),
+            on_open_link=Mock(),
+        )
+
+        MailPage.on_link_key(page, event)
+
+        page.focus_message_list.assert_not_called()
+        page.on_open_link.assert_not_called()
+        event.Skip.assert_called_once_with()
+
+    def test_frame_accelerators_do_not_register_control_space(self) -> None:
+        source = inspect.getsource(MainFrame._create_accelerators)
+
+        self.assertNotIn("wx.ACCEL_CTRL, wx.WXK_SPACE", source)
 
     def test_html_message_root_is_keyboard_accessible_article(self) -> None:
         page = SimpleNamespace(
@@ -651,6 +819,7 @@ class AppBehaviorTests(unittest.TestCase):
         page = SimpleNamespace(
             _html_viewer_active=True,
             _html_focus_after_load=True,
+            _html_refresh_call=None,
             viewer_mode=VIEWER_HTML,
             show_plain_viewer=Mock(),
         )

@@ -21,7 +21,7 @@ param(
 
 $ErrorActionPreference = "Stop"
 $ProjectRoot = $PSScriptRoot
-$Version = "1.2.12"
+$Version = "1.2.13"
 $AppName = "Power Accessible Mail"
 $ProductName = "Power Accessible Mail"
 $LockFile = Join-Path $ProjectRoot "requirements-release.lock"

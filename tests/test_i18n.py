@@ -2,7 +2,12 @@ from __future__ import annotations
 
 import unittest
 
-from accessible_mail.i18n import LANGUAGE_ARABIC, LANGUAGE_ENGLISH, set_language, tr
+from accessible_mail.i18n import (
+    LANGUAGE_ARABIC,
+    LANGUAGE_ENGLISH,
+    set_language,
+    tr,
+)
 
 
 class TranslationTests(unittest.TestCase):

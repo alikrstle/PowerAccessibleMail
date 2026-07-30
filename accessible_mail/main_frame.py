@@ -352,7 +352,6 @@ class MainFrame(wx.Frame):
         self.accel_translate = wx.NewIdRef()
         self.accel_close = wx.NewIdRef()
         self.accel_guide = wx.NewIdRef()
-        self.accel_focus_list = wx.NewIdRef()
         self.accel_focus_items = wx.NewIdRef()
         self.accel_context_menu = wx.NewIdRef()
         entries = [
@@ -363,7 +362,6 @@ class MainFrame(wx.Frame):
             wx.AcceleratorEntry(wx.ACCEL_CTRL, ord("T"), self.accel_translate),
             wx.AcceleratorEntry(wx.ACCEL_ALT, wx.WXK_F4, self.accel_close),
             wx.AcceleratorEntry(wx.ACCEL_NORMAL, wx.WXK_F1, self.accel_guide),
-            wx.AcceleratorEntry(wx.ACCEL_CTRL, wx.WXK_SPACE, self.accel_focus_list),
             wx.AcceleratorEntry(wx.ACCEL_CTRL, wx.WXK_RETURN, self.accel_focus_items),
             wx.AcceleratorEntry(wx.ACCEL_SHIFT, wx.WXK_F10, self.accel_context_menu),
         ]
@@ -375,19 +373,12 @@ class MainFrame(wx.Frame):
         self.Bind(wx.EVT_MENU, self.on_translate_current_message, id=self.accel_translate)
         self.Bind(wx.EVT_MENU, lambda _event: self.Close(), id=self.accel_close)
         self.Bind(wx.EVT_MENU, self.on_show_guide, id=self.accel_guide)
-        self.Bind(wx.EVT_MENU, self.on_focus_list_accelerator, id=self.accel_focus_list)
         self.Bind(wx.EVT_MENU, self.on_focus_items_accelerator, id=self.accel_focus_items)
         self.Bind(wx.EVT_MENU, self.on_context_menu_accelerator, id=self.accel_context_menu)
 
     def on_menu_open(self, _event: wx.MenuEvent) -> None:
         if hasattr(self, "translate_menu_item"):
             self.translate_menu_item.Enable(self.can_translate_current_message())
-
-    def on_focus_list_accelerator(self, _event: wx.Event | None = None) -> None:
-        page = self.current_page()
-        if not page:
-            return
-        call_after_if_open(self, page.focus_message_list)
 
     def on_focus_items_accelerator(self, _event: wx.Event | None = None) -> None:
         page = self.current_page()
@@ -1788,6 +1779,7 @@ class MainFrame(wx.Frame):
         if not text or text == tr("جار تحميل الرسالة..."):
             wx.MessageBox("اختر رسالة وانتظر تحميل نصها أولا.", "لا توجد رسالة للترجمة", wx.OK | wx.ICON_INFORMATION, self)
             return
+        source_uid = summary.uid if summary else ""
         return_control = page.take_translation_return_control() if isinstance(_event, MailPage) else wx.Window.FindFocus()
 
         def work() -> str:
@@ -1795,10 +1787,13 @@ class MainFrame(wx.Frame):
 
         def done(translated: str) -> None:
             if self.settings.translation_mode == TRANSLATION_INLINE and page:
+                current_summary = page.selected_summary()
+                if not current_summary or current_summary.uid != source_uid:
+                    self.SetStatusText("اكتملت ترجمة الرسالة السابقة دون تغيير الرسالة الحالية.")
+                    return
                 page.set_viewer_action_ranges(translated, [])
                 page.set_viewer_text(normalize_message_text(translated))
                 self.SetStatusText("تمت ترجمة الرسالة داخل المستعرض.")
-                call_after_if_open(self, page.focus_message_viewer)
                 return
             self.show_translation_dialog(translated)
             if page:
@@ -1882,7 +1877,7 @@ Inbox reads the real Inbox folder. Spam reads Spam or Junk. Sent holds the messa
 Inside each section, the filter lets you show all messages, starred messages, unread messages, read messages, or the real Trash folder. Press F5 whenever you want the newest messages. Synchronize all messages retrieves older mail in batches, and Load older messages adds one older batch from the current section.
 
 Read each message in the viewer you prefer
-The HTML viewer keeps links and buttons in their natural positions as real page elements. Use Tab or your screen reader's browsing commands to reach them, then press Enter or Space to activate them. Press Ctrl+Enter to move between the message viewer and the item viewer. Press Ctrl+Space to return directly to the message list.
+The HTML viewer keeps links and buttons in their natural positions as real page elements. Use Tab or your screen reader's browsing commands to reach them, then press Enter or Space to activate them. Press Ctrl+Enter to move between the message viewer and the item viewer. Press Escape to return directly to the message list.
 
 The easy viewer removes repeated blank lines and presents a clean text version. Its item viewer collects links, buttons, and attachments under clear names. Selecting a message does not mark it as read automatically; press Space in the normal message list to switch the focused message between read and unread.
 
@@ -1910,7 +1905,7 @@ Ctrl+R replies to the focused message.
 Ctrl+T translates the current message.
 F5 refreshes messages.
 F1 opens this guide.
-Ctrl+Space returns to the message list.
+Escape returns to the message list from the message or item viewer.
 Ctrl+Enter switches between message and item viewers.
 Shift+F10 opens the context and actions menu.
 Alt+F4 closes the application.
@@ -1942,7 +1937,7 @@ Power Accessible Mail برنامج صمم ليجعل قراءة البريد و�
 داخل كل قسم تستطيع عرض جميع الرسائل أو المميزة بنجمة أو غير المقروءة أو المقروءة أو الرسائل الموجودة فعليا في سلة المحذوفات. اضغط F5 متى أردت جلب الأحدث. مزامنة كل الرسائل تجلب البريد القديم على دفعات، وتحميل رسائل أقدم يضيف دفعة واحدة إلى القسم الحالي.
 
 اقرأ الرسالة بالمستعرض الذي يناسبك
-مستعرض HTML يبقي الروابط والأزرار في مواضعها الطبيعية كعناصر حقيقية. استخدم Tab أو أوامر التصفح في قارئ الشاشة للوصول إليها ثم Enter أو Space لتفعيلها. ينقلك Ctrl+Enter بين مستعرض الرسالة ومستعرض العناصر، ويعيدك Ctrl+Space مباشرة إلى قائمة الرسائل.
+مستعرض HTML يبقي الروابط والأزرار في مواضعها الطبيعية كعناصر حقيقية. استخدم Tab أو أوامر التصفح في قارئ الشاشة للوصول إليها ثم Enter أو Space لتفعيلها. ينقلك Ctrl+Enter بين مستعرض الرسالة ومستعرض العناصر، ويعيدك Escape مباشرة إلى قائمة الرسائل.
 
 المستعرض السهل ينظف تكرار الأسطر الخالية ويعرض نصا مرتبا. ويجمع مستعرض العناصر الروابط والأزرار والمرفقات تحت أسماء واضحة. مجرد اختيار الرسالة لا يجعلها مقروءة؛ اضغط Space في قائمة الرسائل العادية للتبديل بين مقروءة وغير مقروءة.
 
@@ -1970,7 +1965,7 @@ Ctrl+R يرد على الرسالة المحددة.
 Ctrl+T يترجم الرسالة الحالية.
 F5 يحدث الرسائل.
 F1 يفتح هذا الدليل.
-Ctrl+Space يرجع إلى قائمة الرسائل.
+Escape يرجع إلى قائمة الرسائل من مستعرض الرسالة أو مستعرض العناصر.
 Ctrl+Enter يتنقل بين مستعرض الرسالة ومستعرض العناصر.
 Shift+F10 يفتح قائمة السياق والإجراءات.
 Alt+F4 يغلق البرنامج.

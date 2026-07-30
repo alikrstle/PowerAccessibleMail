@@ -7,6 +7,7 @@ from email.utils import parsedate_to_datetime
 from typing import Any
 from uuid import uuid4
 
+from .date_format import format_message_date
 from .i18n import is_rtl, tr
 
 
@@ -207,6 +208,9 @@ class MessageSummary:
     def display_subject(self) -> str:
         return self.subject or tr("بدون موضوع")
 
+    @property
+    def display_date(self) -> str:
+        return format_message_date(self.sort_timestamp, self.date)
 
     @property
     def sort_timestamp(self) -> float:

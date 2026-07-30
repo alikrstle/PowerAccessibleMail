@@ -120,9 +120,11 @@ class MailPage(wx.Panel):
         self._last_items_toggle_at = 0.0
         self._last_context_menu_request_at = 0.0
         self._html_focus_call: wx.CallLater | None = None
+        self._html_refresh_call: wx.CallLater | None = None
         self._html_viewer_active = False
         self._html_refresh_pending = True
         self._html_focus_after_load = False
+        self._html_loading = False
         self._suppress_selection_event = False
         self.multi_select_mode = False
         self._multi_selected_keys: set[tuple[str, str]] = set()
@@ -190,19 +192,25 @@ class MailPage(wx.Panel):
         except (AttributeError, NotImplementedError):
             pass
         try:
-            self._html_message_bridge = bool(
-                self.html_viewer.AddScriptMessageHandler("pamBridge")
-            )
+            bridge_result = self.html_viewer.AddScriptMessageHandler("pamBridge")
+            self._html_message_bridge = bridge_result is not False
         except (AttributeError, NotImplementedError):
             pass
         set_accessible(
+            self.viewer,
+            f"مستعرض نص {self.title}",
+            "مستعرض نص الرسالة. اضغط Escape للعودة إلى قائمة الرسائل.",
+        )
+        set_accessible(
             self.html_viewer,
             f"مستعرض نص {self.title}",
-            "مستعرض HTML للرسالة. استخدم أوامر قارئ الشاشة أو Tab للتنقل بين الروابط والأزرار، وEnter أو Space لفتح العنصر.",
+            "مستعرض HTML للرسالة. استخدم أوامر قارئ الشاشة أو Tab للتنقل بين الروابط والأزرار، وEnter أو Space لفتح العنصر. اضغط Escape للعودة إلى قائمة الرسائل.",
         )
         self.viewer.Bind(wx.EVT_CHAR_HOOK, self.on_viewer_key)
         self.viewer.Bind(wx.EVT_KEY_DOWN, self.on_viewer_key)
         self.viewer.Bind(wx.EVT_CHAR, self.on_viewer_key)
+        self.html_viewer.Bind(wx.EVT_CHAR_HOOK, self.on_html_viewer_key)
+        self.html_viewer.Bind(wx.EVT_KEY_DOWN, self.on_html_viewer_key)
         self.html_viewer.Bind(wx.html2.EVT_WEBVIEW_NAVIGATING, self.on_html_viewer_navigating)
         self.html_viewer.Bind(wx.html2.EVT_WEBVIEW_LOADED, self.on_html_viewer_loaded)
         self.html_viewer.Bind(wx.EVT_LEFT_DOWN, self.on_html_viewer_pointer_focus)
@@ -238,6 +246,7 @@ class MailPage(wx.Panel):
         self.actions_button = wx.Button(self.link_panel, label="إجراءات الرسالة")
         set_accessible(self.actions_button, f"قائمة إجراءات رسالة {self.title}")
         self.actions_button.Bind(wx.EVT_BUTTON, self.on_actions_button)
+        self.actions_button.Bind(wx.EVT_CHAR_HOOK, self.on_actions_key)
         link_row.Add(self.actions_button, 0, wx.ALL, 6)
         self.link_panel.SetSizer(link_row)
         root.Add(self.link_panel, 1, wx.EXPAND)
@@ -359,7 +368,7 @@ class MailPage(wx.Panel):
                 row = self.list.InsertItem(index, message.status_label)
                 self.list.SetItem(row, 1, message.sender)
                 self.list.SetItem(row, 2, message.display_subject)
-                self.list.SetItem(row, 3, message.date)
+                self.list.SetItem(row, 3, message.display_date)
                 key = self.message_key(message)
                 if self.multi_select_mode and key in self._multi_selected_keys:
                     self.list.CheckItem(row, True)
@@ -842,16 +851,37 @@ class MailPage(wx.Panel):
             return
         self._html_refresh_pending = True
         if self._html_viewer_active:
-            self.refresh_html_viewer(focus_start=True)
+            self.schedule_html_refresh(focus_start=True)
         else:
             self.show_plain_viewer()
 
+    def schedule_html_refresh(self, *, focus_start: bool) -> None:
+        self._html_focus_after_load = self._html_focus_after_load or focus_start
+        self.show_plain_viewer()
+        self.viewer.SetFocus()
+        if self._html_refresh_call and self._html_refresh_call.IsRunning():
+            self._html_refresh_call.Stop()
+        self._html_refresh_call = wx.CallLater(40, self.run_scheduled_html_refresh)
+
+    def run_scheduled_html_refresh(self) -> None:
+        self._html_refresh_call = None
+        if not self._html_viewer_active or not self._html_refresh_pending:
+            return
+        if self._html_loading:
+            return
+        self.refresh_html_viewer(focus_start=self._html_focus_after_load)
+
     def refresh_html_viewer(self, *, focus_start: bool) -> None:
+        self._html_focus_after_load = self._html_focus_after_load or focus_start
+        if self._html_loading:
+            self._html_refresh_pending = True
+            return
         self.show_html_viewer()
-        self._html_focus_after_load = focus_start
+        self._html_loading = True
         try:
             self.html_viewer.SetPage(self.message_html(self.viewer_text), "about:blank")
         except Exception:
+            self._html_loading = False
             self._html_refresh_pending = True
             self._html_viewer_active = False
             self._html_focus_after_load = False
@@ -862,18 +892,30 @@ class MailPage(wx.Panel):
     def activate_html_viewer(self) -> None:
         self._html_viewer_active = True
         if self._html_refresh_pending:
-            self.refresh_html_viewer(focus_start=True)
+            self.schedule_html_refresh(focus_start=True)
+            return
+        self.show_html_viewer()
+        if self._html_loading:
+            self._html_focus_after_load = True
             return
         self.focus_html_document_start()
 
     def deactivate_html_viewer(self) -> None:
         self._html_viewer_active = False
         self._html_focus_after_load = False
+        if self._html_refresh_call and self._html_refresh_call.IsRunning():
+            self._html_refresh_call.Stop()
+        self._html_refresh_call = None
         if self.viewer_mode == VIEWER_HTML:
             self.show_plain_viewer()
 
     def focus_html_document_start(self) -> None:
         if not self._html_viewer_active:
+            return
+        if self._html_loading or self._html_refresh_pending:
+            self._html_focus_after_load = True
+            if self._html_refresh_pending and not self._html_loading:
+                self.schedule_html_refresh(focus_start=True)
             return
         self.html_viewer.SetFocus()
         try:
@@ -1070,24 +1112,37 @@ a:focus, button:focus {{
 <article id="message" tabindex="0" aria-label="{message_label}">{content}</article>
 <script>
 function pamSend(command) {{
-    if (window.pamBridge && typeof window.pamBridge.postMessage === "function") {{
-        window.pamBridge.postMessage(command);
-        return;
+    try {{
+        if (window.pamBridge && typeof window.pamBridge.postMessage === "function") {{
+            window.pamBridge.postMessage(command);
+            return;
+        }}
+    }} catch (bridgeError) {{
     }}
     window.location.href = "pam:" + command;
 }}
-document.addEventListener("keydown", function (event) {{
-    if (event.ctrlKey && !event.altKey && !event.metaKey && event.code === "Space") {{
+function pamKeyMatches(event, codes, keys, legacyCode) {{
+    return codes.indexOf(event.code) !== -1 ||
+        keys.indexOf(event.key) !== -1 ||
+        event.keyCode === legacyCode;
+}}
+window.addEventListener("keydown", function (event) {{
+    var ctrlOnly = event.ctrlKey && !event.altKey && !event.metaKey;
+    var plainKey = !event.ctrlKey && !event.altKey && !event.metaKey;
+    if (ctrlOnly && pamKeyMatches(event, ["Enter", "NumpadEnter"], ["Enter"], 13)) {{
         event.preventDefault();
-        pamSend("focus-list");
-    }} else if (event.ctrlKey && !event.altKey && !event.metaKey && (event.code === "Enter" || event.code === "NumpadEnter")) {{
-        event.preventDefault();
+        event.stopPropagation();
         pamSend("toggle-items");
     }} else if ((event.shiftKey && event.code === "F10") || event.key === "ContextMenu") {{
         event.preventDefault();
+        event.stopPropagation();
         pamSend("context-menu:keyboard");
+    }} else if (plainKey && event.key === "Escape") {{
+        event.preventDefault();
+        event.stopPropagation();
+        pamSend("focus-list");
     }}
-}});
+}}, true);
 </script>
 </body>
 </html>"""
@@ -1138,6 +1193,11 @@ document.addEventListener("keydown", function (event) {{
             event.Veto()
 
     def on_html_viewer_loaded(self, _event: wx.html2.WebViewEvent) -> None:
+        self._html_loading = False
+        if self._html_refresh_pending:
+            if self._html_viewer_active:
+                self.schedule_html_refresh(focus_start=self._html_focus_after_load)
+            return
         if not self._html_viewer_active or not self._html_focus_after_load:
             return
         self._html_focus_after_load = False
@@ -1153,8 +1213,25 @@ document.addEventListener("keydown", function (event) {{
             return
         self.handle_html_command(event.GetString())
 
+    def on_html_viewer_key(self, event: wx.KeyEvent) -> None:
+        key_code = event.GetKeyCode()
+        ctrl_only = event.ControlDown() and not event.AltDown() and not event.CmdDown()
+        if ctrl_only:
+            if key_code in {wx.WXK_RETURN, wx.WXK_NUMPAD_ENTER}:
+                self.toggle_message_and_link_viewers()
+                return
+        if (
+            not event.ControlDown()
+            and not event.AltDown()
+            and not event.CmdDown()
+            and key_code == wx.WXK_ESCAPE
+        ):
+            self.focus_message_list()
+            return
+        event.Skip()
+
     def handle_html_command(self, command: str) -> bool:
-        action = command.partition(":")[0].partition("?")[0]
+        action = command.strip().lower().strip("/").partition(":")[0].partition("?")[0]
         if action == "focus-list":
             self.schedule_html_focus_action(self.focus_message_list)
             return True
@@ -1281,7 +1358,7 @@ document.addEventListener("keydown", function (event) {{
                 self.list.SetItem(index, 0, message.status_label)
                 self.list.SetItem(index, 1, message.sender)
                 self.list.SetItem(index, 2, message.display_subject)
-                self.list.SetItem(index, 3, message.date)
+                self.list.SetItem(index, 3, message.display_date)
                 break
 
     def update_message_read_state(self, summary: MessageSummary, is_read: bool) -> None:
@@ -1450,6 +1527,17 @@ document.addEventListener("keydown", function (event) {{
         event.Skip()
 
     def handle_viewer_key(self, event: wx.KeyEvent) -> bool:
+        ctrl_only = event.ControlDown() and not event.AltDown() and not event.CmdDown()
+        if ctrl_only:
+            if event.GetKeyCode() in {wx.WXK_RETURN, wx.WXK_NUMPAD_ENTER}:
+                self.toggle_message_and_link_viewers()
+                return True
+            return False
+        if event.AltDown() or event.CmdDown():
+            return False
+        if event.GetKeyCode() == wx.WXK_ESCAPE:
+            self.focus_message_list()
+            return True
         if event.GetKeyCode() in {wx.WXK_RETURN, wx.WXK_NUMPAD_ENTER, wx.WXK_SPACE}:
             item = self.viewer_item_at_caret()
             if item:
@@ -1556,14 +1644,45 @@ document.addEventListener("keydown", function (event) {{
             self.set_status("هذا الزر لا يحتوي على رابط قابل للفتح.")
 
     def on_link_key(self, event: wx.KeyEvent) -> None:
-        if event.ControlDown() and event.GetKeyCode() == wx.WXK_SPACE:
+        ctrl_only = event.ControlDown() and not event.AltDown() and not event.CmdDown()
+        if (
+            event.GetKeyCode() == wx.WXK_ESCAPE
+            and not event.ControlDown()
+            and not event.AltDown()
+            and not event.CmdDown()
+        ):
             self.focus_message_list()
             return
-        if event.ControlDown() and event.GetKeyCode() in {wx.WXK_RETURN, wx.WXK_NUMPAD_ENTER}:
-            self.toggle_message_and_link_viewers()
+        if ctrl_only:
+            if event.GetKeyCode() in {wx.WXK_RETURN, wx.WXK_NUMPAD_ENTER}:
+                self.toggle_message_and_link_viewers()
+                return
+            event.Skip()
+            return
+        if event.AltDown() or event.CmdDown():
+            event.Skip()
             return
         if event.GetKeyCode() in {wx.WXK_RETURN, wx.WXK_NUMPAD_ENTER, wx.WXK_SPACE}:
             self.on_open_link(wx.CommandEvent())
+            return
+        event.Skip()
+
+    def on_actions_key(self, event: wx.KeyEvent) -> None:
+        if (
+            event.GetKeyCode() == wx.WXK_ESCAPE
+            and not event.ControlDown()
+            and not event.AltDown()
+            and not event.CmdDown()
+        ):
+            self.focus_message_list()
+            return
+        if (
+            event.ControlDown()
+            and not event.AltDown()
+            and not event.CmdDown()
+            and event.GetKeyCode() in {wx.WXK_RETURN, wx.WXK_NUMPAD_ENTER}
+        ):
+            self.toggle_message_and_link_viewers()
             return
         event.Skip()
 
@@ -1712,7 +1831,6 @@ document.addEventListener("keydown", function (event) {{
             action_invoked = True
             self._translation_return_control = return_control
             self.on_translate(self)
-            wx.CallAfter(self.restore_context_focus, return_control)
 
         def pin_action(_event: wx.CommandEvent) -> None:
             nonlocal action_invoked
