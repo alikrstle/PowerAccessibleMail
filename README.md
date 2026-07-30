@@ -8,6 +8,7 @@
 
 [تنزيل أحدث إصدار](https://github.com/alikrstle/PowerAccessibleMail/releases/latest)
 
+- الإصدار الحالي: `1.2.13`.
 - `PowerAccessibleMailSetup-*-win-x64`: مثبت Windows إصدار 64 بت.
 - `PowerAccessibleMailSetup-*-win-x86`: مثبت Windows إصدار 32 بت.
 - نسختا 64 بت و32 بت تقدمان الميزات نفسها، وتختلفان في معمارية Windows فقط.
@@ -27,6 +28,7 @@ The repository does not contain the application source code. Installers, portabl
 
 [Download the latest release](https://github.com/alikrstle/PowerAccessibleMail/releases/latest)
 
+- Current release: `1.2.13`.
 - `PowerAccessibleMailSetup-*-win-x64`: 64-bit Windows installer.
 - `PowerAccessibleMailSetup-*-win-x86`: 32-bit Windows installer.
 - The x64 and x86 packages provide the same features and differ only by Windows architecture.
