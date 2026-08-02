@@ -4,15 +4,18 @@
 
 لا يحتوي هذا المستودع على شيفرة البرنامج. تحفظ ملفات التثبيت والنسخ المحمولة وملفات SHA-256 في صفحة الإصدارات فقط.
 
-## التنزيل
+## تنبيه صيانة نسخة 32 بت
 
-[تنزيل أحدث إصدار](https://github.com/alikrstle/PowerAccessibleMail/releases/latest)
+نسخة Windows ذات معمارية 32 بت متوقفة مؤقتاً للصيانة والتحقق وإعادة الاختبار. أُزيلت ملفات `win-x86` من الإصدار الحالي، ويرجى عدم استخدام أي نسخة 32 بت محفوظة سابقاً إلى أن ننشر حزمة بديلة بعد اكتمال أعمال الصيانة.
+
+## التنزيل المتاح
+
+[تنزيل مثبت 64 بت للإصدار 1.2.13](https://github.com/alikrstle/PowerAccessibleMail/releases/download/v1.2.13/PowerAccessibleMailSetup-1.2.13-win-x64-UNSIGNED.exe)
 
 - الإصدار الحالي: `1.2.13`.
 - `PowerAccessibleMailSetup-*-win-x64`: مثبت Windows إصدار 64 بت.
-- `PowerAccessibleMailSetup-*-win-x86`: مثبت Windows إصدار 32 بت.
-- نسختا 64 بت و32 بت تقدمان الميزات نفسها، وتختلفان في معمارية Windows فقط.
-- الملفات التي ينتهي اسمها بـ `UNSIGNED` غير موقعة رقميا. تحقق من بصمة SHA-256 المرفقة قبل التشغيل.
+- `win-x86`: غير متاح حالياً.
+- الملفات التي ينتهي اسمها بـ `UNSIGNED` غير موقعة رقمياً. تحقق من بصمة SHA-256 المرفقة قبل التشغيل.
 
 المطور: صولجان الشرق  
 المالك: علي الأمير  
@@ -24,14 +27,17 @@ This is the official repository for Power Accessible Mail releases and updates.
 
 The repository does not contain the application source code. Installers, portable packages, and SHA-256 manifests are available only from the Releases page.
 
-## Download
+## 32-bit edition maintenance notice
 
-[Download the latest release](https://github.com/alikrstle/PowerAccessibleMail/releases/latest)
+The 32-bit Windows edition is temporarily unavailable while it undergoes maintenance, verification, and retesting. The `win-x86` assets have been removed from the current release. Do not use previously saved 32-bit packages until a verified replacement is published.
+
+## Available download
+
+[Download the 1.2.13 64-bit installer](https://github.com/alikrstle/PowerAccessibleMail/releases/download/v1.2.13/PowerAccessibleMailSetup-1.2.13-win-x64-UNSIGNED.exe)
 
 - Current release: `1.2.13`.
 - `PowerAccessibleMailSetup-*-win-x64`: 64-bit Windows installer.
-- `PowerAccessibleMailSetup-*-win-x86`: 32-bit Windows installer.
-- The x64 and x86 packages provide the same features and differ only by Windows architecture.
+- `win-x86`: currently unavailable.
 - Files ending in `UNSIGNED` are not digitally signed. Verify them with the included SHA-256 manifest before running.
 
 Developer: Soljan.AlSharq.  
