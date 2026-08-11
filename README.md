@@ -42,3 +42,16 @@ The 32-bit Windows edition is temporarily unavailable while it undergoes mainten
 
 Developer: Soljan.AlSharq.  
 Owner: Ali Al-Amir
+
+## Official website / الموقع الرسمي
+
+The source of the Soljan AlSharq website is maintained in [`website/`](website/).
+It reads the latest release from this repository and publishes the verified
+x64 installer link. Website quality checks run automatically; production
+deployment to the existing Cloudflare Pages project is a manual protected
+workflow.
+
+توجد ملفات موقع صولجان الشرق في المجلد [`website/`](website/). يقرأ الموقع
+أحدث إصدار منشور في هذا المستودع ويعرض رابط نسخة 64 بت المتحقق منها. تعمل
+فحوص الجودة تلقائياً، أما النشر إلى مشروع Cloudflare Pages الإنتاجي فهو إجراء
+يدوي محمي.
