@@ -1,5 +1,5 @@
 Power Accessible Mail
-Version 1.2.13
+Version 1.2.14
 Developed by Soljan.AlSharq.
 Soljan.AlSharq. is owned by Ali Al-Amir
 
@@ -59,7 +59,7 @@ Press Escape to return directly to the message list
 
 The easy viewer removes repeated blank lines and presents clean text
 
-Its item viewer collects links buttons and attachments under clear names
+Its item viewer collects links buttons images and attachments under clear names
 
 Selecting a message does not mark it as read automatically
 
@@ -89,9 +89,9 @@ Write and act without leaving the keyboard
 
 Compose email opens a complete message window
 
-Message actions include Reply Star Translate Pin to top move to the provider Trash and save attachments whenever they are available
+Reply Star Translate Pin to top and move to the provider Trash are available from the message context menu. The item viewer list has no context menu, and the Item actions button displays attachment and link commands directly
 
-Open the menu from the Actions button or with Shift+F10
+Use Shift+F10 or the Application key for the message context menu and use the Item actions button for attachments images and links
 
 Translation in place or in a separate window
 
@@ -105,7 +105,7 @@ It requires an internet connection and sends the selected message text to Google
 
 Make the application yours
 
-Settings lets you choose Arabic or English the HTML or easy message viewer translation inside the page or in a separate window and light or dark appearance
+Settings lets you choose Arabic English or French the HTML or easy message viewer translation inside the page or in a separate window and light or dark appearance
 
 Your choices are saved for the next launch
 
@@ -115,7 +115,103 @@ The application checks GitHub Releases after startup and you can check manually 
 
 When a release is available Update now opens an internal progress window showing its version release date progress bar and percentage
 
-The correct installer is downloaded its SHA-256 digest is verified and the direct update starts before the application restarts
+The correct installer is downloaded to the Power Accessible Mail updates folder in the user profile its SHA-256 digest is verified and Setup appears in a visible window before the application closes to complete the update and restart
+
+Detailed guide to the main window
+
+Application notifications
+
+The notification bar appears at the top of the window and announces important information such as a completed action a required sign in or an available update. Some notices disappear after a short time while the status bar at the bottom keeps the latest operation state
+
+Email account selector
+
+This control lists the accounts you added. Selecting an account changes the displayed folders and messages without mixing its data with another account. When no account exists open Account options and management to add one
+
+Application command list
+
+Refresh displayed content retrieves the newest messages for the current section and performs the same action as F5
+
+Synchronize all messages continues retrieving older mail in batches and stores it locally until synchronization finishes or stops
+
+Load older messages retrieves one batch older than the messages currently displayed in the section
+
+Account options and management opens commands to add an account sign in again or remove the account
+
+Compose email opens the new message window
+
+Settings opens the application language message viewer translation mode and appearance choices
+
+Mail sections
+
+Inbox Spam Sent and All Mail are separate pages with their own displayed messages and filter. All Mail is available when the provider supports it and may reveal messages that do not carry the Inbox label
+
+Filter choice
+
+The filter controls what the current section displays: All Starred Unread Read or the real Trash folder. Selecting Trash requests its actual contents from the email provider
+
+Message list
+
+Each row contains Status Sender Subject and Date. Status announces whether the message is read or unread starred or pinned. Use the arrow keys Home End Page Up and Page Down to navigate. Selecting a message loads its content but does not change its read status automatically
+
+Message viewer
+
+This area displays the selected message using the HTML or simple viewer chosen in Settings. Escape returns focus to the message list and Ctrl+Enter moves to the item viewer
+
+Item viewer
+
+This separate list collects the message links buttons images and attachments. Every item begins with its type and number such as Link 1 Button 1 Image 1 or Attachment 1 followed by its name and address or by the file type and size. The application combines equivalent addresses after normalizing the host and common tracking parameters and chooses the best description from element text aria-label title or alt text. Links and buttons keep reading order followed by images and attachments. Hidden 1 by 1 tracking images are excluded
+
+Item actions button
+
+This button displays the commands directly without a submenu: Open selected attachment Save selected attachment Save all attachments at once Open image Save image Open selected link and Copy selected link. Reply Star Translate Pin and Delete remain in the message context menu
+
+Message retrieval progress and status bar
+
+The progress control reports message retrieval or synchronization percentage. The status bar announces the current operation and its result so you do not need to move focus to it
+
+Mark a message as read or unread
+
+Moving to a message or opening its content does not mark it as read. From the normal message list press Space once to switch the focused message between read and unread. The Status column changes immediately and the application then saves that state to the server
+
+When a message is unread you can press the Application key or Shift+F10 and choose Mark as read. The context menu does not include Mark as unread; press Space in the message list whenever you want to switch the read state. In multiple selection mode Mark as read is available for the selected group
+
+Use the Unread filter to find messages that still need attention and the Read filter to review messages you have finished
+
+Use the item viewer step by step
+
+While focus is inside the message viewer press Ctrl+Enter. The item viewer becomes available and focus moves to its list. Use Up and Down Arrow to choose a link button image or attachment
+
+Press Enter or Space to open the item directly. A safe link or an image with an external address opens in the default browser and an attachment opens locally. A button with a link behaves the same way while a button or image without an address that can be opened is announced clearly
+
+For explicit commands press Tab to reach the Item actions button then press Enter or Space. An attachment provides Open selected attachment and Save selected attachment and you can save every attachment in the message at once. A link or image with an external address provides Open selected link and Copy selected link which places its safe address on the Windows clipboard. Commands that do not apply to the selected item remain disabled to prevent accidental activation
+
+Press Ctrl+Enter to return to the message viewer or Escape to return directly to the message list. The item list has no context menu. The Item actions button is the only place that displays these commands and presents them directly without a submenu
+
+Manage received attachments
+
+Opening an attachment writes a protected temporary copy with a safe name and asks Windows to open it in the default application. The temporary copies created for the current session are removed when Power Accessible Mail closes
+
+Before opening a file that may run commands such as EXE BAT CMD or MSI the application displays a security warning with No as the default. Continue only when you trust both the sender and the file
+
+To save one attachment focus it in the item viewer then move to the Item actions button and choose Save selected attachment before choosing its name and folder. To save every attachment choose Save all attachments at once from the same button and select one folder. To copy a link focus it then use Item actions and choose Copy selected link; the application places its safe address on the Windows clipboard. When a filename already exists the application creates a unique name instead of silently replacing the previous file
+
+Compose a message and add outgoing attachments
+
+The compose window starts with To then Subject and the multiline Body field. The Added attachments list follows the Body and the Add attachment button follows that list so the list sits between the message content and the button in Tab order
+
+Press Add attachment to open the file picker. You can select one file or several files in the same operation. Each selected file appears in the list with its filename and size so you can review exactly what will be sent
+
+To remove a file added by mistake focus it in the attachment list and press Delete or press the Application key and choose Remove selected attachment. Removing it from the list never deletes the original file from your computer
+
+When you press Send the application adds every file still shown in the list to the MIME message. This works for both Gmail API and SMTP accounts. The email provider controls message and attachment size limits and may reject a message that exceeds its permitted size
+
+Context menus and the Application key
+
+The keyboard Application key is sometimes named Menu or Context Menu. It opens the context menu for the control that currently has focus. Power Accessible Mail supports it in the message list message viewer Item actions button and the outgoing attachment list. The item viewer list has no context menu; press Tab from it to reach Item actions. Shift+F10 is equivalent where a context menu is available
+
+The message viewer context menu provides Reply Mark as read when needed Star Translate Pin and Delete. The Item actions button displays the seven attachment image and link commands directly without a submenu. To reach them press Ctrl+Enter to move to the item viewer select an item then press Tab to reach Item actions
+
+In the message list commands adapt to the focused message and its current state. On the Item actions button they adapt to the selected item type. In multiple selection mode message commands act on the group and the application states the affected message count before deletion
 
 Useful keyboard commands
 

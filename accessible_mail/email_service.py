@@ -6,11 +6,12 @@ import re
 import smtplib
 import threading
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from email import policy
 from email.parser import BytesParser
 from email.utils import parseaddr, parsedate_to_datetime
+from pathlib import Path
 
 from .email_utils import (
     extract_body,
@@ -527,11 +528,19 @@ class EmailService:
         subject: str,
         body: str,
         reply_to: MessageSummary | None = None,
+        attachments: Sequence[Path] = (),
     ) -> None:
         if not to_address.strip():
             raise MailError("يرجى كتابة عنوان المستلم.")
 
-        message = build_outgoing_message(account, to_address, subject, body, reply_to)
+        message = build_outgoing_message(
+            account,
+            to_address,
+            subject,
+            body,
+            reply_to,
+            attachments,
+        )
 
         if account.smtp_ssl:
             smtp: smtplib.SMTP = smtplib.SMTP_SSL(

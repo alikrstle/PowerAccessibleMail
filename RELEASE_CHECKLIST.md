@@ -7,11 +7,17 @@
 - x64 build uses 64-bit Python and a PE32+ PyInstaller bootloader; x86 uses 32-bit Python and a PE32 bootloader.
 - `test_all_architectures.ps1` passes against the unified source tree and locked dependencies.
 - PyInstaller uses onedir mode and `--noupx` to reduce antivirus false positives.
+- Unsigned analysis installers use non-solid ZIP compression; signed installers may use solid LZMA compression.
+- Stable release: every EXE, DLL, and PYD has a valid trusted signature and no `UNSIGNED` asset is published. Tester pre-release: every asset is labeled `UNSIGNED`, the GitHub release is marked Pre-release, and the notes warn that Windows may show an unknown-publisher warning.
+- Both architecture application folders, installers, and portable ZIP files were scanned against current Defender definitions with remediation disabled; the scan reports were retained. Any false detection was submitted as a Software developer sample and its submission ID was recorded.
 - Installer uses per-user install path and does not require administrator privileges.
 - Executable and installer contain consistent company, product, and version metadata.
 - The bundled OAuth file contains only the unified `google_gmail_api` and `microsoft` clients.
 - Installer, portable ZIP, and application executable are listed in the architecture SHA-256 manifest.
 - Internal update URLs use HTTPS and the installer version, architecture, and SHA-256 all match.
-- Installer offers Arabic and English and keeps the destination, tasks, ready, and finished pages enabled.
+- Internal updates are stored under the application's LocalAppData update folder and launch an interactive Setup window; silent and suppressed-message installer switches are not used.
+- The build manifest records the SHA-256 and Authenticode state of every bundled EXE, DLL, and PYD.
+- Installer offers Arabic, English, and French, selects the Windows UI language by default, and keeps the destination, tasks, ready, and finished pages enabled.
 - Desktop shortcut is selected by default.
 - Finished page offers the localized README and application launch as separate options.
+- Testers are never instructed to disable Defender or add a permanent antivirus exclusion.

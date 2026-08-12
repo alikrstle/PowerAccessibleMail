@@ -7,7 +7,7 @@ param(
             $env:POWER_ACCESSIBLE_MAIL_TIMESTAMP_SERVER
         }
         else {
-            "http://timestamp.digicert.com"
+            "https://timestamp.digicert.com"
         }
     )
 )

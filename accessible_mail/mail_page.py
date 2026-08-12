@@ -1,9 +1,12 @@
 from __future__ import annotations
 
+import base64
 import html
+import mimetypes
 import os
 import time
 import urllib.parse
+import urllib.request
 import webbrowser
 from collections.abc import Callable
 from pathlib import Path
@@ -19,20 +22,17 @@ from .accessibility import (
     set_accessible,
 )
 from .config import (
-    LANGUAGE_ARABIC,
-    LANGUAGE_ENGLISH,
     THEME_DARK,
     THEME_LIGHT,
     VIEWER_HTML,
     VIEWER_SIMPLE,
 )
-from .email_utils import normalize_message_text, safe_external_url
-from .i18n import is_rtl, tr
+from .email_utils import normalize_message_text, organize_message_items, safe_external_url
+from .i18n import get_language, is_rtl, tr
 from .models import LinkItem, MessageContent, MessageSummary
 from .ui_constants import (
     BULK_ACTION_DELETE,
     BULK_ACTION_MARK_READ,
-    BULK_ACTION_MARK_UNREAD,
     BULK_ACTION_PIN,
     BULK_ACTION_STAR,
     BULK_ACTION_UNPIN,
@@ -75,6 +75,7 @@ DANGEROUS_ATTACHMENT_EXTENSIONS = frozenset(
         ".xlsm",
     }
 )
+MAX_IMAGE_DOWNLOAD_BYTES = 25 * 1024 * 1024
 WINDOWS_RESERVED_FILENAMES = frozenset(
     {
         "AUX",
@@ -237,14 +238,17 @@ class MailPage(wx.Panel):
         set_accessible(
             self.link_list,
             f"مستعرض العناصر {self.title}",
-            "اضغط Enter أو Space لفتح الرابط أو الزر أو فتح المرفق المحدد محليا",
+            "اضغط Enter أو Space لفتح الرابط أو الزر أو الصورة أو المرفق المحدد",
         )
         self.link_list.Bind(wx.EVT_LISTBOX_DCLICK, self.on_open_link)
         self.link_list.Bind(wx.EVT_CHAR_HOOK, self.on_link_key)
-        self.link_list.Bind(wx.EVT_CONTEXT_MENU, self.on_message_context_menu)
         link_row.Add(self.link_list, 1, wx.EXPAND | wx.ALL, 6)
-        self.actions_button = wx.Button(self.link_panel, label="إجراءات الرسالة")
-        set_accessible(self.actions_button, f"قائمة إجراءات رسالة {self.title}")
+        self.actions_button = wx.Button(self.link_panel, label="إجراءات العنصر")
+        set_accessible(
+            self.actions_button,
+            "إجراءات العنصر",
+            "يفتح أوامر المرفق أو الصورة أو الرابط المحدد مباشرة.",
+        )
         self.actions_button.Bind(wx.EVT_BUTTON, self.on_actions_button)
         self.actions_button.Bind(wx.EVT_CHAR_HOOK, self.on_actions_key)
         link_row.Add(self.actions_button, 0, wx.ALL, 6)
@@ -403,6 +407,9 @@ class MailPage(wx.Panel):
 
     def on_list_key(self, event: wx.KeyEvent) -> None:
         key_code = event.GetKeyCode()
+        if MailPage.is_context_menu_key(event):
+            self.show_message_context_menu(self.list, translation_enabled=False)
+            return
         if key_code == wx.WXK_CONTROL:
             self._control_pressed_alone = getattr(self, "multi_select_mode", False)
             event.Skip()
@@ -832,8 +839,8 @@ class MailPage(wx.Panel):
     def show_content(self, content: MessageContent) -> None:
         self.current_content_key = self.message_key(content.summary)
         body = normalize_message_text(content.text)
-        self.set_links(content.links)
-        self.set_viewer_action_ranges(body, content.links)
+        self.set_links(content.links, message_text=body)
+        self.set_viewer_action_ranges(body, self.links)
         if self.viewer_mode == VIEWER_HTML:
             self.link_panel_visible_in_html = False
             self.update_link_panel_visibility()
@@ -1074,7 +1081,7 @@ class MailPage(wx.Panel):
             button_foreground = "#111"
             button_border = "#767676"
         return f"""<!doctype html>
-<html lang="{LANGUAGE_ENGLISH if not is_rtl() else LANGUAGE_ARABIC}" dir="auto">
+<html lang="{get_language()}" dir="auto">
 <head>
 <meta charset="utf-8">
 <style>
@@ -1272,7 +1279,7 @@ window.addEventListener("keydown", function (event) {{
         self.current_viewer_action_range = None
         offsets: dict[str, int] = {}
         for link in links:
-            if link.is_attachment:
+            if link.is_attachment or link.is_image:
                 continue
             if self.link_has_viewer_range(text, link):
                 self.viewer_action_ranges.append((link.activation_start, link.activation_end, link))
@@ -1402,10 +1409,14 @@ window.addEventListener("keydown", function (event) {{
             uid_value = 0
         return float(message.is_pinned), message.sort_timestamp, uid_value, message.date
 
-    def set_links(self, links: list[LinkItem]) -> None:
-        self.links = links
-        self.link_list.Set(self.resource_labels(links))
-        if links:
+    def set_links(self, links: list[LinkItem], *, message_text: str = "") -> None:
+        self.links = organize_message_items(
+            message_text,
+            links,
+            discover_text_links=False,
+        )
+        self.link_list.Set(self.resource_labels(self.links))
+        if self.links:
             self.link_list.SetSelection(0)
         else:
             self.viewer_action_ranges = []
@@ -1527,6 +1538,12 @@ window.addEventListener("keydown", function (event) {{
         event.Skip()
 
     def handle_viewer_key(self, event: wx.KeyEvent) -> bool:
+        if MailPage.is_context_menu_key(event):
+            self.show_message_context_menu(
+                self.viewer,
+                translation_enabled=self.has_translatable_content(),
+            )
+            return True
         ctrl_only = event.ControlDown() and not event.AltDown() and not event.CmdDown()
         if ctrl_only:
             if event.GetKeyCode() in {wx.WXK_RETURN, wx.WXK_NUMPAD_ENTER}:
@@ -1633,6 +1650,9 @@ window.addEventListener("keydown", function (event) {{
         if link.is_attachment:
             self.open_attachment(link)
             return
+        if link.is_image:
+            self.open_image(link)
+            return
         external_url = safe_external_url(link.url)
         if external_url:
             webbrowser.open(external_url)
@@ -1643,7 +1663,32 @@ window.addEventListener("keydown", function (event) {{
         if link.is_button:
             self.set_status("هذا الزر لا يحتوي على رابط قابل للفتح.")
 
+    def copy_link(self, link: LinkItem) -> None:
+        external_url = safe_external_url(link.url)
+        if not external_url:
+            return
+        if not wx.TheClipboard.Open():
+            message = tr("تعذر فتح الحافظة لنسخ الرابط.")
+            self.set_status(message)
+            announce_to_screen_reader(self.link_list, message)
+            return
+        try:
+            copied = bool(wx.TheClipboard.SetData(wx.TextDataObject(external_url)))
+            if copied:
+                wx.TheClipboard.Flush()
+        finally:
+            wx.TheClipboard.Close()
+        message = tr(
+            "تم نسخ الرابط إلى الحافظة."
+            if copied
+            else "تعذر فتح الحافظة لنسخ الرابط."
+        )
+        self.set_status(message)
+        announce_to_screen_reader(self.link_list, message)
+
     def on_link_key(self, event: wx.KeyEvent) -> None:
+        if MailPage.is_context_menu_key(event):
+            return
         ctrl_only = event.ControlDown() and not event.AltDown() and not event.CmdDown()
         if (
             event.GetKeyCode() == wx.WXK_ESCAPE
@@ -1668,6 +1713,9 @@ window.addEventListener("keydown", function (event) {{
         event.Skip()
 
     def on_actions_key(self, event: wx.KeyEvent) -> None:
+        if MailPage.is_context_menu_key(event):
+            self.show_item_actions_menu(self.actions_button)
+            return
         if (
             event.GetKeyCode() == wx.WXK_ESCAPE
             and not event.ControlDown()
@@ -1689,6 +1737,7 @@ window.addEventListener("keydown", function (event) {{
     def resource_labels(self, links: list[LinkItem]) -> list[str]:
         link_index = 0
         button_index = 0
+        image_index = 0
         attachment_index = 0
         labels: list[str] = []
         for link in links:
@@ -1698,6 +1747,9 @@ window.addEventListener("keydown", function (event) {{
             elif link.is_button:
                 button_index += 1
                 labels.append(tr(f"زر {button_index}: {link.label}"))
+            elif link.is_image:
+                image_index += 1
+                labels.append(tr(f"صورة {image_index}: {tr(link.label)}"))
             else:
                 link_index += 1
                 labels.append(tr(f"رابط {link_index}: {link.label}"))
@@ -1777,11 +1829,80 @@ window.addEventListener("keydown", function (event) {{
             dialog.Destroy()
         wx.MessageBox(f"تم حفظ {saved_count} مرفق.", "تم الحفظ", wx.OK | wx.ICON_INFORMATION, self)
 
-    def on_actions_button(self, _event: wx.CommandEvent) -> None:
-        self.show_message_context_menu(
-            self.actions_button,
-            translation_enabled=self.has_translatable_content(),
+    def open_image(self, item: LinkItem) -> None:
+        try:
+            image = self.materialize_image(item)
+            path = self.write_attachment_to_folder(image, self.opened_attachments_dir())
+            if hasattr(os, "startfile"):
+                os.startfile(str(path))  # type: ignore[attr-defined]
+            else:
+                webbrowser.open(path.as_uri())
+        except (OSError, RuntimeError) as exc:
+            wx.MessageBox(str(exc), tr("تعذر فتح الصورة"), wx.OK | wx.ICON_ERROR, self)
+            return
+        self.set_status(f"تم فتح الصورة محليا: {path.name}")
+
+    def save_image(self, item: LinkItem) -> None:
+        try:
+            image = self.materialize_image(item)
+        except (OSError, RuntimeError) as exc:
+            wx.MessageBox(str(exc), tr("تعذر حفظ الصورة"), wx.OK | wx.ICON_ERROR, self)
+            return
+        dialog = wx.FileDialog(
+            self,
+            tr("حفظ الصورة"),
+            defaultFile=self.safe_attachment_filename(image),
+            wildcard=tr("كل الملفات (*.*)|*.*"),
+            style=wx.FD_SAVE | wx.FD_OVERWRITE_PROMPT,
         )
+        try:
+            if dialog.ShowModal() != wx.ID_OK:
+                return
+            self.write_attachment_to_path(image, Path(dialog.GetPath()))
+        except (OSError, RuntimeError) as exc:
+            wx.MessageBox(str(exc), tr("تعذر حفظ الصورة"), wx.OK | wx.ICON_ERROR, self)
+            return
+        finally:
+            dialog.Destroy()
+        wx.MessageBox(tr("تم حفظ الصورة."), tr("تم الحفظ"), wx.OK | wx.ICON_INFORMATION, self)
+
+    def materialize_image(self, item: LinkItem) -> LinkItem:
+        if item.attachment_bytes():
+            return item
+        external_url = safe_external_url(item.url)
+        if not external_url or urllib.parse.urlsplit(external_url).scheme.casefold() not in {"http", "https"}:
+            raise RuntimeError(tr("هذه الصورة لا تحتوي على بيانات أو عنوان خارجي قابل للتنزيل."))
+        request = urllib.request.Request(
+            external_url,
+            headers={"User-Agent": "Power Accessible Mail/1.2"},
+        )
+        try:
+            with urllib.request.urlopen(request, timeout=15) as response:
+                content_type = response.headers.get_content_type().casefold()
+                if not content_type.startswith("image/"):
+                    raise RuntimeError(tr("العنوان المحدد لا يعيد ملف صورة."))
+                data = response.read(MAX_IMAGE_DOWNLOAD_BYTES + 1)
+        except RuntimeError:
+            raise
+        except Exception as exc:
+            raise RuntimeError(tr("تعذر تنزيل الصورة المحددة.")) from exc
+        if len(data) > MAX_IMAGE_DOWNLOAD_BYTES:
+            raise RuntimeError(tr("حجم الصورة يتجاوز الحد المسموح وهو 25 ميغابايت."))
+        if not data:
+            raise RuntimeError(tr("الصورة المحددة فارغة."))
+        filename = item.filename or Path(urllib.parse.urlsplit(external_url).path).name
+        if not filename:
+            filename = f"image{mimetypes.guess_extension(content_type) or ''}"
+        elif not Path(filename).suffix:
+            filename = f"{filename}{mimetypes.guess_extension(content_type) or ''}"
+        item.filename = filename
+        item.content_type = content_type
+        item.size = len(data)
+        item.data = base64.b64encode(data).decode("ascii")
+        return item
+
+    def on_actions_button(self, _event: wx.CommandEvent) -> None:
+        self.show_item_actions_menu(self.actions_button)
 
     def on_message_context_menu(self, event: wx.ContextMenuEvent) -> None:
         source = event.GetEventObject()
@@ -1791,6 +1912,121 @@ window.addEventListener("keydown", function (event) {{
         )
         control = source if isinstance(source, wx.Window) else self
         self.show_message_context_menu(control, translation_enabled)
+
+    def show_item_actions_menu(self, control: wx.Window) -> None:
+        self.show_item_menu(control)
+
+    def show_item_menu(
+        self,
+        control: wx.Window,
+    ) -> None:
+        item = self.selected_link()
+        menu = wx.Menu()
+        action_invoked = False
+        return_control = self.context_return_control(control)
+
+        def invoke(action: Callable[[], None]) -> Callable[[wx.CommandEvent], None]:
+            def handler(_event: wx.CommandEvent) -> None:
+                nonlocal action_invoked
+                action_invoked = True
+                action()
+                wx.CallAfter(self.restore_context_focus, return_control)
+
+            return handler
+
+        try:
+            self.append_item_management_commands(menu, item, invoke)
+            self.context_menu_popup_owner(control).PopupMenu(menu)
+        finally:
+            menu.Destroy()
+        if not action_invoked:
+            wx.CallAfter(self.restore_context_focus, return_control)
+
+    def append_item_management_commands(
+        self,
+        menu: wx.Menu,
+        item: LinkItem | None,
+        invoke: Callable[
+            [Callable[[], None]],
+            Callable[[wx.CommandEvent], None],
+        ],
+    ) -> bool:
+        open_attachment_item = menu.Append(
+            wx.ID_ANY,
+            tr("فتح المرفق المحدد"),
+        )
+        save_attachment_item = menu.Append(
+            wx.ID_ANY,
+            tr("حفظ المرفق المحدد"),
+        )
+        save_all_item = menu.Append(
+            wx.ID_ANY,
+            tr("حفظ جميع المرفقات دفعة واحدة"),
+        )
+        menu.AppendSeparator()
+        open_image_item = menu.Append(wx.ID_ANY, tr("فتح الصورة"))
+        save_image_item = menu.Append(wx.ID_ANY, tr("حفظ الصورة"))
+        menu.AppendSeparator()
+        open_link_item = menu.Append(wx.ID_ANY, tr("فتح الرابط المحدد"))
+        copy_link_item = menu.Append(wx.ID_ANY, tr("نسخ الرابط المحدد"))
+
+        selected_attachment = item if item and item.is_attachment else None
+        selected_image = item if item and item.is_image else None
+        selected_url = (
+            safe_external_url(item.url)
+            if item and not item.is_attachment and not item.is_image
+            else ""
+        )
+        has_attachments = bool(self.attachment_items())
+        open_attachment_item.Enable(selected_attachment is not None)
+        save_attachment_item.Enable(selected_attachment is not None)
+        save_all_item.Enable(has_attachments)
+        open_image_item.Enable(selected_image is not None)
+        save_image_item.Enable(selected_image is not None)
+        open_link_item.Enable(bool(selected_url))
+        copy_link_item.Enable(bool(selected_url))
+
+        menu.Bind(
+            wx.EVT_MENU,
+            invoke(lambda: self.open_image(selected_image)),
+            open_image_item,
+        )
+        menu.Bind(
+            wx.EVT_MENU,
+            invoke(lambda: self.save_image(selected_image)),
+            save_image_item,
+        )
+        menu.Bind(
+            wx.EVT_MENU,
+            invoke(lambda: self.open_attachment(selected_attachment)),
+            open_attachment_item,
+        )
+        menu.Bind(
+            wx.EVT_MENU,
+            invoke(lambda: self.save_attachment(selected_attachment)),
+            save_attachment_item,
+        )
+        menu.Bind(
+            wx.EVT_MENU,
+            invoke(self.save_all_attachments),
+            save_all_item,
+        )
+        menu.Bind(
+            wx.EVT_MENU,
+            invoke(lambda: self.open_item(item)),
+            open_link_item,
+        )
+        menu.Bind(
+            wx.EVT_MENU,
+            invoke(lambda: self.copy_link(item)),
+            copy_link_item,
+        )
+        return (
+            has_attachments
+            or selected_attachment is not None
+            or selected_image is not None
+            or bool(selected_url)
+        )
 
     def has_translatable_content(self) -> bool:
         text = self.viewer_text.strip()
@@ -1805,6 +2041,9 @@ window.addEventListener("keydown", function (event) {{
         )
 
     def show_message_context_menu(self, control: wx.Window, translation_enabled: bool) -> None:
+        if control is self.actions_button:
+            self.show_item_actions_menu(control)
+            return
         selected_summaries = self.selected_summaries()
         if self.multi_select_mode or len(selected_summaries) > 1:
             self.show_multi_message_context_menu(control, selected_summaries)
@@ -1824,6 +2063,14 @@ window.addEventListener("keydown", function (event) {{
             nonlocal action_invoked
             action_invoked = True
             self.on_toggle_star(self)
+            wx.CallAfter(self.focus_message_list)
+
+        def read_action(_event: wx.CommandEvent) -> None:
+            nonlocal action_invoked
+            if summary is None:
+                return
+            action_invoked = True
+            self.on_toggle_read(self, summary)
             wx.CallAfter(self.focus_message_list)
 
         def translate_action(_event: wx.CommandEvent) -> None:
@@ -1846,6 +2093,11 @@ window.addEventListener("keydown", function (event) {{
 
         try:
             reply_item = menu.Append(wx.ID_ANY, tr("رد"))
+            read_item = (
+                menu.Append(wx.ID_ANY, tr("تعليم كمقروءة"))
+                if summary and not summary.is_read
+                else None
+            )
             star_label = "إزالة التمييز بنجمة" if summary and summary.is_starred else "تمييز بنجمة"
             star_item = menu.Append(wx.ID_ANY, tr(star_label))
             translate_item = menu.Append(wx.ID_ANY, tr("ترجمة"))
@@ -1855,12 +2107,16 @@ window.addEventListener("keydown", function (event) {{
 
             has_message = summary is not None
             reply_item.Enable(has_message)
+            if read_item is not None:
+                read_item.Enable(has_message)
             star_item.Enable(has_message)
             translate_item.Enable(has_message and translation_enabled)
             pin_item.Enable(has_message)
             delete_item.Enable(has_message)
 
             menu.Bind(wx.EVT_MENU, reply_action, reply_item)
+            if read_item is not None:
+                menu.Bind(wx.EVT_MENU, read_action, read_item)
             menu.Bind(wx.EVT_MENU, star_action, star_item)
             menu.Bind(wx.EVT_MENU, translate_action, translate_item)
             menu.Bind(wx.EVT_MENU, pin_action, pin_item)
@@ -1897,7 +2153,6 @@ window.addEventListener("keydown", function (event) {{
             count_item.Enable(False)
             menu.AppendSeparator()
             read_item = menu.Append(wx.ID_ANY, tr("تعليم كمقروءة"))
-            unread_item = menu.Append(wx.ID_ANY, tr("تعليم كغير مقروءة"))
             star_item = menu.Append(wx.ID_ANY, tr("تمييز الرسائل بنجمة"))
             unstar_item = menu.Append(wx.ID_ANY, tr("إزالة النجمة من الرسائل"))
             pin_item = menu.Append(wx.ID_ANY, tr("تثبيت الرسائل في الأعلى"))
@@ -1911,7 +2166,6 @@ window.addEventListener("keydown", function (event) {{
             has_messages = bool(summaries)
             for item in (
                 read_item,
-                unread_item,
                 star_item,
                 unstar_item,
                 pin_item,
@@ -1927,11 +2181,6 @@ window.addEventListener("keydown", function (event) {{
                 invoke(BULK_ACTION_MARK_READ),
                 read_item,
             )
-            menu.Bind(
-                wx.EVT_MENU,
-                invoke(BULK_ACTION_MARK_UNREAD),
-                unread_item,
-            )
             menu.Bind(wx.EVT_MENU, invoke(BULK_ACTION_STAR), star_item)
             menu.Bind(wx.EVT_MENU, invoke(BULK_ACTION_UNSTAR), unstar_item)
             menu.Bind(wx.EVT_MENU, invoke(BULK_ACTION_PIN), pin_item)
@@ -1945,6 +2194,16 @@ window.addEventListener("keydown", function (event) {{
 
     def context_menu_popup_owner(self, control: wx.Window) -> wx.Window:
         return self if control is self.html_viewer else control
+
+    @staticmethod
+    def is_context_menu_key(event: wx.KeyEvent) -> bool:
+        return (
+            event.GetKeyCode() in {wx.WXK_MENU, wx.WXK_WINDOWS_MENU}
+            and not event.ControlDown()
+            and not event.ShiftDown()
+            and not event.AltDown()
+            and not event.CmdDown()
+        )
 
     def context_return_control(self, control: wx.Window) -> wx.Window:
         if control is self.actions_button:

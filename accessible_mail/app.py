@@ -18,6 +18,7 @@ from .dialogs import (
     UpdateAvailableDialog,
     UpdateDownloadDialog,
 )
+from .error_logging import record_unhandled_exception
 from .mail_page import MailPage
 from .main_frame import MainFrame
 from .ui_constants import (
@@ -93,8 +94,21 @@ __all__ = (
 install_message_box_translation()
 
 
+class AccessibleMailApp(wx.App):
+    def OnExceptionInMainLoop(self) -> bool:
+        exc_type, exc_value, exc_traceback = __import__("sys").exc_info()
+        if exc_type is not None and exc_value is not None:
+            record_unhandled_exception(
+                exc_type,
+                exc_value,
+                exc_traceback,
+                origin="wx main loop",
+            )
+        return False
+
+
 def run() -> None:
-    app = wx.App(False)
+    app = AccessibleMailApp(False)
     frame = MainFrame()
     frame.Show()
     app.MainLoop()

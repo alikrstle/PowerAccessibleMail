@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import replace
+from pathlib import Path
 
 import wx
 
@@ -27,7 +28,8 @@ class ComposeDialog(wx.Dialog):
         subject: str = "",
         body: str = "",
     ) -> None:
-        super().__init__(parent, title=title, size=(680, 560))
+        super().__init__(parent, title=title, size=(720, 680))
+        self.attachment_paths: list[Path] = []
         panel = wx.Panel(self)
         root = wx.BoxSizer(wx.VERTICAL)
 
@@ -38,6 +40,47 @@ class ComposeDialog(wx.Dialog):
         self.body = wx.TextCtrl(panel, value=body, style=wx.TE_MULTILINE)
         set_accessible(self.body, "محتوى الرسالة", "اكتب محتوى البريد الإلكتروني هنا")
         root.Add(self.body, 1, wx.EXPAND | wx.ALL, 8)
+
+        self.add_attachment_button = wx.Button(panel, label="إضافة مرفق")
+        set_accessible(
+            self.add_attachment_button,
+            "إضافة مرفق إلى الرسالة",
+            "يفتح نافذة اختيار الملفات ويمكن تحديد أكثر من ملف.",
+        )
+        self.add_attachment_button.Bind(wx.EVT_BUTTON, self.on_add_attachments)
+        root.Add(
+            self.add_attachment_button,
+            0,
+            wx.ALIGN_LEFT | wx.LEFT | wx.RIGHT | wx.BOTTOM,
+            8,
+        )
+
+        root.Add(
+            wx.StaticText(panel, label="المرفقات المضافة:"),
+            0,
+            wx.LEFT | wx.RIGHT | wx.TOP,
+            8,
+        )
+        self.attachment_list = wx.ListBox(panel, size=(-1, 110))
+        set_accessible(
+            self.attachment_list,
+            "قائمة المرفقات المضافة",
+            (
+                "تعرض الملفات التي ستُرسل مع الرسالة. اضغط Delete لإزالة "
+                "المرفق المحدد أو زر التطبيقات لفتح قائمة السياق."
+            ),
+        )
+        self.attachment_list.Bind(wx.EVT_CHAR_HOOK, self.on_attachment_key)
+        self.attachment_list.Bind(
+            wx.EVT_CONTEXT_MENU,
+            self.on_attachment_context_menu,
+        )
+        root.Add(
+            self.attachment_list,
+            0,
+            wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM,
+            8,
+        )
 
         send_button = wx.Button(panel, id=wx.ID_OK, label="إرسال")
         cancel_button = wx.Button(panel, id=wx.ID_CANCEL, label="إلغاء")
@@ -70,12 +113,124 @@ class ComposeDialog(wx.Dialog):
         root.Add(row, 0, wx.EXPAND)
         return control
 
-    def values(self) -> tuple[str, str, str]:
+    def values(self) -> tuple[str, str, str, list[Path]]:
         return (
             self.to_address.GetValue().strip(),
             self.subject.GetValue().strip(),
             self.body.GetValue(),
+            list(self.attachment_paths),
         )
+
+    def on_add_attachments(self, _event: wx.CommandEvent) -> None:
+        dialog = wx.FileDialog(
+            self,
+            tr("اختيار مرفقات الرسالة"),
+            wildcard=tr("كل الملفات (*.*)|*.*"),
+            style=wx.FD_OPEN | wx.FD_FILE_MUST_EXIST | wx.FD_MULTIPLE,
+        )
+        try:
+            if dialog.ShowModal() != wx.ID_OK:
+                return
+            added_count = self.add_attachment_paths(
+                [Path(path) for path in dialog.GetPaths()]
+            )
+        finally:
+            dialog.Destroy()
+        if added_count:
+            announce_to_screen_reader(
+                self.attachment_list,
+                tr("تمت إضافة المرفقات إلى الرسالة."),
+            )
+
+    def add_attachment_paths(self, paths: list[Path]) -> int:
+        known_paths = {
+            path.resolve(strict=False)
+            for path in self.attachment_paths
+        }
+        added_count = 0
+        for path in paths:
+            resolved = path.resolve(strict=False)
+            if resolved in known_paths or not path.is_file():
+                continue
+            self.attachment_paths.append(path)
+            known_paths.add(resolved)
+            added_count += 1
+        self.refresh_attachment_list()
+        return added_count
+
+    def refresh_attachment_list(self, selection: int | None = None) -> None:
+        self.attachment_list.Set(
+            [self.attachment_label(path) for path in self.attachment_paths]
+        )
+        if not self.attachment_paths:
+            return
+        target = (
+            len(self.attachment_paths) - 1
+            if selection is None
+            else max(0, min(selection, len(self.attachment_paths) - 1))
+        )
+        self.attachment_list.SetSelection(target)
+
+    @staticmethod
+    def attachment_label(path: Path) -> str:
+        try:
+            size = path.stat().st_size
+        except OSError:
+            return path.name
+        if size >= 1024 * 1024:
+            size_label = f"{size / (1024 * 1024):.1f} MB"
+        elif size >= 1024:
+            size_label = f"{size / 1024:.1f} KB"
+        else:
+            size_label = f"{size} bytes"
+        return f"{path.name} - {size_label}"
+
+    def remove_selected_attachment(self) -> None:
+        selection = self.attachment_list.GetSelection()
+        if not 0 <= selection < len(self.attachment_paths):
+            return
+        self.attachment_paths.pop(selection)
+        self.refresh_attachment_list(selection)
+        announce_to_screen_reader(
+            self.attachment_list,
+            tr("تمت إزالة المرفق من الرسالة."),
+        )
+
+    def on_attachment_key(self, event: wx.KeyEvent) -> None:
+        key_code = event.GetKeyCode()
+        if key_code == wx.WXK_DELETE:
+            self.remove_selected_attachment()
+            return
+        if key_code in {wx.WXK_MENU, wx.WXK_WINDOWS_MENU}:
+            self.show_attachment_context_menu()
+            return
+        event.Skip()
+
+    def on_attachment_context_menu(self, event: wx.ContextMenuEvent) -> None:
+        position = event.GetPosition()
+        if position != wx.DefaultPosition:
+            hit = self.attachment_list.HitTest(
+                self.attachment_list.ScreenToClient(position)
+            )
+            if isinstance(hit, tuple):
+                hit = hit[0]
+            if hit != wx.NOT_FOUND:
+                self.attachment_list.SetSelection(hit)
+        self.show_attachment_context_menu()
+
+    def show_attachment_context_menu(self) -> None:
+        menu = wx.Menu()
+        remove_item = menu.Append(wx.ID_ANY, tr("إزالة المرفق المحدد"))
+        remove_item.Enable(self.attachment_list.GetSelection() != wx.NOT_FOUND)
+        menu.Bind(
+            wx.EVT_MENU,
+            lambda _event: self.remove_selected_attachment(),
+            remove_item,
+        )
+        try:
+            self.attachment_list.PopupMenu(menu)
+        finally:
+            menu.Destroy()
 
 
 class BulkDeleteDialog(wx.Dialog):

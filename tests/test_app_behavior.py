@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import inspect
+import tempfile
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
@@ -12,6 +13,7 @@ from accessible_mail.app import (
     AccountDialog,
     BULK_ACTION_DELETE,
     BulkDeleteDialog,
+    ComposeDialog,
     FILTER_CHOICES,
     FILTER_STARRED,
     MANUAL_PROVIDER_GOOGLE,
@@ -389,6 +391,176 @@ class AppBehaviorTests(unittest.TestCase):
 
         self.assertNotIn("wx.ACCEL_CTRL, wx.WXK_SPACE", source)
 
+    def test_application_key_is_registered_for_context_menus(self) -> None:
+        source = inspect.getsource(MainFrame._create_accelerators)
+
+        self.assertIn("wx.WXK_WINDOWS_MENU", source)
+        self.assertIn("wx.WXK_MENU", source)
+
+    def test_item_viewer_has_no_context_menu(self) -> None:
+        build_source = inspect.getsource(MailPage._build)
+        key_source = inspect.getsource(MailPage.on_link_key)
+        accelerator_source = inspect.getsource(MainFrame.on_context_menu_accelerator)
+
+        self.assertNotIn("link_list.Bind(wx.EVT_CONTEXT_MENU", build_source)
+        self.assertNotIn("show_item_context_menu", key_source)
+        self.assertNotIn("show_item_context_menu", accelerator_source)
+        self.assertFalse(hasattr(MailPage, "show_item_context_menu"))
+        self.assertFalse(hasattr(MailPage, "append_item_management_submenu"))
+
+    def test_item_actions_button_has_focused_item_commands(self) -> None:
+        commands_source = inspect.getsource(MailPage.append_item_management_commands)
+
+        for label in (
+            "فتح المرفق المحدد",
+            "حفظ المرفق المحدد",
+            "حفظ جميع المرفقات دفعة واحدة",
+            "فتح الرابط المحدد",
+            "نسخ الرابط المحدد",
+            "فتح الصورة",
+            "حفظ الصورة",
+        ):
+            self.assertIn(label, commands_source)
+        self.assertIn("safe_external_url", commands_source)
+        self.assertIn("save_all_attachments", commands_source)
+
+    def test_item_actions_button_opens_commands_without_submenu(self) -> None:
+        source = inspect.getsource(MailPage.on_actions_button)
+        actions_menu_source = inspect.getsource(MailPage.show_item_actions_menu)
+        item_menu_source = inspect.getsource(MailPage.show_item_menu)
+
+        self.assertIn("show_item_actions_menu", source)
+        self.assertNotIn("show_message_context_menu", source)
+        self.assertIn("show_item_menu", actions_menu_source)
+        self.assertIn("append_item_management_commands", item_menu_source)
+        self.assertNotIn("AppendSubMenu", item_menu_source)
+
+        actions_button = object()
+        page = SimpleNamespace(
+            actions_button=actions_button,
+            show_item_actions_menu=Mock(),
+        )
+        MailPage.on_actions_button(page, None)
+        page.show_item_actions_menu.assert_called_once_with(actions_button)
+
+        page.show_item_actions_menu.reset_mock()
+        MailPage.show_message_context_menu(page, actions_button, False)
+        page.show_item_actions_menu.assert_called_once_with(actions_button)
+
+    def test_item_actions_button_uses_new_name(self) -> None:
+        source = inspect.getsource(MailPage._build)
+
+        self.assertIn('label="إجراءات العنصر"', source)
+        self.assertNotIn('label="إجراءات الرسالة"', source)
+
+    def test_item_viewer_numbers_images_independently(self) -> None:
+        labels = MailPage.resource_labels(
+            SimpleNamespace(),
+            [
+                LinkItem("Website", "https://example.com"),
+                LinkItem("Logo", "cid:logo", kind="image"),
+                LinkItem("Banner", "https://example.com/banner.png", kind="image"),
+                LinkItem("Manual", kind="attachment", filename="manual.pdf"),
+            ],
+        )
+
+        self.assertIn("صورة 1: Logo", labels[1])
+        self.assertIn("صورة 2: Banner", labels[2])
+
+    @patch("accessible_mail.mail_page.urllib.request.urlopen")
+    def test_external_image_is_downloaded_only_as_a_bounded_image(self, urlopen: Mock) -> None:
+        response = Mock()
+        response.headers.get_content_type.return_value = "image/png"
+        response.read.return_value = b"png-data"
+        response.__enter__ = Mock(return_value=response)
+        response.__exit__ = Mock(return_value=False)
+        urlopen.return_value = response
+        item = LinkItem(
+            "Company logo",
+            "https://example.com/assets/logo.png",
+            kind="image",
+        )
+
+        result = MailPage.materialize_image(SimpleNamespace(), item)
+
+        self.assertEqual(result.filename, "logo.png")
+        self.assertEqual(result.content_type, "image/png")
+        self.assertEqual(result.attachment_bytes(), b"png-data")
+        response.read.assert_called_once_with(25 * 1024 * 1024 + 1)
+
+    def test_message_context_menu_excludes_item_management_and_mark_unread(self) -> None:
+        source = inspect.getsource(MailPage.show_message_context_menu)
+
+        self.assertIn("تعليم كمقروءة", source)
+        self.assertNotIn("تعليم كغير مقروءة", source)
+        self.assertNotIn("append_item_management_submenu", source)
+        self.assertNotIn('tr("حفظ المرفقات")', source)
+
+    @patch("accessible_mail.mail_page.announce_to_screen_reader")
+    @patch("accessible_mail.mail_page.wx.TheClipboard")
+    def test_copy_selected_link_uses_windows_clipboard(
+        self,
+        clipboard: Mock,
+        announce: Mock,
+    ) -> None:
+        clipboard.Open.return_value = True
+        clipboard.SetData.return_value = True
+        page = SimpleNamespace(set_status=Mock(), link_list=Mock())
+
+        MailPage.copy_link(
+            page,
+            LinkItem("Website", "https://example.com/message"),
+        )
+
+        clipboard.Open.assert_called_once_with()
+        copied_data = clipboard.SetData.call_args.args[0]
+        self.assertEqual(copied_data.GetText(), "https://example.com/message")
+        clipboard.Flush.assert_called_once_with()
+        clipboard.Close.assert_called_once_with()
+        page.set_status.assert_called_once_with("تم نسخ الرابط إلى الحافظة.")
+        announce.assert_called_once_with(
+            page.link_list,
+            "تم نسخ الرابط إلى الحافظة.",
+        )
+
+    @patch("accessible_mail.mail_page.wx.TheClipboard")
+    def test_copy_selected_link_rejects_unsafe_url(self, clipboard: Mock) -> None:
+        page = SimpleNamespace(set_status=Mock(), link_list=Mock())
+
+        MailPage.copy_link(
+            page,
+            LinkItem("Unsafe", "javascript:alert(1)"),
+        )
+
+        clipboard.Open.assert_not_called()
+        page.set_status.assert_not_called()
+
+    def test_compose_dialog_places_attachment_controls_in_keyboard_order(self) -> None:
+        source = inspect.getsource(ComposeDialog.__init__)
+
+        body_position = source.index("self.body = wx.TextCtrl")
+        list_position = source.index("self.attachment_list = wx.ListBox")
+        button_position = source.index("self.add_attachment_button = wx.Button")
+        send_position = source.index("send_button = wx.Button")
+        self.assertLess(body_position, button_position)
+        self.assertLess(button_position, list_position)
+        self.assertLess(list_position, send_position)
+
+    def test_compose_dialog_adds_unique_existing_attachment_paths(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "document.txt"
+            path.write_text("content", encoding="utf-8")
+            dialog = SimpleNamespace(
+                attachment_paths=[],
+                refresh_attachment_list=Mock(),
+            )
+
+            added = ComposeDialog.add_attachment_paths(dialog, [path, path])
+
+        self.assertEqual(added, 1)
+        self.assertEqual(dialog.attachment_paths, [path])
+        dialog.refresh_attachment_list.assert_called_once_with()
+
     def test_html_message_root_is_keyboard_accessible_article(self) -> None:
         page = SimpleNamespace(
             viewer_action_ranges=[],
@@ -400,6 +572,18 @@ class AppBehaviorTests(unittest.TestCase):
 
         self.assertIn('<article id="message" tabindex="0"', rendered)
         self.assertNotIn('role="document"', rendered)
+
+    def test_html_message_uses_the_selected_french_language(self) -> None:
+        page = SimpleNamespace(
+            viewer_action_ranges=[],
+            theme=THEME_LIGHT,
+            message_html_content=lambda text: text,
+        )
+
+        with patch("accessible_mail.mail_page.get_language", return_value="fr"):
+            rendered = MailPage.message_html(page, "Corps du message")
+
+        self.assertIn('<html lang="fr" dir="auto">', rendered)
 
     def test_unsafe_message_links_are_not_rendered_as_clickable_actions(self) -> None:
         item = LinkItem("تشغيل", "javascript:alert(1)")
@@ -727,7 +911,6 @@ class AppBehaviorTests(unittest.TestCase):
 
         for label in (
             "تعليم كمقروءة",
-            "تعليم كغير مقروءة",
             "تمييز الرسائل بنجمة",
             "إزالة النجمة من الرسائل",
             "تثبيت الرسائل في الأعلى",
@@ -735,6 +918,7 @@ class AppBehaviorTests(unittest.TestCase):
             "حذف الرسائل وإرسالها إلى سلة المحذوفات",
         ):
             self.assertIn(label, source)
+        self.assertNotIn("تعليم كغير مقروءة", source)
         self.assertNotIn('tr("رد")', source)
         self.assertNotIn('tr("ترجمة")', source)
 
@@ -920,6 +1104,8 @@ class AppBehaviorTests(unittest.TestCase):
         self.assertNotIn("arabic.ButtonNext=", source)
         self.assertNotIn("english.ButtonBack=", source)
         self.assertNotIn("english.ButtonNext=", source)
+        self.assertNotIn("french.ButtonBack=", source)
+        self.assertNotIn("french.ButtonNext=", source)
         self.assertNotIn("NormalNextCaption", source)
         self.assertNotIn("NormalCancelCaption", source)
         for line in source.splitlines():

@@ -3,6 +3,7 @@ from __future__ import annotations
 from .config import (
     LANGUAGE_ARABIC,
     LANGUAGE_ENGLISH,
+    LANGUAGE_FRENCH,
     THEME_DARK,
     THEME_LIGHT,
     TRANSLATION_DIALOG,
@@ -35,6 +36,7 @@ BULK_ACTION_DELETE = "delete"
 LANGUAGE_CHOICES = {
     "العربية": LANGUAGE_ARABIC,
     "الإنجليزية": LANGUAGE_ENGLISH,
+    "الفرنسية": LANGUAGE_FRENCH,
 }
 VIEWER_CHOICES = {
     "مستعرض HTML": VIEWER_HTML,

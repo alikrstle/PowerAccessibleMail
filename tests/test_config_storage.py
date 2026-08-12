@@ -10,6 +10,7 @@ from unittest.mock import patch
 from accessible_mail import config
 from accessible_mail.config import (
     LANGUAGE_ENGLISH,
+    LANGUAGE_FRENCH,
     TRANSLATION_INLINE,
     ProgramSettings,
     load_accounts,
@@ -126,6 +127,54 @@ class ConfigStorageTests(unittest.TestCase):
 
         self.assertEqual(loaded.language, LANGUAGE_ENGLISH)
         self.assertEqual(loaded.translation_mode, TRANSLATION_INLINE)
+
+    def test_french_language_is_saved(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "settings.json"
+            with patch("accessible_mail.config.settings_path", return_value=path):
+                save_settings(ProgramSettings(language=LANGUAGE_FRENCH))
+                loaded = load_settings()
+
+        self.assertEqual(loaded.language, LANGUAGE_FRENCH)
+
+    def test_supported_system_languages_are_detected(self) -> None:
+        self.assertEqual(config.system_language(["fr_FR"]), LANGUAGE_FRENCH)
+        self.assertEqual(config.system_language(["fr-FR"]), LANGUAGE_FRENCH)
+        self.assertEqual(config.system_language(["ar_IQ"]), config.LANGUAGE_ARABIC)
+        self.assertEqual(config.system_language(["en_US"]), LANGUAGE_ENGLISH)
+        self.assertEqual(config.system_language(["de_DE"]), LANGUAGE_ENGLISH)
+
+    def test_first_run_uses_system_language(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "missing-settings.json"
+            with (
+                patch("accessible_mail.config.settings_path", return_value=path),
+                patch(
+                    "accessible_mail.config.system_language",
+                    return_value=LANGUAGE_FRENCH,
+                ),
+            ):
+                loaded = load_settings()
+
+        self.assertEqual(loaded.language, LANGUAGE_FRENCH)
+
+    def test_saved_language_takes_precedence_over_system_language(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "settings.json"
+            path.write_text(
+                json.dumps({"language": LANGUAGE_ENGLISH}),
+                encoding="utf-8",
+            )
+            with (
+                patch("accessible_mail.config.settings_path", return_value=path),
+                patch(
+                    "accessible_mail.config.system_language",
+                    return_value=LANGUAGE_FRENCH,
+                ),
+            ):
+                loaded = load_settings()
+
+        self.assertEqual(loaded.language, LANGUAGE_ENGLISH)
 
     def test_oauth_tokens_are_protected_and_backup_recovers_corrupt_file(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

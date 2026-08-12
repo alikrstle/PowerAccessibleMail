@@ -26,23 +26,23 @@ import sys
 import pefile
 import PyInstaller
 bootloader_folder = (
-    "Windows-64bit-intel"
-    if struct.calcsize("P") * 8 == 64
-    else "Windows-32bit-intel"
+    'Windows-64bit-intel'
+    if struct.calcsize('P') * 8 == 64
+    else 'Windows-32bit-intel'
 )
 bootloader_path = (
     Path(PyInstaller.__file__).resolve().parent
-    / "bootloader"
+    / 'bootloader'
     / bootloader_folder
-    / "runw.exe"
+    / 'runw.exe'
 )
 bootloader = pefile.PE(str(bootloader_path), fast_load=True)
 print(json.dumps({
-    "bits": struct.calcsize("P") * 8,
-    "bootloader_machine": bootloader.FILE_HEADER.Machine,
-    "bootloader_path": str(bootloader_path),
-    "executable": sys.executable,
-    "version": sys.version.split()[0],
+    'bits': struct.calcsize('P') * 8,
+    'bootloader_machine': bootloader.FILE_HEADER.Machine,
+    'bootloader_path': str(bootloader_path),
+    'executable': sys.executable,
+    'version': sys.version.split()[0],
 }))
 "@
     if ($LASTEXITCODE -ne 0 -or -not $probe) {

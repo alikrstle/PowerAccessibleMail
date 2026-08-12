@@ -1,8 +1,12 @@
 ﻿#define MyAppName "Power Accessible Mail"
-#define MyAppVersion "1.2.13"
+#define MyAppVersion "1.2.14"
 #define MyAppPublisher "Soljan.AlSharq."
 #define MyAppExeName "Power Accessible Mail.exe"
 #define MyAppIcon "assets\branding\power_accessible_mail.ico"
+#define MyAppURL "https://soljan-alsharq.com/"
+#define MyAppSupportURL "https://soljan-alsharq.com/support.html"
+#define MyAppUpdatesURL "https://soljan-alsharq.com/downloads.html"
+#define MyAppContact "support@soljan-alsharq.com"
 #define MyAppUninstallKey "Software\Microsoft\Windows\CurrentVersion\Uninstall\{7F4F2C96-105C-49C0-AD57-752CE99BCDC7}_is1"
 
 #ifndef TargetArchitecture
@@ -20,6 +24,10 @@ AppId={{7F4F2C96-105C-49C0-AD57-752CE99BCDC7}
 AppName={#MyAppName}
 AppVersion={#MyAppVersion}
 AppPublisher={#MyAppPublisher}
+AppPublisherURL={#MyAppURL}
+AppSupportURL={#MyAppSupportURL}
+AppUpdatesURL={#MyAppUpdatesURL}
+AppContact={#MyAppContact}
 AppComments=Developed by Soljan.AlSharq.; owned by Ali Al-Amir
 DefaultDirName={localappdata}\Programs\SoljanAlSharq\{#MyAppName}
 DefaultGroupName=SoljanAlSharq\{#MyAppName}
@@ -31,8 +39,13 @@ DisableFinishedPage=no
 ShowLanguageDialog=yes
 OutputDir=release\installer
 OutputBaseFilename=PowerAccessibleMailSetup-{#MyAppVersion}-win-{#TargetArchitecture}{#OutputSuffix}
+#ifdef SignedBuild
 Compression=lzma
 SolidCompression=yes
+#else
+Compression=zip
+SolidCompression=no
+#endif
 WizardStyle=modern
 PrivilegesRequired=lowest
 #if TargetArchitecture == "x64"
@@ -41,7 +54,7 @@ ArchitecturesInstallIn64BitMode=x64compatible
 #else
 ArchitecturesAllowed=x86compatible
 #endif
-VersionInfoVersion=1.2.13.0
+VersionInfoVersion=1.2.14.0
 VersionInfoCompany={#MyAppPublisher}
 VersionInfoDescription={#MyAppName} Installer
 VersionInfoProductName={#MyAppName}
@@ -56,26 +69,35 @@ SignToolRetryCount=3
 #endif
 
 [Languages]
-Name: "arabic"; MessagesFile: "compiler:Languages\Arabic.isl"; InfoBeforeFile: "installer_info_ar.txt"
 Name: "english"; MessagesFile: "compiler:Default.isl"; InfoBeforeFile: "installer_info_en.txt"
+Name: "arabic"; MessagesFile: "compiler:Languages\Arabic.isl"; InfoBeforeFile: "installer_info_ar.txt"
+Name: "french"; MessagesFile: "compiler:Languages\French.isl"; InfoBeforeFile: "installer_info_fr.txt"
 
 [CustomMessages]
 arabic.ReadLocalizedReadme=قراءة دليل البرنامج العربي
 english.ReadLocalizedReadme=Read the English README
+french.ReadLocalizedReadme=Lire le guide du programme en français
 arabic.LaunchLocalizedApp=تشغيل البرنامج بعد إنهاء التثبيت
 english.LaunchLocalizedApp=Launch the application after Setup finishes
+french.LaunchLocalizedApp=Lancer l'application à la fin de l'installation
 arabic.AcceptPrivacy=أنا أوافق على شروط الخصوصية
 english.AcceptPrivacy=I agree to the privacy terms
+french.AcceptPrivacy=J'accepte les conditions de confidentialité
 arabic.UpdateTitle=تحديث Power Accessible Mail
 english.UpdateTitle=Update Power Accessible Mail
+french.UpdateTitle=Mise à jour de Power Accessible Mail
 arabic.UpdateDescription=تم العثور على إصدار أقدم مثبت على هذا الجهاز
 english.UpdateDescription=An older installed version was found on this computer
+french.UpdateDescription=Une ancienne version est installée sur cet ordinateur
 arabic.UpdateBody=الإصدار المثبت هو %s، والإصدار الجديد هو %s. اضغط تحديث الآن للمتابعة أو إغلاق للخروج من المثبت.
 english.UpdateBody=Installed version: %s. New version: %s. Select Update now to continue or Close to exit Setup.
+french.UpdateBody=Version installée : %s. Nouvelle version : %s. Sélectionnez Mettre à jour maintenant pour continuer ou Fermer pour quitter l'installation.
 arabic.UpdateNow=تحديث الآن
 english.UpdateNow=Update now
+french.UpdateNow=Mettre à jour maintenant
 arabic.CloseSetup=إغلاق
 english.CloseSetup=Close
+french.CloseSetup=Fermer
 
 [Tasks]
 Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{cm:AdditionalIcons}"
@@ -89,6 +111,7 @@ Source: "release\win-{#TargetArchitecture}\Power Accessible Mail\Power Accessibl
 Source: "release\win-{#TargetArchitecture}\Power Accessible Mail\*"; Excludes: "Power Accessible Mail.exe"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
 Source: "installer_readme_ar.txt"; DestDir: "{app}"; DestName: "README_AR.txt"; Flags: ignoreversion
 Source: "installer_readme_en.txt"; DestDir: "{app}"; DestName: "README_EN.txt"; Flags: ignoreversion
+Source: "installer_readme_fr.txt"; DestDir: "{app}"; DestName: "README_FR.txt"; Flags: ignoreversion
 
 [Icons]
 Name: "{group}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"
@@ -97,6 +120,7 @@ Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; Tasks: de
 [Run]
 Filename: "{app}\README_AR.txt"; Description: "{cm:ReadLocalizedReadme}"; Flags: shellexec nowait postinstall skipifsilent; Languages: arabic
 Filename: "{app}\README_EN.txt"; Description: "{cm:ReadLocalizedReadme}"; Flags: shellexec nowait postinstall skipifsilent; Languages: english
+Filename: "{app}\README_FR.txt"; Description: "{cm:ReadLocalizedReadme}"; Flags: shellexec nowait postinstall skipifsilent; Languages: french
 Filename: "{app}\{#MyAppExeName}"; Description: "{cm:LaunchLocalizedApp}"; Flags: nowait postinstall skipifsilent
 Filename: "{app}\{#MyAppExeName}"; Flags: nowait skipifdoesntexist; Check: IsInternalUpdate
 

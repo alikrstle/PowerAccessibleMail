@@ -12,6 +12,7 @@ from accessible_mail.updater import (
     UpdateDownloadCancelled,
     UpdateInstallError,
     can_install_update,
+    default_update_root,
     download_update_installer,
     installer_name_from_url,
     launch_update_installer,
@@ -157,8 +158,24 @@ class InternalUpdaterTests(unittest.TestCase):
                     cancel_event=cancel_event,
                 )
 
+    def test_default_update_root_uses_local_application_data(self) -> None:
+        with patch.dict(
+            "accessible_mail.updater.os.environ",
+            {"LOCALAPPDATA": r"C:\Users\Tester\AppData\Local"},
+            clear=True,
+        ):
+            root = default_update_root("1.2.14")
+
+        self.assertEqual(
+            root,
+            Path(
+                r"C:\Users\Tester\AppData\Local\SoljanAlSharq"
+                r"\PowerAccessibleMail\Updates\1.2.14"
+            ),
+        )
+
     @patch("accessible_mail.updater.subprocess.Popen")
-    def test_launcher_uses_internal_silent_update_mode(self, popen) -> None:
+    def test_launcher_uses_visible_internal_update_mode(self, popen) -> None:
         with tempfile.TemporaryDirectory() as directory:
             installer = Path(directory) / "setup.exe"
             installer.write_bytes(b"MZinstaller")
@@ -166,8 +183,10 @@ class InternalUpdaterTests(unittest.TestCase):
             launch_update_installer(installer)
 
         arguments = popen.call_args.args[0]
-        self.assertIn("/SILENT", arguments)
         self.assertIn("/UPDATEFROMAPP=1", arguments)
+        self.assertIn("/CLOSEAPPLICATIONS", arguments)
+        self.assertNotIn("/SILENT", arguments)
+        self.assertNotIn("/SUPPRESSMSGBOXES", arguments)
         self.assertNotIn("/RESTARTAPPLICATIONS", arguments)
 
 

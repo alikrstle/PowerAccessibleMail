@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
+from pathlib import Path
 
 from .email_service import EmailService, MailSyncResult
 from .gmail_api_service import GmailApiService
@@ -139,5 +140,13 @@ class MailServiceRouter:
         subject: str,
         body: str,
         reply_to: MessageSummary | None = None,
+        attachments: Sequence[Path] = (),
     ) -> None:
-        self.service_for(account).send_message(account, to_address, subject, body, reply_to)
+        self.service_for(account).send_message(
+            account,
+            to_address,
+            subject,
+            body,
+            reply_to,
+            attachments,
+        )

@@ -24,6 +24,11 @@ $OAuthClients = Join-Path $PSScriptRoot "oauth_clients.json"
 $VersionInfo = Join-Path $PSScriptRoot "windows_version_info.txt"
 $AppIcon = Join-Path $PSScriptRoot "assets\branding\power_accessible_mail.ico"
 $LoginLogo = Join-Path $PSScriptRoot "assets\branding\power_accessible_mail_oauth_120.png"
+$ProgramGuides = @(
+    (Join-Path $PSScriptRoot "installer_readme_ar.txt"),
+    (Join-Path $PSScriptRoot "installer_readme_en.txt"),
+    (Join-Path $PSScriptRoot "installer_readme_fr.txt")
+)
 $NvdaVendor = Join-Path $PSScriptRoot "accessible_mail\vendor\nvda"
 $NvdaController = Join-Path $NvdaVendor "$Architecture\nvdaControllerClient.dll"
 $NvdaLicense = Join-Path $NvdaVendor "LICENSE-LGPL-2.1.txt"
@@ -63,7 +68,7 @@ foreach ($required in @(
     $NvdaLicense,
     $NvdaReadme,
     $NvdaSource
-)) {
+) + $ProgramGuides) {
     if (-not (Test-Path -LiteralPath $required)) {
         throw "Required build input was not found: $required"
     }
@@ -85,7 +90,7 @@ $bootloaderMachine = & $PythonPath -c @"
 from pathlib import Path
 import pefile
 import PyInstaller
-path = Path(PyInstaller.__file__).resolve().parent / "bootloader" / "$bootloaderFolder" / "runw.exe"
+path = Path(PyInstaller.__file__).resolve().parent / 'bootloader' / '$bootloaderFolder' / 'runw.exe'
 print(pefile.PE(str(path), fast_load=True).FILE_HEADER.Machine)
 "@
 if ($LASTEXITCODE -ne 0 -or [int]$bootloaderMachine -ne $expectedMachine) {
@@ -136,6 +141,9 @@ foreach ($directory in @($BuildRoot, $DistRoot, $ReleaseDir, $PackageDir)) {
 $dataArgs = @(
     "--add-data", ($OAuthClients + ";.")
 )
+foreach ($guide in $ProgramGuides) {
+    $dataArgs += @("--add-data", ($guide + ";."))
+}
 if (Test-Path -LiteralPath (Join-Path $PSScriptRoot "backgrounds")) {
     $dataArgs += @(
         "--add-data",
@@ -180,10 +188,12 @@ finally {
 if (-not (Test-Path -LiteralPath $AppDistDir)) {
     throw "Expected dist folder was not created: $AppDistDir"
 }
-$appMachine = & $PythonPath -c @"
+$appMachineScript = @"
 import pefile
-print(pefile.PE(r"$AppDistExe", fast_load=True).FILE_HEADER.Machine)
+import sys
+print(pefile.PE(sys.argv[1], fast_load=True).FILE_HEADER.Machine)
 "@
+$appMachine = & $PythonPath -c $appMachineScript $AppDistExe
 if ($LASTEXITCODE -ne 0 -or [int]$appMachine -ne $expectedMachine) {
     throw "The built application PE architecture does not match $Architecture."
 }

@@ -239,6 +239,7 @@ class MessageCache:
                     activation_text=str(item.get("activation_text", "")),
                     activation_start=int(item.get("activation_start", -1) or -1),
                     activation_end=int(item.get("activation_end", -1) or -1),
+                    content_id=str(item.get("content_id", "")),
                 )
                 for item in link_payload
                 if isinstance(item, dict)
@@ -340,6 +341,7 @@ class MessageCache:
                 "activation_text": link.activation_text,
                 "activation_start": link.activation_start,
                 "activation_end": link.activation_end,
+                "content_id": link.content_id,
             }
             for link in content.links
         ]

@@ -2,15 +2,17 @@ from __future__ import annotations
 
 import base64
 import json
+import mimetypes
 import threading
 import time
 import urllib.error
 import urllib.parse
 import urllib.request
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from concurrent.futures import ThreadPoolExecutor
 from email.message import Message
 from email.utils import parseaddr
+from pathlib import Path
 from typing import Any
 
 from .email_service import MailError, MailSyncResult
@@ -20,8 +22,8 @@ from .email_utils import (
     is_plain_text_placeholder,
     looks_like_visual_markup_dump,
     normalize_message_text,
+    organize_message_items,
     strip_html_client_warning,
-    unique_links,
 )
 from .message_builder import build_outgoing_message
 from .models import Account, LinkItem, MessageContent, MessageSummary
@@ -283,11 +285,19 @@ class GmailApiService:
         subject: str,
         body: str,
         reply_to: MessageSummary | None = None,
+        attachments: Sequence[Path] = (),
     ) -> None:
         if not to_address.strip():
             raise MailError("يرجى كتابة عنوان المستلم.")
 
-        message = build_outgoing_message(account, to_address, subject, body, reply_to)
+        message = build_outgoing_message(
+            account,
+            to_address,
+            subject,
+            body,
+            reply_to,
+            attachments,
+        )
         raw = base64.urlsafe_b64encode(message.as_bytes()).decode("ascii").rstrip("=")
         self._request_json(
             account,
@@ -421,22 +431,24 @@ class GmailApiService:
         raw_plain_text = normalize_message_text("\n".join(part.strip() for part in text_parts if part.strip()))
         plain_text = strip_html_client_warning(raw_plain_text)
         text = plain_text
-        links = unique_links(plain_text, [])
+        html_links: list[LinkItem] = []
+        html_text = ""
+        if html_parts:
+            html_text, html_links = html_to_text_and_links("\n".join(html_parts))
         if html_parts and (
             not plain_text
             or looks_like_visual_markup_dump(plain_text)
             or is_plain_text_placeholder(raw_plain_text)
         ):
-            html_text, html_links = html_to_text_and_links("\n".join(html_parts))
             if html_text:
                 text = html_text
-                links = unique_links(html_text, html_links)
         if not text:
             text = "لا يوجد نص قابل للعرض داخل هذه الرسالة."
+        links = organize_message_items(text, html_links + attachments)
         fresh_summary = self._summary_from_message(summary.mailbox, message)
         fresh_summary.is_read = summary.is_read
         fresh_summary.is_pinned = summary.is_pinned
-        return MessageContent(summary=fresh_summary, text=text, links=links + attachments)
+        return MessageContent(summary=fresh_summary, text=text, links=links)
 
     def _collect_payload_parts(
         self,
@@ -447,13 +459,6 @@ class GmailApiService:
         html_parts: list[str],
         attachments: list[LinkItem],
     ) -> None:
-        parts = payload.get("parts")
-        if isinstance(parts, list) and parts:
-            for part in parts:
-                if isinstance(part, dict):
-                    self._collect_payload_parts(account, message_id, part, text_parts, html_parts, attachments)
-            return
-
         filename = header_to_text(payload.get("filename", "")) or ""
         mime_type = str(payload.get("mimeType", "") or "application/octet-stream")
         headers = self._headers_from_payload(payload)
@@ -463,7 +468,36 @@ class GmailApiService:
         data = str(body.get("data", "") or "")
         size = int(body.get("size", 0) or 0)
         is_text_part = mime_type in {"text/plain", "text/html"}
-        is_attachment = bool(filename or "attachment" in disposition or (attachment_id and not is_text_part))
+        content_id = headers.get("content-id", "").strip()
+        normalized_content_id = content_id.strip("<>").casefold()
+        inline_image = (
+            mime_type.casefold().startswith("image/")
+            and "inline" in disposition
+            and bool(normalized_content_id)
+        )
+        if inline_image:
+            image_bytes = self._payload_bytes(data)
+            if not image_bytes and attachment_id:
+                image_bytes = self._attachment_bytes(account, message_id, attachment_id)
+            image_filename = filename or f"image{mimetypes.guess_extension(mime_type) or ''}"
+            attachments.append(
+                LinkItem(
+                    text=image_filename,
+                    kind="image",
+                    filename=image_filename,
+                    content_type=mime_type,
+                    size=size or len(image_bytes),
+                    data=base64.b64encode(image_bytes).decode("ascii") if image_bytes else "",
+                    content_id=normalized_content_id,
+                )
+            )
+            return
+        inline_resource = "inline" in disposition and bool(content_id) and not filename
+        is_attachment = bool(
+            filename
+            or "attachment" in disposition
+            or (attachment_id and not is_text_part and not inline_resource)
+        )
 
         if is_attachment:
             attachment_bytes = self._payload_bytes(data)
@@ -479,6 +513,13 @@ class GmailApiService:
                     data=base64.b64encode(attachment_bytes).decode("ascii") if attachment_bytes else "",
                 )
             )
+            return
+
+        parts = payload.get("parts")
+        if isinstance(parts, list) and parts:
+            for part in parts:
+                if isinstance(part, dict):
+                    self._collect_payload_parts(account, message_id, part, text_parts, html_parts, attachments)
             return
 
         content_bytes = self._payload_bytes(data)

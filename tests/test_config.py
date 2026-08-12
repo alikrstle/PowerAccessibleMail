@@ -12,6 +12,24 @@ from accessible_mail import __version__
 
 
 class OAuthClientConfigTests(unittest.TestCase):
+    def test_launcher_probes_python_before_using_a_virtual_environment(self) -> None:
+        project_root = Path(__file__).resolve().parents[1]
+        batch_launcher = (project_root / "run.bat").read_text(encoding="utf-8")
+        launcher = (
+            project_root / "scripts" / "run_power_accessible_mail.ps1"
+        ).read_text(encoding="utf-8")
+
+        self.assertIn("run_power_accessible_mail.ps1", batch_launcher)
+        self.assertIn('-c "import wx"', launcher)
+        self.assertIn(".venv-codex", launcher)
+        self.assertIn("Get-Command python", launcher)
+
+    def test_install_uses_the_locked_release_dependencies(self) -> None:
+        project_root = Path(__file__).resolve().parents[1]
+        installer = (project_root / "install.bat").read_text(encoding="utf-8")
+        self.assertIn("requirements-release.lock", installer)
+        self.assertNotIn("-r requirements.txt", installer)
+
     def test_release_version_is_consistent_across_build_inputs(self) -> None:
         project_root = Path(__file__).resolve().parents[1]
         installer = (project_root / "installer_power_accessible_mail.iss").read_text(
@@ -36,13 +54,47 @@ class OAuthClientConfigTests(unittest.TestCase):
         for release_text_name in (
             "installer_info_ar.txt",
             "installer_info_en.txt",
+            "installer_info_fr.txt",
             "installer_readme_ar.txt",
             "installer_readme_en.txt",
+            "installer_readme_fr.txt",
         ):
             release_text = (project_root / release_text_name).read_text(
                 encoding="utf-8-sig"
             )
             self.assertIn(__version__, release_text)
+
+    def test_installer_and_portable_package_include_french_resources(self) -> None:
+        project_root = Path(__file__).resolve().parents[1]
+        installer = (project_root / "installer_power_accessible_mail.iss").read_text(
+            encoding="utf-8-sig"
+        )
+        release_script = (
+            project_root / "build_release_power_accessible_mail.ps1"
+        ).read_text(encoding="utf-8")
+
+        self.assertIn('Name: "french"', installer)
+        self.assertIn(r"compiler:Languages\French.isl", installer)
+        self.assertIn('InfoBeforeFile: "installer_info_fr.txt"', installer)
+        self.assertIn('DestName: "README_FR.txt"', installer)
+        self.assertIn("Languages: french", installer)
+        self.assertLess(installer.index('Name: "english"'), installer.index('Name: "arabic"'))
+        self.assertIn("installer_readme_fr.txt", release_script)
+        self.assertIn("PackageFrenchReadme", release_script)
+
+    def test_application_build_bundles_all_program_guides(self) -> None:
+        project_root = Path(__file__).resolve().parents[1]
+        build_script = (project_root / "build_power_accessible_mail.ps1").read_text(
+            encoding="utf-8"
+        )
+
+        self.assertIn("$ProgramGuides", build_script)
+        for guide_name in (
+            "installer_readme_ar.txt",
+            "installer_readme_en.txt",
+            "installer_readme_fr.txt",
+        ):
+            self.assertIn(guide_name, build_script)
 
     def test_limited_edition_can_share_only_full_edition_ui_settings(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:
@@ -158,6 +210,59 @@ class OAuthClientConfigTests(unittest.TestCase):
         self.assertIn("bootloader_machine", architecture_tests)
         self.assertIn("0x8664", app_build)
         self.assertIn("0x014C", app_build)
+        self.assertIn("pefile.PE(sys.argv[1]", app_build)
+        self.assertIn("-c $appMachineScript $AppDistExe", app_build)
+
+    def test_public_release_requires_authenticode_signing(self) -> None:
+        project_root = Path(__file__).resolve().parents[1]
+        release_build = (
+            project_root / "build_release_power_accessible_mail.ps1"
+        ).read_text(encoding="utf-8")
+        readme = (project_root / "README.md").read_text(encoding="utf-8")
+
+        self.assertIn("[switch]$AllowUnsigned", release_build)
+        self.assertIn("Public releases must be Authenticode-signed", release_build)
+        self.assertIn("tester-only GitHub pre-release", release_build)
+        self.assertIn("Never publish an unsigned build as a stable release", release_build)
+        self.assertIn('@(".exe", ".dll", ".pyd")', release_build)
+        self.assertIn("PE signature verification failed", release_build)
+        self.assertIn("Portable PE signature verification failed", release_build)
+        self.assertIn("Pre-release", readme)
+        self.assertIn("PowerAccessibleMailSetup-1.2.14-win-x64-UNSIGNED.exe", readme)
+
+    def test_release_pipeline_avoids_opaque_update_behavior(self) -> None:
+        project_root = Path(__file__).resolve().parents[1]
+        app_build = (project_root / "build_power_accessible_mail.ps1").read_text(
+            encoding="utf-8"
+        )
+        release_build = (
+            project_root / "build_release_power_accessible_mail.ps1"
+        ).read_text(encoding="utf-8")
+        installer = (
+            project_root / "installer_power_accessible_mail.iss"
+        ).read_text(encoding="utf-8")
+        updater = (project_root / "accessible_mail" / "updater.py").read_text(
+            encoding="utf-8"
+        )
+        defender_scan = (
+            project_root / "scan_release_with_defender.ps1"
+        ).read_text(encoding="utf-8")
+
+        self.assertIn('"--noupx"', app_build)
+        self.assertNotIn('"--onefile"', app_build)
+        self.assertIn("Compression=zip", installer)
+        self.assertIn("SolidCompression=no", installer)
+        self.assertIn("AppSupportURL=", installer)
+        self.assertIn("LOCALAPPDATA", updater)
+        self.assertNotIn('"/SILENT"', updater)
+        self.assertNotIn('"/SUPPRESSMSGBOXES"', updater)
+        self.assertIn("[switch]$RunDefenderScan", release_build)
+        self.assertIn("PeComponents = $peComponents", release_build)
+        self.assertIn("-DisableRemediation", defender_scan)
+        self.assertIn("f'Unexpected PE machine", release_build)
+        self.assertNotIn('f"Unexpected PE machine', release_build)
+        self.assertIn("function Get-CompatibleRelativePath", release_build)
+        self.assertNotIn("[System.IO.Path]::GetRelativePath", release_build)
 
 
 if __name__ == "__main__":

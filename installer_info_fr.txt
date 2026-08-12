@@ -1,0 +1,32 @@
+﻿Informations sur Power Accessible Mail
+
+Version 1.2.14
+Développé par Soljan.AlSharq.
+Soljan.AlSharq. appartient à Ali Al-Amir
+Les paquets x64 et x86 offrent les mêmes fonctionnalités
+
+La protection des données fait partie de l'application
+
+Power Accessible Mail accède à Gmail par l'API Gmail et à Microsoft par les services Outlook uniquement après votre autorisation sur la page de connexion officielle du fournisseur
+
+La configuration manuelle IMAP et SMTP reste disponible lorsque vous choisissez vous-même cette méthode
+
+Les comptes et les données mises en cache sont stockés sur votre appareil
+
+Les identifiants locaux sensibles les jetons et les messages sont protégés par Windows DPAPI pour le compte Windows actuel
+
+Vos données ne sont ni vendues ni utilisées à des fins publicitaires
+
+Lorsque vous demandez la traduction d'un message l'application envoie le texte sélectionné à Google Translate uniquement pour effectuer cette demande
+
+Vous pouvez supprimer un compte et son cache local depuis l'application
+
+Propriété de l'application
+
+Power Accessible Mail et ses droits appartiennent à Ali Al-Amir
+
+L'application est développée et produite par Soljan.AlSharq.
+
+Soljan.AlSharq. appartient à Ali Al-Amir
+
+Lisez ce résumé puis cochez la case J'accepte les conditions de confidentialité au bas de la page afin d'activer le bouton Suivant

@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import base64
+import hashlib
+import mimetypes
 import re
 import urllib.parse
 from dataclasses import replace
@@ -11,7 +13,10 @@ from html.parser import HTMLParser
 from .models import LinkItem
 
 
-URL_PATTERN = re.compile(r"https?://[^\s<>\"]+", re.IGNORECASE)
+URL_PATTERN = re.compile(
+    r"(?<![\w@])(?:(?:https?://|mailto:)[^\s<>\"']+|www\.[^\s<>\"']+)",
+    re.IGNORECASE,
+)
 ACTIVATION_MARKER_PATTERN = re.compile(r"\[\[PAM-ACTION-(\d+)-(START|END)\]\]")
 HTML_TAG_PATTERN = re.compile(r"</?(?:html|head|body|style|script|div|table|tr|td|span|p|a)\b", re.IGNORECASE)
 CSS_BLOCK_PATTERN = re.compile(r"\b(?:body|img|table|td|tr|p|div|span|a|html)\s*\{", re.IGNORECASE)
@@ -26,16 +31,39 @@ GENERIC_LINK_TITLES = {
     "here",
     "read more",
     "learn more",
+    "link",
     "open",
+    "visit",
     "view",
+    "view online",
     "اضغط هنا",
     "هنا",
     "افتح",
     "فتح",
     "المزيد",
     "اقرأ المزيد",
+    "الرابط",
+    "cliquez ici",
+    "ici",
+    "en savoir plus",
+    "ouvrir",
+    "voir",
+    "صورة بدون وصف",
+    "image without description",
+    "image sans description",
 }
 SAFE_EXTERNAL_URL_SCHEMES = frozenset({"http", "https", "mailto"})
+TRACKING_QUERY_PARAMETERS = frozenset(
+    {
+        "fbclid",
+        "gclid",
+        "mc_cid",
+        "mc_eid",
+        "mkt_tok",
+    }
+)
+HIDDEN_IMAGE_STYLE_MARKERS = ("display:none", "visibility:hidden", "opacity:0")
+MAX_EMBEDDED_IMAGE_BYTES = 25 * 1024 * 1024
 PLAIN_TEXT_PLACEHOLDER_PHRASES = (
     "لا يوجد نص قابل للعرض داخل هذه الرسالة",
     "plain text version not available",
@@ -111,6 +139,7 @@ class _HtmlToTextParser(HTMLParser):
         self._current_href = ""
         self._current_kind = "link"
         self._current_text: list[str] = []
+        self._current_link_hints: list[str] = []
         self._current_button_url = ""
         self._current_button_text: list[str] | None = None
         self._current_link_marker = ""
@@ -136,9 +165,43 @@ class _HtmlToTextParser(HTMLParser):
             style_class = f"{attrs_dict.get('class', '')} {attrs_dict.get('style', '')}".lower()
             self._current_kind = "button" if role == "button" or "button" in style_class else "link"
             self._current_text = []
+            self._current_link_hints = [
+                value
+                for value in (
+                    attrs_dict.get("aria-label", ""),
+                    attrs_dict.get("title", ""),
+                )
+                if value
+            ]
             self._current_link_marker = self._new_activation_marker() if self._current_href else ""
             if self._current_link_marker:
                 self.parts.append(_activation_marker(self._current_link_marker, "START"))
+        if tag == "img" and self._current_href:
+            self._current_link_hints.extend(
+                value
+                for value in (
+                    attrs_dict.get("aria-label", ""),
+                    attrs_dict.get("alt", ""),
+                    attrs_dict.get("title", ""),
+                )
+                if value
+            )
+        if tag == "img" and _is_useful_html_image(attrs_dict):
+            source = _html_image_source(attrs_dict)
+            description = _best_image_description(attrs_dict, source)
+            image_data, content_type, embedded_filename = _embedded_image_data(source)
+            self.links.append(
+                LinkItem(
+                    text=description,
+                    url="" if source.casefold().startswith("data:") else source,
+                    kind="image",
+                    filename=embedded_filename or _image_filename(source),
+                    content_type=content_type,
+                    size=len(image_data),
+                    data=base64.b64encode(image_data).decode("ascii") if image_data else "",
+                    content_id=_normalized_content_id(source[4:] if source.casefold().startswith("cid:") else ""),
+                )
+            )
         if tag == "button":
             self._current_button_url = attrs_dict.get("formaction", "") or (self._form_actions[-1] if self._form_actions else "")
             self._current_button_text = []
@@ -168,7 +231,7 @@ class _HtmlToTextParser(HTMLParser):
             activation_text = _clean_resource_title(" ".join("".join(self._current_text).split()))
             label = activation_text
             if _is_generic_title(label, self._current_href):
-                label = self._nearby_context_title(label) or label
+                label = self._best_link_hint() or self._nearby_context_title(label) or label
             if self._current_link_marker:
                 self.parts.append(_activation_marker(self._current_link_marker, "END"))
             self.links.append(
@@ -183,6 +246,7 @@ class _HtmlToTextParser(HTMLParser):
             self._current_href = ""
             self._current_kind = "link"
             self._current_text = []
+            self._current_link_hints = []
             self._current_link_marker = ""
         if tag == "button" and self._current_button_text is not None:
             label = _clean_resource_title("".join(self._current_button_text)) or "زر بدون عنوان"
@@ -228,6 +292,13 @@ class _HtmlToTextParser(HTMLParser):
             if title and title.lower() != normalized_label and not _is_generic_title(title):
                 return title
         return ""
+
+    def _best_link_hint(self) -> str:
+        hints = [_clean_resource_title(hint) for hint in self._current_link_hints]
+        useful_hints = [hint for hint in hints if not _is_generic_title(hint, self._current_href)]
+        if not useful_hints:
+            return ""
+        return useful_hints[0]
 
     def _new_activation_marker(self) -> str:
         marker = str(self._next_marker_id)
@@ -289,6 +360,113 @@ def _is_generic_title(text: str, url: str = "") -> bool:
     return not normalized or normalized == url.lower() or normalized in GENERIC_LINK_TITLES
 
 
+def _resource_title_score(text: str, url: str = "") -> tuple[int, int]:
+    title = _clean_resource_title(text)
+    if not title:
+        return (0, 0)
+    if _is_generic_title(title, url):
+        return (1, len(title))
+    if canonical_url_key(title) and canonical_url_key(title) == canonical_url_key(url):
+        return (1, len(title))
+    return (2, min(len(title), 90))
+
+
+def _html_image_dimension(value: str) -> float | None:
+    match = re.match(r"^\s*(\d+(?:\.\d+)?)\s*(?:px)?\s*$", value, re.IGNORECASE)
+    return float(match.group(1)) if match else None
+
+
+def _is_useful_html_image(attrs: dict[str, str]) -> bool:
+    source = _html_image_source(attrs)
+    if not source:
+        return False
+    compact_style = re.sub(r"\s+", "", attrs.get("style", "").casefold())
+    if any(marker in compact_style for marker in HIDDEN_IMAGE_STYLE_MARKERS):
+        return False
+    style = attrs.get("style", "")
+    width = _html_image_dimension(attrs.get("width", ""))
+    height = _html_image_dimension(attrs.get("height", ""))
+    if width is None:
+        width = _html_style_dimension(style, "width")
+    if height is None:
+        height = _html_style_dimension(style, "height")
+    return not (width is not None and height is not None and width <= 1 and height <= 1)
+
+
+def _html_style_dimension(style: str, property_name: str) -> float | None:
+    match = re.search(
+        rf"(?:^|;)\s*{re.escape(property_name)}\s*:\s*(\d+(?:\.\d+)?)\s*(?:px)?(?:\s*[;!]|$)",
+        style,
+        re.IGNORECASE,
+    )
+    return float(match.group(1)) if match else None
+
+
+def _html_image_source(attrs: dict[str, str]) -> str:
+    source = attrs.get("src", "").strip()
+    lazy_sources = (
+        attrs.get("data-src", "").strip(),
+        attrs.get("data-original", "").strip(),
+        attrs.get("data-lazy-src", "").strip(),
+    )
+    if not source or source.casefold().startswith("data:"):
+        source = next((candidate for candidate in lazy_sources if candidate), source)
+    if not source:
+        first_source = attrs.get("srcset", "").split(",", 1)[0].strip().split()
+        source = first_source[0] if first_source else ""
+    if source.startswith("//"):
+        source = f"https:{source}"
+    return source
+
+
+def _embedded_image_data(source: str) -> tuple[bytes, str, str]:
+    if not source.casefold().startswith("data:image/"):
+        return b"", "", ""
+    header, separator, payload = source.partition(",")
+    if not separator:
+        return b"", "", ""
+    content_type = header[5:].split(";", 1)[0].casefold()
+    try:
+        if ";base64" in header.casefold():
+            padding = "=" * (-len(payload) % 4)
+            data = base64.b64decode(payload + padding, validate=True)
+        else:
+            data = urllib.parse.unquote_to_bytes(payload)
+    except (ValueError, TypeError):
+        return b"", "", ""
+    if not data or len(data) > MAX_EMBEDDED_IMAGE_BYTES:
+        return b"", "", ""
+    extension = mimetypes.guess_extension(content_type) or ""
+    return data, content_type, f"image{extension}"
+
+
+def _image_filename(source: str) -> str:
+    if not source or source.casefold().startswith(("cid:", "data:")):
+        return ""
+    try:
+        return urllib.parse.unquote(urllib.parse.urlsplit(source).path.rsplit("/", 1)[-1])
+    except ValueError:
+        return ""
+
+
+def _normalized_content_id(value: str) -> str:
+    return urllib.parse.unquote(str(value or "")).strip().strip("<>").casefold()
+
+
+def _best_image_description(attrs: dict[str, str], source: str) -> str:
+    descriptions = [
+        _clean_resource_title(value)
+        for value in (
+            attrs.get("aria-label", ""),
+            attrs.get("alt", ""),
+            attrs.get("title", ""),
+            _image_filename(source),
+        )
+    ]
+    useful = [description for description in descriptions if description]
+    return useful[0] if useful else "صورة بدون وصف"
+
+
 def _title_from_text_context(text: str, url: str) -> str:
     lines = [line.strip() for line in text.splitlines()]
     for index, line in enumerate(lines):
@@ -305,63 +483,202 @@ def _title_from_text_context(text: str, url: str) -> str:
     return ""
 
 
-def unique_links(text: str, links: list[LinkItem]) -> list[LinkItem]:
-    seen: set[str] = set()
-    seen_without_url: set[tuple[str, str]] = set()
-    result: list[LinkItem] = []
-    for link in links:
-        if link.url:
-            if link.url in seen:
-                continue
-            seen.add(link.url)
-            title = _clean_resource_title(link.text)
-            activation_text = _clean_resource_title(link.activation_text) or title or link.url
-            if _is_generic_title(title, link.url):
-                title = _title_from_text_context(text, link.url) or title or link.url
-            result.append(
-                LinkItem(
-                    title,
-                    link.url,
-                    kind=link.kind,
-                    filename=link.filename,
-                    content_type=link.content_type,
-                    size=link.size,
-                    data=link.data,
-                    activation_text=activation_text,
-                    activation_start=link.activation_start,
-                    activation_end=link.activation_end,
-                )
-            )
+def canonical_url_key(value: object) -> str:
+    url = str(value or "").strip()
+    if url.lower().startswith("www."):
+        url = f"https://{url}"
+    try:
+        parsed = urllib.parse.urlsplit(url)
+        scheme = parsed.scheme.casefold()
+        if scheme not in SAFE_EXTERNAL_URL_SCHEMES:
+            return url
+        if scheme == "mailto":
+            return urllib.parse.urlunsplit((scheme, "", parsed.path.casefold(), parsed.query, parsed.fragment))
+
+        hostname = (parsed.hostname or "").casefold()
+        if not hostname:
+            return url
+        try:
+            hostname = hostname.encode("idna").decode("ascii")
+        except UnicodeError:
+            pass
+        if ":" in hostname and not hostname.startswith("["):
+            hostname = f"[{hostname}]"
+        port = parsed.port
+        if port and not ((scheme == "http" and port == 80) or (scheme == "https" and port == 443)):
+            hostname = f"{hostname}:{port}"
+        userinfo = parsed.netloc.rpartition("@")[0] if "@" in parsed.netloc else ""
+        netloc = f"{userinfo}@{hostname}" if userinfo else hostname
+        query_items = urllib.parse.parse_qsl(parsed.query, keep_blank_values=True)
+        query = urllib.parse.urlencode(
+            [
+                (name, value)
+                for name, value in query_items
+                if not name.casefold().startswith("utm_")
+                and name.casefold() not in TRACKING_QUERY_PARAMETERS
+            ],
+            doseq=True,
+        )
+        return urllib.parse.urlunsplit((scheme, netloc, parsed.path or "/", query, parsed.fragment))
+    except ValueError:
+        return url
+
+
+def _trim_detected_url(value: str) -> str:
+    url = value.rstrip(".,;:!?،؛؟»”’]}>")
+    while url.endswith(")") and url.count("(") < url.count(")"):
+        url = url[:-1]
+    return url
+
+
+def _prepared_link(text: str, link: LinkItem) -> LinkItem:
+    title = _clean_resource_title(link.text)
+    activation_text = _clean_resource_title(link.activation_text) or title or link.url
+    if _is_generic_title(title, link.url):
+        title = _title_from_text_context(text, link.url) or title or link.url
+    return replace(link, text=title, activation_text=activation_text)
+
+
+def _merge_duplicate_link(existing: LinkItem, candidate: LinkItem) -> LinkItem:
+    title = existing.text
+    if _resource_title_score(candidate.text, candidate.url) > _resource_title_score(existing.text, existing.url):
+        title = candidate.text
+    kind = "button" if existing.is_button or candidate.is_button else existing.kind
+    return replace(existing, text=title, kind=kind)
+
+
+def _attachment_identity(item: LinkItem) -> tuple[object, ...]:
+    filename = _clean_resource_title(item.filename or item.text).casefold()
+    attachment_bytes = item.attachment_bytes()
+    if attachment_bytes:
+        return ("content", filename, hashlib.sha256(attachment_bytes).digest())
+    return (
+        "metadata",
+        filename,
+        item.content_type.strip().casefold(),
+        max(0, int(item.size or 0)),
+    )
+
+
+def _merge_duplicate_attachment(existing: LinkItem, candidate: LinkItem) -> LinkItem:
+    return replace(
+        existing,
+        text=existing.text or candidate.text,
+        filename=existing.filename or candidate.filename,
+        content_type=existing.content_type or candidate.content_type,
+        size=existing.size or candidate.size,
+        data=existing.data or candidate.data,
+    )
+
+
+def _image_identity(item: LinkItem) -> tuple[object, ...]:
+    content_id = _normalized_content_id(item.content_id)
+    if not content_id and item.url.casefold().startswith("cid:"):
+        content_id = _normalized_content_id(item.url[4:])
+    if content_id:
+        return ("content-id", content_id)
+    if item.url:
+        return ("source", canonical_url_key(item.url))
+    attachment_bytes = item.attachment_bytes()
+    if attachment_bytes:
+        return ("content", hashlib.sha256(attachment_bytes).digest())
+    return (
+        "description",
+        _clean_resource_title(item.text).casefold(),
+        _clean_resource_title(item.filename).casefold(),
+    )
+
+
+def _merge_duplicate_image(existing: LinkItem, candidate: LinkItem) -> LinkItem:
+    description = existing.text
+    if _resource_title_score(candidate.text) > _resource_title_score(existing.text):
+        description = candidate.text
+    return replace(
+        existing,
+        text=description,
+        filename=existing.filename or candidate.filename,
+        content_type=existing.content_type or candidate.content_type,
+        size=existing.size or candidate.size,
+        data=existing.data or candidate.data,
+        content_id=existing.content_id or candidate.content_id,
+    )
+
+
+def organize_message_items(
+    text: str,
+    items: list[LinkItem],
+    *,
+    discover_text_links: bool = True,
+) -> list[LinkItem]:
+    links: list[LinkItem] = []
+    link_positions: dict[str, int] = {}
+    button_positions: dict[tuple[str, str], int] = {}
+
+    def add_link(link: LinkItem) -> None:
+        prepared = _prepared_link(text, link)
+        if prepared.url:
+            key = canonical_url_key(prepared.url)
+            if key in link_positions:
+                position = link_positions[key]
+                links[position] = _merge_duplicate_link(links[position], prepared)
+                return
+            link_positions[key] = len(links)
+            links.append(prepared)
+            return
+        if prepared.is_button:
+            title = prepared.text or "زر بدون عنوان"
+            key = (prepared.kind, title.casefold())
+            if key not in button_positions:
+                button_positions[key] = len(links)
+                links.append(replace(prepared, text=title))
+
+    images: list[LinkItem] = []
+    image_positions: dict[tuple[object, ...], int] = {}
+    attachments: list[LinkItem] = []
+    attachment_positions: dict[tuple[object, ...], int] = {}
+    for item in items:
+        if item.is_image:
+            key = _image_identity(item)
+            if key in image_positions:
+                position = image_positions[key]
+                images[position] = _merge_duplicate_image(images[position], item)
+            else:
+                image_positions[key] = len(images)
+                images.append(item)
             continue
-        if link.is_button:
-            title = _clean_resource_title(link.text) or "زر بدون عنوان"
-            key = (link.kind, title)
-            if key not in seen_without_url:
-                seen_without_url.add(key)
-                result.append(
-                    LinkItem(
-                        title,
-                        kind=link.kind,
-                        activation_text=_clean_resource_title(link.activation_text) or title,
-                        activation_start=link.activation_start,
-                        activation_end=link.activation_end,
-                    )
-                )
-    for match in URL_PATTERN.findall(text):
-        url = match.rstrip(").,;]")
-        if url not in seen:
-            seen.add(url)
-            start = text.find(url)
-            result.append(
+        if item.is_attachment:
+            key = _attachment_identity(item)
+            if key in attachment_positions:
+                position = attachment_positions[key]
+                attachments[position] = _merge_duplicate_attachment(attachments[position], item)
+            else:
+                attachment_positions[key] = len(attachments)
+                attachments.append(item)
+            continue
+        add_link(item)
+
+    if discover_text_links:
+        for match in URL_PATTERN.finditer(text):
+            visible_url = _trim_detected_url(match.group(0))
+            if not visible_url:
+                continue
+            url = f"https://{visible_url}" if visible_url.lower().startswith("www.") else visible_url
+            start = match.start()
+            add_link(
                 LinkItem(
-                    _title_from_text_context(text, url) or url,
+                    _title_from_text_context(text, visible_url) or visible_url,
                     url,
-                    activation_text=url,
+                    activation_text=visible_url,
                     activation_start=start,
-                    activation_end=start + len(url) if start >= 0 else -1,
+                    activation_end=start + len(visible_url),
                 )
             )
-    return result
+
+    return links + images + attachments
+
+
+def unique_links(text: str, links: list[LinkItem]) -> list[LinkItem]:
+    return organize_message_items(text, links)
 
 
 def normalize_message_text(text: str) -> str:
@@ -436,20 +753,32 @@ def is_attachment_part(part: Message | EmailMessage) -> bool:
     return disposition == "attachment" or bool(filename and disposition in {"", "inline"})
 
 
+def is_inline_image_part(part: Message | EmailMessage) -> bool:
+    disposition = (part.get_content_disposition() or "").lower()
+    content_id = _normalized_content_id(header_to_text(part.get("Content-ID")))
+    return part.get_content_type().casefold().startswith("image/") and disposition == "inline" and bool(content_id)
+
+
 def attachment_from_part(part: Message | EmailMessage) -> LinkItem | None:
-    filename = header_to_text(part.get_filename()) or "مرفق بدون اسم"
+    content_type = part.get_content_type() or "application/octet-stream"
+    content_id = _normalized_content_id(header_to_text(part.get("Content-ID")))
+    inline_image = is_inline_image_part(part)
+    filename = header_to_text(part.get_filename())
+    if not filename and inline_image:
+        filename = f"image{mimetypes.guess_extension(content_type) or ''}"
+    filename = filename or "مرفق بدون اسم"
     try:
         payload = part.get_payload(decode=True) or b""
     except Exception:
         payload = b""
-    content_type = part.get_content_type() or "application/octet-stream"
     return LinkItem(
         text=filename,
-        kind="attachment",
+        kind="image" if inline_image else "attachment",
         filename=filename,
         content_type=content_type,
         size=len(payload),
         data=base64.b64encode(payload).decode("ascii") if payload else "",
+        content_id=content_id,
     )
 
 
@@ -463,7 +792,7 @@ def extract_body(message: Message | EmailMessage) -> tuple[str, list[LinkItem]]:
             if part.is_multipart():
                 continue
             content_type = part.get_content_type()
-            if is_attachment_part(part):
+            if is_attachment_part(part) or is_inline_image_part(part):
                 attachment = attachment_from_part(part)
                 if attachment:
                     attachments.append(attachment)
@@ -503,7 +832,9 @@ def extract_body(message: Message | EmailMessage) -> tuple[str, list[LinkItem]]:
         raw_text = normalize_message_text("\n".join(part.strip() for part in text_parts if part.strip()))
         text = strip_html_client_warning(raw_text)
         if html_text and (not text or looks_like_visual_markup_dump(text) or is_plain_text_placeholder(raw_text)):
-            return html_text, unique_links(html_text, html_links) + attachments
-        return text or "لا يوجد نص قابل للعرض داخل هذه الرسالة.", unique_links(text, []) + attachments
+            return html_text, organize_message_items(html_text, html_links + attachments)
+        body = text or "لا يوجد نص قابل للعرض داخل هذه الرسالة."
+        return body, organize_message_items(body, html_links + attachments)
 
-    return html_text or "لا يوجد نص قابل للعرض داخل هذه الرسالة.", unique_links(html_text, html_links) + attachments
+    body = html_text or "لا يوجد نص قابل للعرض داخل هذه الرسالة."
+    return body, organize_message_items(body, html_links + attachments)

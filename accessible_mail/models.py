@@ -136,6 +136,7 @@ class LinkItem:
     activation_start: int = -1
     activation_end: int = -1
     activation_marker: str = ""
+    content_id: str = ""
 
     @property
     def label(self) -> str:
@@ -147,6 +148,11 @@ class LinkItem:
             if self.size:
                 details.append(self.format_size(self.size))
             return " - ".join(details)
+        if self.is_image:
+            description = self.text.strip() or self.filename.strip() or tr("صورة بدون وصف")
+            if self.url.casefold().startswith(("http://", "https://")):
+                return f"{description} - {self.url}"
+            return description
         text = self.text.strip() or self.url
         if text == self.url:
             return self.url
@@ -159,6 +165,10 @@ class LinkItem:
     @property
     def is_button(self) -> bool:
         return self.kind == "button"
+
+    @property
+    def is_image(self) -> bool:
+        return self.kind == "image"
 
     def attachment_bytes(self) -> bytes:
         if not self.data:

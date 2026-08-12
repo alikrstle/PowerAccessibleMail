@@ -1,7 +1,10 @@
 from __future__ import annotations
 
+import mimetypes
+from collections.abc import Sequence
 from email.message import EmailMessage
 from email.utils import formatdate, make_msgid
+from pathlib import Path
 
 from .models import Account, MessageSummary
 
@@ -12,6 +15,7 @@ def build_outgoing_message(
     subject: str,
     body: str,
     reply_to: MessageSummary | None = None,
+    attachments: Sequence[Path] = (),
 ) -> EmailMessage:
     message = EmailMessage()
     message["From"] = account.email_address
@@ -32,4 +36,18 @@ def build_outgoing_message(
         if references:
             message["References"] = references
     message.set_content(body or "")
+    for attachment in attachments:
+        path = Path(attachment)
+        content_type, _encoding = mimetypes.guess_type(path.name)
+        maintype, subtype = (
+            content_type.split("/", 1)
+            if content_type and "/" in content_type
+            else ("application", "octet-stream")
+        )
+        message.add_attachment(
+            path.read_bytes(),
+            maintype=maintype,
+            subtype=subtype,
+            filename=path.name,
+        )
     return message

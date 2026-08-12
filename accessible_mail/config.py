@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import base64
 import json
+import locale
 import os
 import shutil
 import sys
@@ -15,11 +16,13 @@ from .models import Account
 
 APP_NAME = os.environ.get("POWER_ACCESSIBLE_MAIL_APP_NAME", "PowerAccessibleMail")
 APP_TITLE = os.environ.get("POWER_ACCESSIBLE_MAIL_APP_TITLE", "Power Accessible Mail")
-APP_VERSION = "1.2.13"
+APP_VERSION = "1.2.14"
 PASSWORD_PREFIX = "dpapi:"
 LEGACY_PROFILE_NAMES = ("PowerAccessibleMailGmailApiLimited",)
 LANGUAGE_ARABIC = "ar"
 LANGUAGE_ENGLISH = "en"
+LANGUAGE_FRENCH = "fr"
+SUPPORTED_LANGUAGES = {LANGUAGE_ARABIC, LANGUAGE_ENGLISH, LANGUAGE_FRENCH}
 VIEWER_HTML = "html"
 VIEWER_SIMPLE = "simple"
 THEME_LIGHT = "light"
@@ -37,6 +40,35 @@ class ProgramSettings:
     message_viewer: str = VIEWER_HTML
     theme: str = THEME_LIGHT
     translation_mode: str = TRANSLATION_DIALOG
+
+
+def system_language(locale_names: list[str] | tuple[str, ...] | None = None) -> str:
+    detected_locale_names: list[str] = []
+    if locale_names is not None:
+        detected_locale_names.extend(str(name) for name in locale_names if name)
+    elif os.name == "nt":
+        try:
+            import ctypes
+
+            language_id = ctypes.windll.kernel32.GetUserDefaultUILanguage()
+            windows_locale = locale.windows_locale.get(language_id)
+            if windows_locale:
+                detected_locale_names.append(windows_locale)
+        except (AttributeError, OSError):
+            pass
+    if locale_names is None:
+        try:
+            current_locale = locale.getlocale()[0]
+        except (TypeError, ValueError):
+            current_locale = None
+        if current_locale:
+            detected_locale_names.append(current_locale)
+
+    for locale_name in detected_locale_names:
+        language = locale_name.lower().replace("-", "_").split("_", 1)[0]
+        if language in SUPPORTED_LANGUAGES:
+            return language
+    return LANGUAGE_ENGLISH
 
 
 def app_dir() -> Path:
@@ -295,10 +327,10 @@ def load_settings() -> ProgramSettings:
     path = settings_path()
     payload = _read_json_with_backup(path)
     if not isinstance(payload, dict):
-        return ProgramSettings()
+        return ProgramSettings(language=system_language())
     return normalize_settings(
         ProgramSettings(
-            language=str(payload.get("language", LANGUAGE_ARABIC)),
+            language=str(payload.get("language", system_language())),
             message_viewer=str(payload.get("message_viewer", VIEWER_HTML)),
             theme=str(payload.get("theme", THEME_LIGHT)),
             translation_mode=str(payload.get("translation_mode", TRANSLATION_DIALOG)),
@@ -344,8 +376,8 @@ def _atomic_write_json(path: Path, payload: object) -> None:
 
 
 def normalize_settings(settings: ProgramSettings) -> ProgramSettings:
-    if settings.language not in {LANGUAGE_ARABIC, LANGUAGE_ENGLISH}:
-        settings.language = LANGUAGE_ARABIC
+    if settings.language not in SUPPORTED_LANGUAGES:
+        settings.language = system_language()
     if settings.message_viewer not in {VIEWER_HTML, VIEWER_SIMPLE}:
         settings.message_viewer = VIEWER_HTML
     if settings.theme not in {THEME_LIGHT, THEME_DARK}:

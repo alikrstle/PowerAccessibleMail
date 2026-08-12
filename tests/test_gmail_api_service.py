@@ -66,6 +66,73 @@ class GmailApiServiceTests(unittest.TestCase):
         self.assertEqual(content.links[0].filename, "note.txt")
         self.assertEqual(content.links[0].attachment_bytes(), b"attachment")
 
+    def test_duplicate_gmail_attachments_are_shown_once(self) -> None:
+        service = GmailApiService()
+        attachment = {
+            "filename": "note.txt",
+            "mimeType": "text/plain",
+            "body": {"data": "YXR0YWNobWVudA", "size": 10},
+        }
+        message = {
+            "id": "duplicate-attachment",
+            "internalDate": "1760000000000",
+            "labelIds": ["INBOX"],
+            "payload": {"headers": [], "parts": [attachment, attachment.copy()]},
+        }
+        summary = service._summary_from_message("INBOX", message)
+
+        content = service._content_from_message(
+            Account(email_address="user@example.com"),
+            summary,
+            message,
+        )
+
+        self.assertEqual(len(content.links), 1)
+        self.assertTrue(content.links[0].is_attachment)
+
+    def test_unnamed_inline_gmail_resource_is_not_listed_as_attachment(self) -> None:
+        service = GmailApiService()
+        message = {
+            "id": "inline-image",
+            "internalDate": "1760000000000",
+            "labelIds": ["INBOX"],
+            "payload": {
+                "headers": [],
+                "parts": [
+                    {
+                        "mimeType": "text/html",
+                        "body": {
+                            "data": base64.urlsafe_b64encode(
+                                b'<p>Hello</p><img src="cid:logo" alt="Company logo">'
+                            )
+                            .decode("ascii")
+                            .rstrip("=")
+                        },
+                    },
+                    {
+                        "mimeType": "image/png",
+                        "headers": [
+                            {"name": "Content-Disposition", "value": "inline"},
+                            {"name": "Content-ID", "value": "<logo>"},
+                        ],
+                        "body": {"data": "aW1hZ2U", "size": 5},
+                    },
+                ],
+            },
+        }
+        summary = service._summary_from_message("INBOX", message)
+
+        content = service._content_from_message(
+            Account(email_address="user@example.com"),
+            summary,
+            message,
+        )
+
+        self.assertFalse(any(item.is_attachment for item in content.links))
+        self.assertEqual(len(content.links), 1)
+        self.assertTrue(content.links[0].is_image)
+        self.assertEqual(content.links[0].attachment_bytes(), b"image")
+
     def test_summary_page_fetches_lightweight_metadata_in_parallel(self) -> None:
         class FakeGmailApiService(GmailApiService):
             def __init__(self) -> None:

@@ -4,7 +4,6 @@ import hashlib
 import os
 import re
 import subprocess
-import tempfile
 import threading
 import urllib.parse
 import urllib.request
@@ -22,6 +21,8 @@ INSTALLER_NAME_PATTERN = re.compile(
     r"win-(?P<architecture>x64|x86)(?:-UNSIGNED)?\.exe",
     flags=re.IGNORECASE,
 )
+UPDATE_VENDOR_DIRECTORY = "SoljanAlSharq"
+UPDATE_PRODUCT_DIRECTORY = "PowerAccessibleMail"
 
 
 class UpdateInstallError(RuntimeError):
@@ -111,12 +112,7 @@ def download_update_installer(
             "تعذر تحديث البرنامج بأمان لأن بصمة SHA-256 غير متوفرة."
         )
 
-    root = target_root or (
-        Path(tempfile.gettempdir())
-        / "PowerAccessibleMail"
-        / "updates"
-        / latest_version
-    )
+    root = target_root or default_update_root(latest_version)
     root.mkdir(parents=True, exist_ok=True)
     destination = root / installer_name
     partial = destination.with_suffix(destination.suffix + ".part")
@@ -185,15 +181,26 @@ def launch_update_installer(installer_path: Path) -> subprocess.Popen[bytes]:
     return subprocess.Popen(
         [
             str(path),
-            "/SILENT",
-            "/SP-",
-            "/SUPPRESSMSGBOXES",
             "/NORESTART",
             "/CLOSEAPPLICATIONS",
             "/UPDATEFROMAPP=1",
         ],
         close_fds=True,
     )
+
+
+def default_update_root(version: str) -> Path:
+    local_app_data = str(os.environ.get("LOCALAPPDATA") or "").strip()
+    if local_app_data:
+        base = (
+            Path(local_app_data)
+            / UPDATE_VENDOR_DIRECTORY
+            / UPDATE_PRODUCT_DIRECTORY
+            / "Updates"
+        )
+    else:
+        base = Path.home() / ".power_accessible_mail" / "updates"
+    return base / version
 
 
 def _content_length(response: object) -> int:

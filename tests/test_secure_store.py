@@ -6,7 +6,7 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from unittest.mock import patch
 
-from accessible_mail.models import Account, MessageSummary
+from accessible_mail.models import Account, LinkItem, MessageContent, MessageSummary
 from accessible_mail.secure_store import MessageCache, _decrypt_summary_json
 
 
@@ -151,6 +151,34 @@ class MessageCacheTests(unittest.TestCase):
                 [cache.count_summaries(self.account.id, mailbox) for mailbox in mailboxes],
                 [20, 20, 20, 20],
             )
+
+    def test_inline_image_content_id_survives_cache_round_trip(self) -> None:
+        protect_patch, unprotect_patch = self.crypto_patches()
+        with protect_patch, unprotect_patch:
+            cache = MessageCache(self.cache_path)
+            summary = MessageSummary(uid="image", mailbox="INBOX")
+            cache.upsert_content(
+                self.account,
+                MessageContent(
+                    summary=summary,
+                    text="Image message",
+                    links=[
+                        LinkItem(
+                            "Company logo",
+                            "cid:logo",
+                            kind="image",
+                            data="aW1hZ2U=",
+                            content_id="logo",
+                        )
+                    ],
+                ),
+            )
+
+            restored = cache.get_content(self.account.id, "INBOX", "image")
+
+            self.assertIsNotNone(restored)
+            self.assertEqual(restored.links[0].content_id, "logo")
+            self.assertEqual(restored.links[0].attachment_bytes(), b"image")
 
 
 if __name__ == "__main__":

@@ -3,6 +3,10 @@ oauth_clients.json
 __pycache__/
 .venv/
 .venv-x86/
+.venv-codex/
+.venv-x64-ready/
+.venv-x86-ready/
+.venv-*-broken-backup/
 build/
 dist/
 build-gmail-api-limited/

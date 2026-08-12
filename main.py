@@ -14,6 +14,9 @@ if not getattr(sys, "frozen", False):
 
 
 def main() -> int:
+    from accessible_mail.error_logging import configure_crash_logging
+
+    configure_crash_logging()
     try:
         from accessible_mail.app import run
     except ModuleNotFoundError as exc:

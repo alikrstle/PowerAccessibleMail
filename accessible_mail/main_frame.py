@@ -29,6 +29,7 @@ from .config import (
     APP_TITLE,
     APP_VERSION,
     LANGUAGE_ENGLISH,
+    LANGUAGE_FRENCH,
     THEME_DARK,
     TRANSLATION_INLINE,
     load_accounts,
@@ -46,6 +47,7 @@ from .dialogs import (
 )
 from .email_service import MailError, MailSyncResult
 from .email_utils import normalize_message_text
+from .guide import load_program_guide
 from .i18n import set_language, tr
 from .mail_page import MailPage
 from .mail_service_router import MailServiceRouter
@@ -364,6 +366,12 @@ class MainFrame(wx.Frame):
             wx.AcceleratorEntry(wx.ACCEL_NORMAL, wx.WXK_F1, self.accel_guide),
             wx.AcceleratorEntry(wx.ACCEL_CTRL, wx.WXK_RETURN, self.accel_focus_items),
             wx.AcceleratorEntry(wx.ACCEL_SHIFT, wx.WXK_F10, self.accel_context_menu),
+            wx.AcceleratorEntry(wx.ACCEL_NORMAL, wx.WXK_MENU, self.accel_context_menu),
+            wx.AcceleratorEntry(
+                wx.ACCEL_NORMAL,
+                wx.WXK_WINDOWS_MENU,
+                self.accel_context_menu,
+            ),
         ]
         self.SetAcceleratorTable(wx.AcceleratorTable(entries))
         self.Bind(wx.EVT_MENU, self.on_account_options, id=self.accel_add)
@@ -396,7 +404,7 @@ class MainFrame(wx.Frame):
         elif focus is page.viewer:
             control = page.viewer
         elif focus is page.link_list:
-            control = page.link_list
+            return
         elif focus is page.list:
             control = page.list
         else:
@@ -616,7 +624,7 @@ class MainFrame(wx.Frame):
             self.settings = dialog.selected_settings()
             save_settings(self.settings)
             self.apply_settings()
-            self.SetStatusText("تم حفظ الإعدادات.")
+            self.SetStatusText(tr("تم حفظ الإعدادات."))
         finally:
             dialog.Destroy()
 
@@ -1714,8 +1722,15 @@ class MainFrame(wx.Frame):
             return
         dialog = ComposeDialog(self)
         if dialog.ShowModal() == wx.ID_OK:
-            to_address, subject, body = dialog.values()
-            self.send_message(account, to_address, subject, body, None)
+            to_address, subject, body, attachments = dialog.values()
+            self.send_message(
+                account,
+                to_address,
+                subject,
+                body,
+                None,
+                attachments,
+            )
         dialog.Destroy()
 
     def on_reply(self, _event: wx.Event | None = None) -> None:
@@ -1739,8 +1754,15 @@ class MainFrame(wx.Frame):
             body=quoted,
         )
         if dialog.ShowModal() == wx.ID_OK:
-            to_address, new_subject, body = dialog.values()
-            self.send_message(account, to_address, new_subject, body, summary)
+            to_address, new_subject, body, attachments = dialog.values()
+            self.send_message(
+                account,
+                to_address,
+                new_subject,
+                body,
+                summary,
+                attachments,
+            )
         dialog.Destroy()
 
     def send_message(
@@ -1750,12 +1772,20 @@ class MainFrame(wx.Frame):
         subject: str,
         body: str,
         reply_to: MessageSummary | None,
+        attachments: list[Path] | None = None,
     ) -> None:
         if not self.ensure_password(account):
             return
 
         def work() -> None:
-            self.service.send_message(account, to_address, subject, body, reply_to)
+            self.service.send_message(
+                account,
+                to_address,
+                subject,
+                body,
+                reply_to,
+                attachments or [],
+            )
 
         def done(_result: None) -> None:
             self.SetStatusText("تم إرسال الرسالة.")
@@ -1855,6 +1885,14 @@ class MainFrame(wx.Frame):
         dialog.Destroy()
 
     def program_guide_text(self) -> str:
+        try:
+            return load_program_guide(self.settings.language, APP_VERSION)
+        except OSError:
+            pass
+        if self.settings.language == LANGUAGE_FRENCH:
+            from .guide_fr import french_program_guide
+
+            return french_program_guide(APP_VERSION)
         if self.settings.language == LANGUAGE_ENGLISH:
             return f"""Power Accessible Mail
 Version: {APP_VERSION}
@@ -1879,7 +1917,7 @@ Inside each section, the filter lets you show all messages, starred messages, un
 Read each message in the viewer you prefer
 The HTML viewer keeps links and buttons in their natural positions as real page elements. Use Tab or your screen reader's browsing commands to reach them, then press Enter or Space to activate them. Press Ctrl+Enter to move between the message viewer and the item viewer. Press Escape to return directly to the message list.
 
-The easy viewer removes repeated blank lines and presents a clean text version. Its item viewer collects links, buttons, and attachments under clear names. Selecting a message does not mark it as read automatically; press Space in the normal message list to switch the focused message between read and unread.
+The easy viewer removes repeated blank lines and presents a clean text version. Its item viewer collects links, buttons, images, and attachments under clear names. Selecting a message does not mark it as read automatically; press Space in the normal message list to switch the focused message between read and unread.
 
 Work with several messages at once
 In normal mode, messages are list items without check boxes. Press Ctrl+Shift+Space to enter multiple-selection mode, where every message becomes a check box. Move with the arrow keys and press Space to check or uncheck a message, or use the mouse.
@@ -1887,13 +1925,13 @@ In normal mode, messages are list items without check boxes. Press Ctrl+Shift+Sp
 The application announces entry into or exit from this mode after 150 milliseconds. Press Control by itself to hear the selected count after the same delay. Press Escape or Ctrl+Shift+Space again to leave the mode. Trying to move above the first item or below the last item announces the boundary. The context menu provides suitable bulk read, star, pin, and Trash commands. Delete asks for confirmation and states the number of affected messages.
 
 Write and act without leaving the keyboard
-Compose email opens a complete message window. Message actions include Reply, Star, Translate, Pin to top, move to the provider's Trash, and save attachments whenever they are available. Open the actions menu from its button or with Shift+F10.
+Compose email opens a complete message window. Reply, Star, Translate, Pin to top, and move to the provider's Trash are available from the message context menu. The item viewer list has no context menu, while the Item actions button displays attachment, image, and link commands directly without a submenu.
 
 Translation when you need it
 Ctrl+T translates the current message into the application language. In Settings, choose whether the translation replaces the content inside the HTML or easy viewer, or opens in a separate window. Translation becomes available only while you are inside the message viewer. It requires an internet connection and sends the selected message text to Google Translate only when you request it.
 
 Make the application yours
-Settings lets you choose Arabic or English, the HTML or easy message viewer, translation inside the page or in a separate window, and light or dark appearance. Your choices are saved for the next launch.
+Settings lets you choose Arabic, English, or French, the HTML or easy message viewer, translation inside the page or in a separate window, and light or dark appearance. Your choices are saved for the next launch.
 
 Updates without opening a browser
 The application checks GitHub Releases after startup, and you can check manually from Help, Check for updates. When a release is available, Update now opens an internal progress window showing its version, release date, progress bar, and percentage. The correct installer is downloaded, its SHA-256 digest is verified, and the direct update starts before the application restarts.
@@ -1939,7 +1977,7 @@ Power Accessible Mail برنامج صمم ليجعل قراءة البريد و�
 اقرأ الرسالة بالمستعرض الذي يناسبك
 مستعرض HTML يبقي الروابط والأزرار في مواضعها الطبيعية كعناصر حقيقية. استخدم Tab أو أوامر التصفح في قارئ الشاشة للوصول إليها ثم Enter أو Space لتفعيلها. ينقلك Ctrl+Enter بين مستعرض الرسالة ومستعرض العناصر، ويعيدك Escape مباشرة إلى قائمة الرسائل.
 
-المستعرض السهل ينظف تكرار الأسطر الخالية ويعرض نصا مرتبا. ويجمع مستعرض العناصر الروابط والأزرار والمرفقات تحت أسماء واضحة. مجرد اختيار الرسالة لا يجعلها مقروءة؛ اضغط Space في قائمة الرسائل العادية للتبديل بين مقروءة وغير مقروءة.
+المستعرض السهل ينظف تكرار الأسطر الخالية ويعرض نصا مرتبا. ويجمع مستعرض العناصر الروابط والأزرار والصور والمرفقات تحت أسماء واضحة. مجرد اختيار الرسالة لا يجعلها مقروءة؛ اضغط Space في قائمة الرسائل العادية للتبديل بين مقروءة وغير مقروءة.
 
 تعامل مع عدة رسائل في خطوة واحدة
 في الوضع العادي تظهر الرسائل كعناصر قائمة من دون مربعات اختيار. اضغط Ctrl+Shift+Space للدخول إلى وضع التحديد المتعدد، وعندها تتحول الرسائل إلى مربعات اختيار. تنقل بالأسهم واضغط Space لتحديد الرسالة أو إلغاء تحديدها، أو استخدم الفأرة.
@@ -1947,13 +1985,13 @@ Power Accessible Mail برنامج صمم ليجعل قراءة البريد و�
 ينطق البرنامج الدخول إلى هذا الوضع أو الخروج منه بعد 150 مللي ثانية. اضغط Control وحده لسماع عدد الرسائل المحددة بعد المهلة نفسها. اخرج بالضغط على Escape أو Ctrl+Shift+Space مرة أخرى. وعند محاولة تجاوز أول عنصر أو آخر عنصر ينطق البرنامج بداية القائمة أو نهايتها. تعرض قائمة السياق أوامر القراءة والنجمة والتثبيت والحذف المناسبة للمجموعة، ويطلب Delete تأكيدا يذكر عدد الرسائل.
 
 اكتب ونفذ الأوامر من لوحة المفاتيح
-إنشاء بريد إلكتروني يفتح نافذة كاملة لكتابة رسالتك. وتشمل إجراءات الرسالة الرد والتمييز بنجمة والترجمة والتثبيت في الأعلى والنقل إلى سلة مزود البريد وحفظ المرفقات عند توفرها. افتح القائمة من زر الإجراءات أو باستخدام Shift+F10.
+إنشاء بريد إلكتروني يفتح نافذة كاملة لكتابة رسالتك. تتوفر أوامر الرد والتمييز بنجمة والترجمة والتثبيت في الأعلى والنقل إلى سلة مزود البريد من قائمة سياق الرسالة. لا توجد قائمة سياق داخل قائمة مستعرض العناصر، بينما يعرض زر إجراءات العنصر أوامر المرفقات والصور والروابط مباشرة من دون قائمة فرعية.
 
 ترجمة في مكانها أو في نافذة مستقلة
 يترجم Ctrl+T الرسالة الحالية إلى لغة البرنامج. ومن الإعدادات تستطيع اختيار عرض الترجمة مباشرة داخل مستعرض HTML أو المستعرض السهل، أو فتحها في نافذة مستقلة. لا تتفعل الترجمة إلا وأنت داخل مستعرض الرسالة. تحتاج الميزة إلى الإنترنت ولا يرسل النص إلى Google Translate إلا عندما تطلب الترجمة.
 
 اجعل البرنامج أقرب إلى طريقتك
-تتيح الإعدادات اختيار العربية أو الإنجليزية، ومستعرض HTML أو المستعرض السهل، والترجمة داخل الصفحة أو في نافذة مستقلة، والوضع الفاتح أو المظلم. يحفظ البرنامج اختياراتك ليستخدمها عند التشغيل التالي.
+تتيح الإعدادات اختيار العربية أو الإنجليزية أو الفرنسية، ومستعرض HTML أو المستعرض السهل، والترجمة داخل الصفحة أو في نافذة مستقلة، والوضع الفاتح أو المظلم. يحفظ البرنامج اختياراتك ليستخدمها عند التشغيل التالي.
 
 تحديث من داخل البرنامج
 يفحص البرنامج GitHub Releases بعد التشغيل، ويمكنك الفحص يدويا من قائمة المساعدة ثم تحديث البرنامج. عند توفر إصدار جديد يفتح زر تحديث الآن نافذة تعرض الإصدار وتاريخ إطلاقه وشريط التقدم والنسبة المئوية. ينزل البرنامج المثبت الصحيح ويتحقق من بصمة SHA-256 ثم يبدأ التحديث المباشر ويعيد تشغيل التطبيق من دون فتح المتصفح.
@@ -2129,7 +2167,8 @@ Power Accessible Mail
             )
             return
         self.show_notification(
-            "اكتمل تنزيل التحديث. سيغلق البرنامج ويبدأ التثبيت الآن."
+            "اكتمل تنزيل التحديث والتحقق منه. سيظهر المثبت بواجهة مرئية "
+            "وسيغلق البرنامج لإكمال التحديث."
         )
         self.SetStatusText(tr("جار بدء تثبيت التحديث."))
         wx.CallLater(500, self.Close)

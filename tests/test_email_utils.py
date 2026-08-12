@@ -4,11 +4,14 @@ import unittest
 from email.message import EmailMessage
 
 from accessible_mail.email_utils import (
+    canonical_url_key,
     extract_body,
     is_plain_text_placeholder,
     normalize_message_text,
+    organize_message_items,
     safe_external_url,
 )
+from accessible_mail.models import LinkItem
 
 
 class EmailUtilsTests(unittest.TestCase):
@@ -76,6 +79,144 @@ class EmailUtilsTests(unittest.TestCase):
 
         self.assertEqual(resources[0].text, "صفحة متابعة الطلب")
         self.assertEqual(resources[0].url, "https://example.com/status")
+
+    def test_url_identity_normalizes_host_default_port_and_tracking_parameters(self) -> None:
+        self.assertEqual(
+            canonical_url_key("HTTPS://Example.COM:443/path?utm_source=news&id=4"),
+            canonical_url_key("https://example.com/path?id=4"),
+        )
+
+    def test_duplicate_links_keep_first_position_and_best_explanatory_title(self) -> None:
+        items = [
+            LinkItem("Click here", "https://EXAMPLE.com:443/account?utm_source=email"),
+            LinkItem("Account security settings", "https://example.com/account"),
+        ]
+
+        resources = organize_message_items("", items, discover_text_links=False)
+
+        self.assertEqual(len(resources), 1)
+        self.assertEqual(resources[0].text, "Account security settings")
+        self.assertEqual(resources[0].url, items[0].url)
+
+    def test_html_link_uses_aria_label_or_image_alt_as_its_title(self) -> None:
+        message = EmailMessage()
+        message.set_content(
+            """
+            <html><body>
+              <a href="https://example.com/settings" aria-label="Account settings">
+                <img src="cid:gear" alt="Settings icon">
+              </a>
+            </body></html>
+            """,
+            subtype="html",
+        )
+
+        _text, resources = extract_body(message)
+
+        self.assertEqual(len(resources), 2)
+        self.assertEqual(resources[0].text, "Account settings")
+        self.assertTrue(resources[1].is_image)
+        self.assertEqual(resources[1].text, "Settings icon")
+
+    def test_plain_www_link_is_discovered_and_opened_as_https(self) -> None:
+        message = EmailMessage()
+        message.set_content("Visit our website: www.example.com/help.")
+
+        _text, resources = extract_body(message)
+
+        self.assertEqual(resources[0].url, "https://www.example.com/help")
+        self.assertEqual(resources[0].activation_text, "www.example.com/help")
+
+    def test_duplicate_attachments_are_removed_without_merging_distinct_files(self) -> None:
+        duplicate = LinkItem(
+            "report.pdf",
+            kind="attachment",
+            filename="report.pdf",
+            content_type="application/pdf",
+            size=3,
+            data="YWJj",
+        )
+        distinct = LinkItem(
+            "report.pdf",
+            kind="attachment",
+            filename="report.pdf",
+            content_type="application/pdf",
+            size=3,
+            data="eHl6",
+        )
+
+        resources = organize_message_items("", [duplicate, duplicate, distinct])
+
+        self.assertEqual(len(resources), 2)
+        self.assertTrue(all(item.is_attachment for item in resources))
+
+    def test_resources_are_grouped_in_reading_order_with_attachments_last(self) -> None:
+        attachment = LinkItem("file.txt", kind="attachment", filename="file.txt")
+        image = LinkItem("Logo", "https://example.com/logo.png", kind="image")
+        link = LinkItem("Website", "https://example.com")
+
+        resources = organize_message_items("", [attachment, image, link], discover_text_links=False)
+
+        self.assertEqual([item.kind for item in resources], ["link", "image", "attachment"])
+
+    def test_html_images_are_deduplicated_and_tracking_pixels_are_ignored(self) -> None:
+        message = EmailMessage()
+        message.set_content(
+            """
+            <html><body>
+              <img src="https://example.com/logo.png" alt="Company logo">
+              <img src="https://EXAMPLE.com:443/logo.png?utm_source=email" title="Logo">
+              <img src="https://tracker.example.com/pixel.gif" width="1" height="1">
+            </body></html>
+            """,
+            subtype="html",
+        )
+
+        _text, resources = extract_body(message)
+
+        self.assertEqual(len(resources), 1)
+        self.assertTrue(resources[0].is_image)
+        self.assertEqual(resources[0].text, "Company logo")
+
+    def test_inline_cid_image_is_merged_with_its_mime_data(self) -> None:
+        message = EmailMessage()
+        message.set_content(
+            '<html><body><img src="cid:logo" alt="Company logo"></body></html>',
+            subtype="html",
+        )
+        message.add_related(
+            b"png-data",
+            maintype="image",
+            subtype="png",
+            cid="<logo>",
+            disposition="inline",
+        )
+
+        _text, resources = extract_body(message)
+
+        self.assertEqual(len(resources), 1)
+        self.assertTrue(resources[0].is_image)
+        self.assertEqual(resources[0].text, "Company logo")
+        self.assertEqual(resources[0].attachment_bytes(), b"png-data")
+
+    def test_lazy_and_embedded_html_images_can_be_saved(self) -> None:
+        message = EmailMessage()
+        message.set_content(
+            """
+            <html><body>
+              <img src="data:image/gif;base64,R0lGODlh" data-src="//example.com/photo.jpg" alt="Photo">
+              <img src="data:image/png;base64,cG5nLWRhdGE=" alt="Embedded chart">
+            </body></html>
+            """,
+            subtype="html",
+        )
+
+        _text, resources = extract_body(message)
+
+        self.assertEqual(len(resources), 2)
+        self.assertEqual(resources[0].url, "https://example.com/photo.jpg")
+        self.assertEqual(resources[1].attachment_bytes(), b"png-data")
+        self.assertEqual(resources[1].content_type, "image/png")
 
     def test_extract_body_lists_html_buttons_and_contextual_link_titles(self) -> None:
         message = EmailMessage()

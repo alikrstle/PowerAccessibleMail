@@ -2,9 +2,13 @@ from __future__ import annotations
 
 import re
 
+from .i18n_fr import FRENCH_DYNAMIC_TEMPLATES, FRENCH_TRANSLATIONS
+
 
 LANGUAGE_ARABIC = "ar"
 LANGUAGE_ENGLISH = "en"
+LANGUAGE_FRENCH = "fr"
+SUPPORTED_LANGUAGES = {LANGUAGE_ARABIC, LANGUAGE_ENGLISH, LANGUAGE_FRENCH}
 
 _language = LANGUAGE_ARABIC
 
@@ -12,6 +16,7 @@ _language = LANGUAGE_ARABIC
 ENGLISH_TRANSLATIONS: dict[str, str] = {
     "العربية": "Arabic",
     "الإنجليزية": "English",
+    "الفرنسية": "French",
     "لغة البرنامج": "Application language",
     "لغة البرنامج:": "Application language:",
     "الإعدادات": "Settings",
@@ -56,10 +61,11 @@ ENGLISH_TRANSLATIONS: dict[str, str] = {
     "نص الرسالة:": "Message text:",
     "محتوى الرسالة": "Message content",
     "مستعرض العناصر:": "Item viewer:",
-    "إجراءات الرسالة": "Message actions",
+    "إجراءات العنصر": "Item actions",
+    "يفتح أوامر المرفق أو الصورة أو الرابط المحدد مباشرة.": "Opens commands for the selected attachment, image, or link directly.",
     "مستعرض نص الرسالة. اضغط Escape للعودة إلى قائمة الرسائل.": "Message text viewer. Press Escape to return to the message list.",
     "مستعرض HTML للرسالة. استخدم أوامر قارئ الشاشة أو Tab للتنقل بين الروابط والأزرار، وEnter أو Space لفتح العنصر. اضغط Escape للعودة إلى قائمة الرسائل.": "HTML message viewer. Use screen-reader commands or Tab to move through links and buttons, then press Enter or Space to open an item. Press Escape to return to the message list.",
-    "اضغط Enter أو Space لفتح الرابط أو الزر أو فتح المرفق المحدد محليا": "Press Enter or Space to open the selected link, button, or attachment.",
+    "اضغط Enter أو Space لفتح الرابط أو الزر أو الصورة أو المرفق المحدد": "Press Enter or Space to open the selected link, button, image, or attachment.",
     "استخدم السهم للأعلى والأسفل لاختيار رسالة، واضغط Space لتبديلها بين مقروءة وغير مقروءة": "Use Up and Down Arrow to select a message. Press Space to toggle read status.",
     "استخدم الأسهم لاختيار رسالة. اضغط Control وShift وSpace لإظهار مربعات الاختيار وتفعيل التحديد المتعدد.": "Use the arrow keys to choose a message. Press Control, Shift, and Space to show check boxes and activate multiple selection.",
     "وضع التحديد المتعدد. تنقل بالأسهم واضغط Space لتحديد مربع الرسالة أو إلغاء تحديده. اضغط Control وحده لسماع العدد.": "Multiple-selection mode. Move with the arrow keys and press Space to check or uncheck the message. Press Control by itself to hear the count.",
@@ -93,7 +99,7 @@ ENGLISH_TRANSLATIONS: dict[str, str] = {
     "تعذر تحديث البرنامج": "Could not update the application",
     "فشل تنزيل التحديث.": "The update download failed.",
     "تعذر تشغيل مثبت التحديث": "Could not start the update installer",
-    "اكتمل تنزيل التحديث. سيغلق البرنامج ويبدأ التثبيت الآن.": "The update download is complete. The application will close and installation will start now.",
+    "اكتمل تنزيل التحديث والتحقق منه. سيظهر المثبت بواجهة مرئية وسيغلق البرنامج لإكمال التحديث.": "The update has been downloaded and verified. Setup will appear in a visible window, and the application will close to complete the update.",
     "جار بدء تثبيت التحديث.": "Starting update installation.",
     "تم فتح رابط تنزيل التحديث.": "The update download link was opened.",
     "إضافة حساب بريد": "Add email account",
@@ -150,6 +156,16 @@ ENGLISH_TRANSLATIONS: dict[str, str] = {
     "الموضوع:": "Subject:",
     "المحتوى:": "Body:",
     "اكتب محتوى البريد الإلكتروني هنا": "Enter the email message here.",
+    "المرفقات المضافة:": "Added attachments:",
+    "قائمة المرفقات المضافة": "Added attachments list",
+    "تعرض الملفات التي ستُرسل مع الرسالة. اضغط Delete لإزالة المرفق المحدد أو زر التطبيقات لفتح قائمة السياق.": "Lists the files that will be sent with the message. Press Delete to remove the selected attachment, or press the Application key to open its context menu.",
+    "إضافة مرفق": "Add attachment",
+    "إضافة مرفق إلى الرسالة": "Add an attachment to the message",
+    "يفتح نافذة اختيار الملفات ويمكن تحديد أكثر من ملف.": "Opens the file picker, where you can select more than one file.",
+    "اختيار مرفقات الرسالة": "Choose message attachments",
+    "إزالة المرفق المحدد": "Remove selected attachment",
+    "تمت إضافة المرفقات إلى الرسالة.": "Attachments were added to the message.",
+    "تمت إزالة المرفق من الرسالة.": "The attachment was removed from the message.",
     "إضافة حساب": "Add account",
     "إعادة تسجيل الدخول للحساب": "Sign in to account again",
     "إزالة حساب": "Remove account",
@@ -175,6 +191,25 @@ ENGLISH_TRANSLATIONS: dict[str, str] = {
     "اكتمل الحذف جزئيا": "Deletion partially completed",
     "حالة التحديد المتعدد": "Multiple-selection status",
     "حفظ المرفق": "Save attachment",
+    "فتح المرفق المحدد": "Open selected attachment",
+    "حفظ المرفق المحدد": "Save selected attachment",
+    "حفظ جميع المرفقات دفعة واحدة": "Save all attachments at once",
+    "فتح الرابط المحدد": "Open selected link",
+    "نسخ الرابط المحدد": "Copy selected link",
+    "صورة بدون وصف": "Image without description",
+    "هذه الصورة لا تحتوي على عنوان خارجي قابل للفتح.": "This image has no external address that can be opened.",
+    "فتح الصورة": "Open image",
+    "حفظ الصورة": "Save image",
+    "تعذر فتح الصورة": "Unable to open image",
+    "تعذر حفظ الصورة": "Unable to save image",
+    "تم حفظ الصورة.": "The image was saved.",
+    "هذه الصورة لا تحتوي على بيانات أو عنوان خارجي قابل للتنزيل.": "This image has no stored data or external address that can be downloaded.",
+    "العنوان المحدد لا يعيد ملف صورة.": "The selected address does not return an image file.",
+    "تعذر تنزيل الصورة المحددة.": "Unable to download the selected image.",
+    "حجم الصورة يتجاوز الحد المسموح وهو 25 ميغابايت.": "The image exceeds the 25 MB size limit.",
+    "الصورة المحددة فارغة.": "The selected image is empty.",
+    "تم نسخ الرابط إلى الحافظة.": "Link copied to the clipboard.",
+    "تعذر فتح الحافظة لنسخ الرابط.": "Unable to open the clipboard to copy the link.",
     "حفظ المرفقات": "Save attachments",
     "اختر مجلدا لحفظ المرفقات": "Choose a folder for the attachments",
     "كل الملفات (*.*)|*.*": "All files (*.*)|*.*",
@@ -365,6 +400,7 @@ ENGLISH_TRANSLATIONS: dict[str, str] = {
 
 
 _ENGLISH_TO_ARABIC = {english: arabic for arabic, english in ENGLISH_TRANSLATIONS.items()}
+_FRENCH_TO_ARABIC = {french: arabic for arabic, french in FRENCH_TRANSLATIONS.items()}
 
 _DYNAMIC_ENGLISH: tuple[tuple[re.Pattern[str], str], ...] = (
     (
@@ -419,12 +455,14 @@ _DYNAMIC_ENGLISH: tuple[tuple[re.Pattern[str], str], ...] = (
     (re.compile(r"^جار نقل (\d+) رسالة إلى سلة المحذوفات\.\.\.$"), "Moving {0} message(s) to Trash..."),
     (re.compile(r"^تم حفظ (\d+) مرفق\.$"), "Saved {0} attachment(s)."),
     (re.compile(r"^تم فتح المرفق محليا: (.+)$"), "Opened attachment locally: {0}"),
+    (re.compile(r"^تم فتح الصورة محليا: (.+)$"), "Opened image locally: {0}"),
     (re.compile(r"^لا يوجد (.+) في الرسالة الحالية\.$"), "The current message has no {0}."),
     (re.compile(r"^منفذ (.+) يجب أن يكون رقما\.$"), "The {0} port must be a number."),
     (re.compile(r"^منفذ (.+) يجب أن يكون بين 1 و 65535\.$"), "The {0} port must be between 1 and 65535."),
     (re.compile(r"^رابط (\d+): (.+)$"), "Link {0}: {1}"),
     (re.compile(r"^زر (\d+): (.+)$"), "Button {0}: {1}"),
     (re.compile(r"^مرفق (\d+): (.+)$"), "Attachment {0}: {1}"),
+    (re.compile(r"^صورة (\d+): (.+)$"), "Image {0}: {1}"),
     (re.compile(r"^تقدم استلام الرسائل: (\d+)%$"), "Message retrieval progress: {0}%"),
     (re.compile(r"^خطأ: (.+)$", re.DOTALL), "Error: {0}"),
     (re.compile(r"^تم عرض (\d+) رسالة من سلة المحذوفات\.$"), "Displayed {0} message(s) from Trash."),
@@ -448,10 +486,22 @@ _DYNAMIC_ENGLISH: tuple[tuple[re.Pattern[str], str], ...] = (
     (re.compile(r"^تعذر تحديث سلة المحذوفات من الخادم، فتم عرض (\d+) رسالة محفوظة محليا\. السبب: (.+)$", re.DOTALL), "Trash could not be refreshed from the server, so {0} locally cached message(s) were displayed. Reason: {1}"),
 )
 
+if len(FRENCH_DYNAMIC_TEMPLATES) != len(_DYNAMIC_ENGLISH):
+    raise RuntimeError("The French dynamic translation catalog is incomplete.")
+
+_DYNAMIC_FRENCH = tuple(
+    (pattern, replacement)
+    for (pattern, _english), replacement in zip(
+        _DYNAMIC_ENGLISH,
+        FRENCH_DYNAMIC_TEMPLATES,
+        strict=True,
+    )
+)
+
 
 def set_language(language: str) -> None:
     global _language
-    _language = LANGUAGE_ENGLISH if language == LANGUAGE_ENGLISH else LANGUAGE_ARABIC
+    _language = language if language in SUPPORTED_LANGUAGES else LANGUAGE_ARABIC
 
 
 def get_language() -> str:
@@ -465,13 +515,26 @@ def is_rtl() -> bool:
 def tr(text: str) -> str:
     if not isinstance(text, str) or not text:
         return text
+    arabic = text
+    if text not in ENGLISH_TRANSLATIONS:
+        arabic = _ENGLISH_TO_ARABIC.get(text, _FRENCH_TO_ARABIC.get(text, text))
     if _language == LANGUAGE_ARABIC:
-        return _ENGLISH_TO_ARABIC.get(text, text)
-    exact = ENGLISH_TRANSLATIONS.get(text)
+        return arabic
+    translations = (
+        FRENCH_TRANSLATIONS
+        if _language == LANGUAGE_FRENCH
+        else ENGLISH_TRANSLATIONS
+    )
+    exact = translations.get(arabic)
     if exact is not None:
         return exact
-    for pattern, replacement in _DYNAMIC_ENGLISH:
-        match = pattern.match(text)
+    dynamic_translations = (
+        _DYNAMIC_FRENCH
+        if _language == LANGUAGE_FRENCH
+        else _DYNAMIC_ENGLISH
+    )
+    for pattern, replacement in dynamic_translations:
+        match = pattern.match(arabic)
         if match:
             values = tuple(tr(value) for value in match.groups())
             return replacement.format(*values)
