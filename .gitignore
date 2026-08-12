@@ -1,3 +1,9 @@
 *
 !.gitignore
 !README.md
+!website/
+!website/**
+!.github/
+!.github/workflows/
+!.github/workflows/website-quality.yml
+!.github/workflows/website-deploy.yml

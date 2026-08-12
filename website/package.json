@@ -1,0 +1,32 @@
+{
+  "name": "power-accessible-mail-website",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Official bilingual website for Power Accessible Mail.",
+  "packageManager": "npm@11.16.0",
+  "engines": {
+    "node": ">=24"
+  },
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "check": "npm test && npm run check:release",
+    "check:release": "node scripts/check-release.mjs",
+    "serve": "serve public --listen 4173 --no-clipboard",
+    "preview": "serve dist --listen 4173 --no-clipboard",
+    "validate": "html-validate \"public/**/*.html\"",
+    "test:a11y": "node tests/accessibility.mjs",
+    "test:visual": "node tests/visual.mjs",
+    "test": "npm run validate && npm run build && node scripts/test.mjs"
+  },
+  "devDependencies": {
+    "axe-core": "^4.10.3",
+    "html-validate": "^9.7.1",
+    "playwright-core": "^1.54.1",
+    "serve": "^14.2.4",
+    "wrangler": "^4.121.0"
+  },
+  "allowScripts": {
+    "esbuild@0.28.1": true,
+    "workerd@1.20260804.1": true
+  }
+}

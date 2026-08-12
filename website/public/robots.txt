@@ -1,0 +1,5 @@
+User-agent: *
+Allow: /
+
+Sitemap: https://soljan-alsharq.com/sitemap.xml
+
