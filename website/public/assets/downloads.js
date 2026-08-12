@@ -1,11 +1,14 @@
+const releaseTag = "v1.2.14";
 const releaseApi =
-  "https://api.github.com/repos/alikrstle/PowerAccessibleMail/releases/latest";
+  `https://api.github.com/repos/alikrstle/PowerAccessibleMail/releases/tags/${releaseTag}`;
 
 const releaseElements = {
   version: document.querySelectorAll("[data-release-version]"),
   date: document.querySelectorAll("[data-release-date]"),
   x64: document.querySelectorAll("[data-download-x64]"),
   x64Hash: document.querySelectorAll("[data-hash-x64]"),
+  x86: document.querySelectorAll("[data-download-x86]"),
+  x86Hash: document.querySelectorAll("[data-hash-x86]"),
   page: document.querySelectorAll("[data-release-page]"),
   status: document.querySelectorAll("[data-release-status]")
 };
@@ -52,7 +55,11 @@ async function refreshRelease() {
     const release = await response.json();
     const x64 = releaseAsset(release.assets, "x64");
     const x64Hash = releaseHashAsset(release.assets, "x64");
-    if (!x64) throw new Error("The x64 release installer is unavailable.");
+    const x86 = releaseAsset(release.assets, "x86");
+    const x86Hash = releaseHashAsset(release.assets, "x86");
+    if (!release.prerelease || !x64 || !x86 || !x64Hash || !x86Hash) {
+      throw new Error("The tester pre-release assets are incomplete.");
+    }
 
     const version = release.tag_name.replace(/^v/, "");
     const published = new Date(release.published_at);
@@ -67,17 +74,21 @@ async function refreshRelease() {
     releaseElements.x64.forEach((element) => {
       element.href = x64.browser_download_url;
     });
-    if (x64Hash) {
-      releaseElements.x64Hash.forEach((element) => {
-        element.href = x64Hash.browser_download_url;
-      });
-    }
+    releaseElements.x64Hash.forEach((element) => {
+      element.href = x64Hash.browser_download_url;
+    });
+    releaseElements.x86.forEach((element) => {
+      element.href = x86.browser_download_url;
+    });
+    releaseElements.x86Hash.forEach((element) => {
+      element.href = x86Hash.browser_download_url;
+    });
     releaseElements.page.forEach((element) => {
       element.href = release.html_url;
     });
     setStatus(
-      "تم التحقق من رابط إصدار 64 بت. نسخة 32 بت متوقفة مؤقتاً للصيانة.",
-      "The 64-bit release link is confirmed. The 32-bit edition is temporarily unavailable for maintenance."
+      "تم التحقق من روابط الإصدار التجريبي لنسختي 64 بت و32 بت.",
+      "The x64 and x86 tester pre-release links are confirmed."
     );
   } catch {
     setStatus(

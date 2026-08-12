@@ -4,17 +4,18 @@
 
 لا يحتوي هذا المستودع على شيفرة البرنامج. تحفظ ملفات التثبيت والنسخ المحمولة وملفات SHA-256 في صفحة الإصدارات فقط.
 
-## تنبيه صيانة نسخة 32 بت
+## الإصدار التجريبي للمختبرين
 
-نسخة Windows ذات معمارية 32 بت متوقفة مؤقتاً للصيانة والتحقق وإعادة الاختبار. أُزيلت ملفات `win-x86` من الإصدار الحالي، ويرجى عدم استخدام أي نسخة 32 بت محفوظة سابقاً إلى أن ننشر حزمة بديلة بعد اكتمال أعمال الصيانة.
+الإصدار `1.2.14` إصدار أولي غير موقع رقمياً ومتاح للمختبرين بمعماريتي 64 بت و32 بت. قد يعرض Windows تحذير «ناشر غير معروف» أثناء التثبيت.
 
-## التنزيل المتاح
+## التنزيلات المتاحة
 
-[تنزيل مثبت 64 بت للإصدار 1.2.13](https://github.com/alikrstle/PowerAccessibleMail/releases/download/v1.2.13/PowerAccessibleMailSetup-1.2.13-win-x64-UNSIGNED.exe)
+- [تنزيل مثبت 64 بت للإصدار 1.2.14](https://github.com/alikrstle/PowerAccessibleMail/releases/download/v1.2.14/PowerAccessibleMailSetup-1.2.14-win-x64-UNSIGNED.exe)
+- [تنزيل مثبت 32 بت للإصدار 1.2.14](https://github.com/alikrstle/PowerAccessibleMail/releases/download/v1.2.14/PowerAccessibleMailSetup-1.2.14-win-x86-UNSIGNED.exe)
 
-- الإصدار الحالي: `1.2.13`.
+- الإصدار التجريبي الحالي: `1.2.14`.
 - `PowerAccessibleMailSetup-*-win-x64`: مثبت Windows إصدار 64 بت.
-- `win-x86`: غير متاح حالياً.
+- `PowerAccessibleMailSetup-*-win-x86`: مثبت Windows إصدار 32 بت.
 - الملفات التي ينتهي اسمها بـ `UNSIGNED` غير موقعة رقمياً. تحقق من بصمة SHA-256 المرفقة قبل التشغيل.
 
 المطور: صولجان الشرق  
@@ -27,17 +28,18 @@ This is the official repository for Power Accessible Mail releases and updates.
 
 The repository does not contain the application source code. Installers, portable packages, and SHA-256 manifests are available only from the Releases page.
 
-## 32-bit edition maintenance notice
+## Tester pre-release
 
-The 32-bit Windows edition is temporarily unavailable while it undergoes maintenance, verification, and retesting. The `win-x86` assets have been removed from the current release. Do not use previously saved 32-bit packages until a verified replacement is published.
+Version `1.2.14` is an unsigned pre-release for testers, available for both x64 and x86 Windows. Windows may display an “Unknown publisher” warning during installation.
 
-## Available download
+## Available downloads
 
-[Download the 1.2.13 64-bit installer](https://github.com/alikrstle/PowerAccessibleMail/releases/download/v1.2.13/PowerAccessibleMailSetup-1.2.13-win-x64-UNSIGNED.exe)
+- [Download the 1.2.14 64-bit installer](https://github.com/alikrstle/PowerAccessibleMail/releases/download/v1.2.14/PowerAccessibleMailSetup-1.2.14-win-x64-UNSIGNED.exe)
+- [Download the 1.2.14 32-bit installer](https://github.com/alikrstle/PowerAccessibleMail/releases/download/v1.2.14/PowerAccessibleMailSetup-1.2.14-win-x86-UNSIGNED.exe)
 
-- Current release: `1.2.13`.
+- Current tester pre-release: `1.2.14`.
 - `PowerAccessibleMailSetup-*-win-x64`: 64-bit Windows installer.
-- `win-x86`: currently unavailable.
+- `PowerAccessibleMailSetup-*-win-x86`: 32-bit Windows installer.
 - Files ending in `UNSIGNED` are not digitally signed. Verify them with the included SHA-256 manifest before running.
 
 Developer: Soljan.AlSharq.  
@@ -46,12 +48,12 @@ Owner: Ali Al-Amir
 ## Official website / الموقع الرسمي
 
 The source of the Soljan AlSharq website is maintained in [`website/`](website/).
-It reads the latest release from this repository and publishes the verified
-x64 installer link. Website quality checks run automatically; production
+It reads the pinned tester pre-release from this repository and publishes the
+verified x64 and x86 installer links. Website quality checks run automatically; production
 deployment to the existing Cloudflare Pages project is a manual protected
 workflow.
 
 توجد ملفات موقع صولجان الشرق في المجلد [`website/`](website/). يقرأ الموقع
-أحدث إصدار منشور في هذا المستودع ويعرض رابط نسخة 64 بت المتحقق منها. تعمل
+الإصدار التجريبي المحدد في هذا المستودع ويعرض روابط نسختي 64 بت و32 بت بعد التحقق منها. تعمل
 فحوص الجودة تلقائياً، أما النشر إلى مشروع Cloudflare Pages الإنتاجي فهو إجراء
 يدوي محمي.
