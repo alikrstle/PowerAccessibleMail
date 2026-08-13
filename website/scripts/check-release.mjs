@@ -40,14 +40,14 @@ const x86Checksums = checksumAsset("x86");
 
 if (
   release.tag_name !== releaseTag ||
-  !release.prerelease ||
+  release.draft ||
   !version ||
   !x64Installer ||
   !x86Installer ||
   !x64Checksums ||
   !x86Checksums
 ) {
-  throw new Error("The tester pre-release must provide x64 and x86 installers and SHA-256 files.");
+  throw new Error("The published release must provide x64 and x86 installers and SHA-256 files.");
 }
 
 for (const expected of [
