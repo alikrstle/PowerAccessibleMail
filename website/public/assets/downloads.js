@@ -1,4 +1,4 @@
-const releaseTag = "v1.2.14";
+const releaseTag = "v1.2.15";
 const releaseApi =
   `https://api.github.com/repos/alikrstle/PowerAccessibleMail/releases/tags/${releaseTag}`;
 
@@ -57,8 +57,8 @@ async function refreshRelease() {
     const x64Hash = releaseHashAsset(release.assets, "x64");
     const x86 = releaseAsset(release.assets, "x86");
     const x86Hash = releaseHashAsset(release.assets, "x86");
-    if (!release.prerelease || !x64 || !x86 || !x64Hash || !x86Hash) {
-      throw new Error("The tester pre-release assets are incomplete.");
+    if (release.draft || release.prerelease || !x64 || !x86 || !x64Hash || !x86Hash) {
+      throw new Error("The stable release assets are incomplete.");
     }
 
     const version = release.tag_name.replace(/^v/, "");
@@ -87,8 +87,8 @@ async function refreshRelease() {
       element.href = release.html_url;
     });
     setStatus(
-      "تم التحقق من روابط الإصدار التجريبي لنسختي 64 بت و32 بت.",
-      "The x64 and x86 tester pre-release links are confirmed."
+      "تم التحقق من روابط الإصدار المستقر لنسختي 64 بت و32 بت.",
+      "The x64 and x86 stable release links are confirmed."
     );
   } catch {
     setStatus(

@@ -1,7 +1,7 @@
 import { readFile } from "node:fs/promises";
 
 const repository = "alikrstle/PowerAccessibleMail";
-const releaseTag = "v1.2.14";
+const releaseTag = "v1.2.15";
 const apiUrl = `https://api.github.com/repos/${repository}/releases/tags/${releaseTag}`;
 const downloadsPage = await readFile(new URL("../public/downloads.html", import.meta.url), "utf8");
 
@@ -41,6 +41,7 @@ const x86Checksums = checksumAsset("x86");
 if (
   release.tag_name !== releaseTag ||
   release.draft ||
+  release.prerelease ||
   !version ||
   !x64Installer ||
   !x86Installer ||
