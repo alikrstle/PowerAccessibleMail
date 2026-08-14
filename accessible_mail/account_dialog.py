@@ -7,6 +7,7 @@ import wx
 
 from .accessibility import set_accessible
 from .config import load_oauth_clients
+from .error_logging import record_handled_exception
 from .i18n import tr
 from .models import Account
 from .oauth import (
@@ -729,6 +730,9 @@ class AccountDialog(wx.Dialog):
         if wx.IsBusy():
             wx.EndBusyCursor()
         if error is not None:
+            record_handled_exception(error, origin="OAuth account sign-in")
+            self.Raise()
+            self.RequestUserAttention(wx.USER_ATTENTION_ERROR)
             wx.MessageBox(
                 tr(str(error)),
                 tr("تعذر تسجيل الدخول"),
@@ -752,6 +756,7 @@ class AccountDialog(wx.Dialog):
         account.username = result.email_address
         account.display_name = result.display_name
         apply_provider_settings(account, result.provider_id)
+        self.Raise()
         self.EndModal(wx.ID_OK)
 
     def ask_oauth_provider(self) -> str | None:

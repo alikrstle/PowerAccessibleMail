@@ -228,7 +228,7 @@ class OAuthClientConfigTests(unittest.TestCase):
         self.assertIn("PE signature verification failed", release_build)
         self.assertIn("Portable PE signature verification failed", release_build)
         self.assertIn("Pre-release", readme)
-        self.assertIn("PowerAccessibleMailSetup-1.2.14-win-x64-UNSIGNED.exe", readme)
+        self.assertIn("PowerAccessibleMailSetup-1.2.15-win-x64-UNSIGNED.exe", readme)
 
     def test_release_pipeline_avoids_opaque_update_behavior(self) -> None:
         project_root = Path(__file__).resolve().parents[1]

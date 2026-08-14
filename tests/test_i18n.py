@@ -49,6 +49,11 @@ class TranslationTests(unittest.TestCase):
             "The update installer architecture does not match the running application.",
         )
         self.assertEqual(tr("صورة 2: Company logo"), "Image 2: Company logo")
+        self.assertEqual(tr("تواصل معنا"), "Contact us")
+        self.assertEqual(
+            tr("إرسال رسالة إلى المطور عبر PowerAccessibleMail"),
+            "Email the developer using PowerAccessibleMail",
+        )
         self.assertEqual(
             tr(
                 "المرفق invoice.exe قد يشغّل أو يحتوي على تعليمات برمجية ضارة.\n\n"
@@ -86,6 +91,7 @@ class TranslationTests(unittest.TestCase):
             ),
         )
         self.assertEqual(tr("صورة 2: Company logo"), "Image 2\xa0: Company logo")
+        self.assertEqual(tr("تواصل معنا"), "Nous contacter")
 
     def test_interface_can_switch_from_french_to_other_languages(self) -> None:
         set_language(LANGUAGE_ENGLISH)

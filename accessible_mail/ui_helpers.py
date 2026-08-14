@@ -59,12 +59,19 @@ def set_localized_items(control: wx.Choice | wx.ListBox | wx.RadioBox, labels: l
 def localize_menu_bar(menu_bar: wx.MenuBar | None) -> None:
     if not menu_bar:
         return
+
+    def localize_menu(menu: wx.Menu) -> None:
+        for item in menu.GetMenuItems():
+            if item.IsSeparator():
+                continue
+            item.SetItemLabel(tr(item.GetItemLabel()))
+            submenu = item.GetSubMenu()
+            if submenu is not None:
+                localize_menu(submenu)
+
     for menu_index in range(menu_bar.GetMenuCount()):
         menu_bar.SetMenuLabel(menu_index, tr(menu_bar.GetMenuLabel(menu_index)))
-        menu = menu_bar.GetMenu(menu_index)
-        for item in menu.GetMenuItems():
-            if not item.IsSeparator():
-                item.SetItemLabel(tr(item.GetItemLabel()))
+        localize_menu(menu_bar.GetMenu(menu_index))
 
 
 def login_background_path() -> Path | None:

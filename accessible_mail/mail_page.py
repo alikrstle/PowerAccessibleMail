@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import base64
 import html
-import mimetypes
 import os
 import time
 import urllib.parse
@@ -27,9 +26,11 @@ from .config import (
     VIEWER_HTML,
     VIEWER_SIMPLE,
 )
+from .content_security import UnsafeImageError, validate_and_scan_image
 from .email_utils import normalize_message_text, organize_message_items, safe_external_url
 from .i18n import get_language, is_rtl, tr
 from .models import LinkItem, MessageContent, MessageSummary
+from .network_security import UnsafeRemoteUrl, public_http_opener, validate_public_http_url
 from .ui_constants import (
     BULK_ACTION_DELETE,
     BULK_ACTION_MARK_READ,
@@ -1867,22 +1868,54 @@ window.addEventListener("keydown", function (event) {{
         wx.MessageBox(tr("تم حفظ الصورة."), tr("تم الحفظ"), wx.OK | wx.ICON_INFORMATION, self)
 
     def materialize_image(self, item: LinkItem) -> LinkItem:
-        if item.attachment_bytes():
+        stored_data = item.attachment_bytes()
+        if stored_data:
+            if len(stored_data) > MAX_IMAGE_DOWNLOAD_BYTES:
+                raise RuntimeError(tr("حجم الصورة يتجاوز الحد المسموح وهو 25 ميغابايت."))
+            try:
+                content_type, safe_extension = validate_and_scan_image(
+                    stored_data,
+                    item.content_type,
+                )
+            except UnsafeImageError as exc:
+                raise RuntimeError(tr(str(exc))) from exc
+            filename = item.filename or item.text or "image"
+            if Path(filename).suffix.casefold() not in {
+                safe_extension,
+                ".jpeg" if safe_extension == ".jpg" else safe_extension,
+                ".tif" if safe_extension == ".tiff" else safe_extension,
+            }:
+                filename = f"{Path(filename).stem or 'image'}{safe_extension}"
+            item.filename = filename
+            item.content_type = content_type
+            item.size = len(stored_data)
             return item
         external_url = safe_external_url(item.url)
         if not external_url or urllib.parse.urlsplit(external_url).scheme.casefold() not in {"http", "https"}:
             raise RuntimeError(tr("هذه الصورة لا تحتوي على بيانات أو عنوان خارجي قابل للتنزيل."))
+        try:
+            external_url = validate_public_http_url(external_url)
+        except UnsafeRemoteUrl as exc:
+            raise RuntimeError(tr(str(exc))) from exc
         request = urllib.request.Request(
             external_url,
             headers={"User-Agent": "Power Accessible Mail/1.2"},
         )
         try:
-            with urllib.request.urlopen(request, timeout=15) as response:
+            with public_http_opener().open(request, timeout=15) as response:
+                validate_public_http_url(response.geturl())
                 content_type = response.headers.get_content_type().casefold()
                 if not content_type.startswith("image/"):
                     raise RuntimeError(tr("العنوان المحدد لا يعيد ملف صورة."))
+                content_length = response.headers.get("Content-Length", "")
+                try:
+                    announced_size = max(0, int(content_length))
+                except (TypeError, ValueError):
+                    announced_size = 0
+                if announced_size > MAX_IMAGE_DOWNLOAD_BYTES:
+                    raise RuntimeError(tr("حجم الصورة يتجاوز الحد المسموح وهو 25 ميغابايت."))
                 data = response.read(MAX_IMAGE_DOWNLOAD_BYTES + 1)
-        except RuntimeError:
+        except (RuntimeError, UnsafeRemoteUrl):
             raise
         except Exception as exc:
             raise RuntimeError(tr("تعذر تنزيل الصورة المحددة.")) from exc
@@ -1890,11 +1923,19 @@ window.addEventListener("keydown", function (event) {{
             raise RuntimeError(tr("حجم الصورة يتجاوز الحد المسموح وهو 25 ميغابايت."))
         if not data:
             raise RuntimeError(tr("الصورة المحددة فارغة."))
+        try:
+            content_type, safe_extension = validate_and_scan_image(data, content_type)
+        except UnsafeImageError as exc:
+            raise RuntimeError(tr(str(exc))) from exc
         filename = item.filename or Path(urllib.parse.urlsplit(external_url).path).name
         if not filename:
-            filename = f"image{mimetypes.guess_extension(content_type) or ''}"
-        elif not Path(filename).suffix:
-            filename = f"{filename}{mimetypes.guess_extension(content_type) or ''}"
+            filename = f"image{safe_extension}"
+        elif Path(filename).suffix.casefold() not in {
+            safe_extension,
+            ".jpeg" if safe_extension == ".jpg" else safe_extension,
+            ".tif" if safe_extension == ".tiff" else safe_extension,
+        }:
+            filename = f"{Path(filename).stem or 'image'}{safe_extension}"
         item.filename = filename
         item.content_type = content_type
         item.size = len(data)

@@ -71,9 +71,29 @@ print(json.dumps({
         )
     }
 
-    $expectedPackages = Get-Content -LiteralPath $LockFile |
-        Where-Object { $_ -and -not $_.StartsWith("#") } |
-        Sort-Object
+    $lockHashCounts = @{}
+    $currentLockedPackage = ""
+    foreach ($rawLine in Get-Content -LiteralPath $LockFile) {
+        $line = $rawLine.Trim()
+        if ($line -match '^([A-Za-z0-9_.-]+)==([^\s\\]+)') {
+            $currentLockedPackage = "$($Matches[1])==$($Matches[2])"
+            $lockHashCounts[$currentLockedPackage] = 0
+            continue
+        }
+        if ($currentLockedPackage -and
+            $line -match '^--hash=sha256:[0-9a-fA-F]{64}(?:\s*\\)?$') {
+            $lockHashCounts[$currentLockedPackage] += 1
+        }
+    }
+    $expectedPackages = @($lockHashCounts.Keys | Sort-Object)
+    if (-not $expectedPackages) {
+        throw "requirements-release.lock does not contain any pinned packages."
+    }
+    foreach ($package in $expectedPackages) {
+        if ($lockHashCounts[$package] -lt 1) {
+            throw "The locked package $package does not have an approved SHA-256 hash."
+        }
+    }
     $actualPackages = & $PythonPath -m pip freeze |
         Where-Object { $_ -and -not $_.StartsWith("#") } |
         Sort-Object

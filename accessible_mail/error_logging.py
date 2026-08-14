@@ -75,6 +75,21 @@ def record_unhandled_exception(
     )
 
 
+def record_handled_exception(exc: BaseException, *, origin: str) -> None:
+    """Record a handled failure without storing its potentially sensitive message."""
+    frames = traceback.extract_tb(exc.__traceback__) if exc.__traceback__ else []
+    locations = " > ".join(
+        f"{Path(frame.filename).name}:{frame.lineno}:{frame.name}"
+        for frame in frames
+    )
+    logging.getLogger(LOGGER_NAME).warning(
+        "Handled %s in %s%s",
+        type(exc).__name__,
+        origin,
+        f" at {locations}" if locations else "",
+    )
+
+
 def _sys_exception_hook(
     exc_type: type[BaseException],
     exc_value: BaseException,

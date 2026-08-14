@@ -1,6 +1,6 @@
 Power Accessible Mail information
 
-Version 1.2.14
+Version 1.2.15
 Developed by Soljan.AlSharq.
 Soljan.AlSharq. is owned by Ali Al-Amir
 The x64 and x86 packages provide the same features

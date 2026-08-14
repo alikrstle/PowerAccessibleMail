@@ -1,5 +1,5 @@
 ﻿#define MyAppName "Power Accessible Mail"
-#define MyAppVersion "1.2.14"
+#define MyAppVersion "1.2.15"
 #define MyAppPublisher "Soljan.AlSharq."
 #define MyAppExeName "Power Accessible Mail.exe"
 #define MyAppIcon "assets\branding\power_accessible_mail.ico"
@@ -54,7 +54,7 @@ ArchitecturesInstallIn64BitMode=x64compatible
 #else
 ArchitecturesAllowed=x86compatible
 #endif
-VersionInfoVersion=1.2.14.0
+VersionInfoVersion=1.2.15.0
 VersionInfoCompany={#MyAppPublisher}
 VersionInfoDescription={#MyAppName} Installer
 VersionInfoProductName={#MyAppName}

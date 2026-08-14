@@ -3,6 +3,7 @@ from __future__ import annotations
 import imaplib
 import smtplib
 import threading
+import webbrowser
 from collections import OrderedDict
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
@@ -85,6 +86,12 @@ from .updater import (
     download_update_installer,
     launch_update_installer,
 )
+
+
+OFFICIAL_WEBSITE_URL = "https://soljan-alsharq.com/"
+DEVELOPER_EMAIL = "support@soljan-alsharq.com"
+TELEGRAM_CHANNEL_URL = "https://t.me/SoljanAlSharq"
+DEVELOPER_TELEGRAM_URL = "https://t.me/AliIrass"
 
 
 def call_after_if_open(
@@ -332,6 +339,21 @@ class MainFrame(wx.Frame):
         help_menu = wx.Menu()
         guide_item = help_menu.Append(wx.ID_ANY, "عرض دليل البرنامج\tF1")
         update_item = help_menu.Append(wx.ID_ANY, "تحديث البرنامج")
+        contact_menu = wx.Menu()
+        website_item = contact_menu.Append(wx.ID_ANY, "زيارة الموقع الرسمي")
+        email_developer_item = contact_menu.Append(
+            wx.ID_ANY,
+            "إرسال رسالة إلى المطور عبر PowerAccessibleMail",
+        )
+        telegram_channel_item = contact_menu.Append(
+            wx.ID_ANY,
+            "الاشتراك بقناة التليجرام للحصول على آخر المستجدات",
+        )
+        developer_telegram_item = contact_menu.Append(
+            wx.ID_ANY,
+            "التواصل مع المطور عبر تليجرام",
+        )
+        help_menu.AppendSubMenu(contact_menu, "تواصل معنا")
         menu_bar.Append(help_menu, "المساعدة")
         self.SetMenuBar(menu_bar)
 
@@ -344,6 +366,22 @@ class MainFrame(wx.Frame):
         self.Bind(wx.EVT_MENU, self.on_translate_current_message, translate_item)
         self.Bind(wx.EVT_MENU, self.on_show_guide, guide_item)
         self.Bind(wx.EVT_MENU, self.on_check_updates, update_item)
+        self.Bind(
+            wx.EVT_MENU,
+            lambda _event: self.open_contact_url(OFFICIAL_WEBSITE_URL),
+            website_item,
+        )
+        self.Bind(wx.EVT_MENU, self.on_email_developer, email_developer_item)
+        self.Bind(
+            wx.EVT_MENU,
+            lambda _event: self.open_contact_url(TELEGRAM_CHANNEL_URL),
+            telegram_channel_item,
+        )
+        self.Bind(
+            wx.EVT_MENU,
+            lambda _event: self.open_contact_url(DEVELOPER_TELEGRAM_URL),
+            developer_telegram_item,
+        )
         self.Bind(wx.EVT_MENU_OPEN, self.on_menu_open)
 
     def _create_accelerators(self) -> None:
@@ -1713,14 +1751,14 @@ class MainFrame(wx.Frame):
                 continue
             target_page.update_message_flags_by_uid(summary)
 
-    def on_compose(self, _event: wx.Event) -> None:
+    def open_compose_dialog(self, to_address: str = "") -> None:
         account = self.selected_account()
         if not account:
             wx.MessageBox("أضف حساب بريد أولا.", "لا يوجد حساب", wx.OK | wx.ICON_INFORMATION, self)
             return
         if not self.ensure_password(account):
             return
-        dialog = ComposeDialog(self)
+        dialog = ComposeDialog(self, to_address=to_address)
         if dialog.ShowModal() == wx.ID_OK:
             to_address, subject, body, attachments = dialog.values()
             self.send_message(
@@ -1732,6 +1770,25 @@ class MainFrame(wx.Frame):
                 attachments,
             )
         dialog.Destroy()
+
+    def on_compose(self, _event: wx.Event) -> None:
+        self.open_compose_dialog()
+
+    def on_email_developer(self, _event: wx.Event) -> None:
+        self.open_compose_dialog(DEVELOPER_EMAIL)
+
+    def open_contact_url(self, url: str) -> None:
+        try:
+            opened = webbrowser.open(url)
+        except Exception:
+            opened = False
+        if not opened:
+            wx.MessageBox(
+                tr("تعذر فتح رابط التواصل في المتصفح."),
+                tr("تعذر فتح الرابط"),
+                wx.OK | wx.ICON_ERROR,
+                self,
+            )
 
     def on_reply(self, _event: wx.Event | None = None) -> None:
         account = self.selected_account()

@@ -391,6 +391,33 @@ class AppBehaviorTests(unittest.TestCase):
 
         self.assertNotIn("wx.ACCEL_CTRL, wx.WXK_SPACE", source)
 
+    def test_help_menu_contains_accessible_contact_submenu(self) -> None:
+        source = inspect.getsource(MainFrame._create_menu)
+
+        self.assertIn('AppendSubMenu(contact_menu, "تواصل معنا")', source)
+        for label in (
+            "زيارة الموقع الرسمي",
+            "إرسال رسالة إلى المطور عبر PowerAccessibleMail",
+            "الاشتراك بقناة التليجرام للحصول على آخر المستجدات",
+            "التواصل مع المطور عبر تليجرام",
+        ):
+            self.assertIn(label, source)
+
+    def test_email_developer_uses_internal_composer(self) -> None:
+        frame = SimpleNamespace(open_compose_dialog=Mock())
+
+        MainFrame.on_email_developer(frame, None)
+
+        frame.open_compose_dialog.assert_called_once_with(
+            "support@soljan-alsharq.com"
+        )
+
+    @patch("accessible_mail.main_frame.webbrowser.open", return_value=True)
+    def test_contact_link_opens_in_default_browser(self, open_url: Mock) -> None:
+        MainFrame.open_contact_url(SimpleNamespace(), "https://t.me/SoljanAlSharq")
+
+        open_url.assert_called_once_with("https://t.me/SoljanAlSharq")
+
     def test_application_key_is_registered_for_context_menus(self) -> None:
         source = inspect.getsource(MainFrame._create_accelerators)
 
@@ -467,17 +494,26 @@ class AppBehaviorTests(unittest.TestCase):
         self.assertIn("صورة 1: Logo", labels[1])
         self.assertIn("صورة 2: Banner", labels[2])
 
-    @patch("accessible_mail.mail_page.urllib.request.urlopen")
-    def test_external_image_is_downloaded_only_as_a_bounded_image(self, urlopen: Mock) -> None:
+    @patch("accessible_mail.mail_page.validate_and_scan_image", return_value=("image/png", ".png"))
+    @patch("accessible_mail.mail_page.validate_public_http_url", side_effect=lambda value: value)
+    @patch("accessible_mail.mail_page.public_http_opener")
+    def test_external_image_is_downloaded_only_as_a_bounded_scanned_image(
+        self,
+        opener_factory: Mock,
+        _validate_url: Mock,
+        validate_image: Mock,
+    ) -> None:
         response = Mock()
+        response.geturl.return_value = "http://example.com/assets/logo.png"
         response.headers.get_content_type.return_value = "image/png"
+        response.headers.get.return_value = ""
         response.read.return_value = b"png-data"
         response.__enter__ = Mock(return_value=response)
         response.__exit__ = Mock(return_value=False)
-        urlopen.return_value = response
+        opener_factory.return_value.open.return_value = response
         item = LinkItem(
             "Company logo",
-            "https://example.com/assets/logo.png",
+            "http://example.com/assets/logo.png",
             kind="image",
         )
 
@@ -487,6 +523,7 @@ class AppBehaviorTests(unittest.TestCase):
         self.assertEqual(result.content_type, "image/png")
         self.assertEqual(result.attachment_bytes(), b"png-data")
         response.read.assert_called_once_with(25 * 1024 * 1024 + 1)
+        validate_image.assert_called_once_with(b"png-data", "image/png")
 
     def test_message_context_menu_excludes_item_management_and_mark_unread(self) -> None:
         source = inspect.getsource(MailPage.show_message_context_menu)

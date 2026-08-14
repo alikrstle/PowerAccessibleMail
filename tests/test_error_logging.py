@@ -57,3 +57,23 @@ class ErrorLoggingTests(unittest.TestCase):
                 self.assertNotIn(secret, content)
                 self.assertNotIn("user@example.com", content)
                 self.reset_logger()
+
+    def test_handled_exception_values_are_not_written_to_the_log(self) -> None:
+        secret = "secret-oauth-code-user@example.com"
+        with tempfile.TemporaryDirectory() as directory:
+            with mock.patch.dict(os.environ, {"APPDATA": directory}):
+                path = error_logging.configure_crash_logging()
+                try:
+                    raise RuntimeError(secret)
+                except RuntimeError as exc:
+                    error_logging.record_handled_exception(
+                        exc,
+                        origin="OAuth account sign-in",
+                    )
+                for handler in logging.getLogger(error_logging.LOGGER_NAME).handlers:
+                    handler.flush()
+                content = path.read_text(encoding="utf-8")
+                self.assertIn("Handled RuntimeError in OAuth account sign-in", content)
+                self.assertNotIn(secret, content)
+                self.assertNotIn("user@example.com", content)
+                self.reset_logger()
