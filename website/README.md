@@ -20,7 +20,7 @@ Open `http://localhost:4173`.
 The project validates the HTML, creates a production copy in `dist`, and runs
 automated accessibility checks in desktop and mobile viewports. The release
 check confirms that the saved x64 and x86 download fallbacks match the pinned
-tester pre-release in `alikrstle/PowerAccessibleMail`.
+stable release in `alikrstle/PowerAccessibleMail`.
 
 ## Publishing
 
@@ -39,8 +39,8 @@ Direct Upload project serving `soljan-alsharq.com` and
 
 The website source is maintained in the application release repository under
 `website/`. That repository also remains the source for release metadata and
-downloadable assets; `public/assets/downloads.js` reads the pinned tester
-pre-release through the GitHub API.
+downloadable assets; `public/assets/downloads.js` reads the pinned stable
+release through the GitHub API.
 
 For deployment from GitHub, add `CLOUDFLARE_API_TOKEN` and
 `CLOUDFLARE_ACCOUNT_ID` as Actions secrets. The `Deploy website` workflow is
