@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from collections.abc import Sequence
+
 import wx
 
 from .accessibility import (
@@ -20,6 +22,7 @@ from .dialogs import (
 )
 from .error_logging import record_unhandled_exception
 from .mail_page import MailPage
+from .launch_request import mailto_request_from_arguments
 from .main_frame import MainFrame
 from .ui_constants import (
     BULK_ACTION_DELETE,
@@ -107,8 +110,16 @@ class AccessibleMailApp(wx.App):
         return False
 
 
-def run() -> None:
+def run(arguments: Sequence[str] = ()) -> None:
+    mailto_request = mailto_request_from_arguments(arguments)
     app = AccessibleMailApp(False)
     frame = MainFrame()
     frame.Show()
+    if mailto_request is not None:
+        wx.CallAfter(
+            frame.open_compose_dialog,
+            mailto_request.to_address,
+            mailto_request.subject,
+            mailto_request.body,
+        )
     app.MainLoop()

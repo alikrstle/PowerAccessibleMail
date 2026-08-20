@@ -42,7 +42,7 @@ OAuth tokens are stored locally so the user does not need to sign in every time.
 
 Power Accessible Mail does not send Gmail message content, attachments, contacts, or OAuth tokens to the developer's servers.
 
-When the user explicitly requests message translation, the selected message text is sent to Google Translate only to perform that translation. Translation is optional and does not run in the background.
+When the user explicitly requests message translation, the selected message text is sent directly from the user's device to the official Google Translate service only to perform that translation. Before the first transfer, the app displays an accessible notice and provides Allow and Cancel choices. After the user chooses Allow, that choice is saved and the notice is not shown again. Translation is optional and does not run in the background. Attachments and OAuth tokens are not sent for translation.
 
 The application may contact an update manifest URL only to check whether a new version is available. That update check does not include Gmail message content.
 

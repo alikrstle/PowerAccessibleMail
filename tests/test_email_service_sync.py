@@ -394,6 +394,7 @@ class EmailServiceSyncTests(unittest.TestCase):
             flags_blob=b'1 (UID 1 FLAGS (\\Seen) INTERNALDATE "28-May-2026 10:11:12 +0300")',
             header_bytes=(
                 b"From: sender@example.com\r\n"
+                b"To: User <user@example.com>, team@example.com\r\n"
                 b"Subject: hello\r\n"
                 b"Date: Wed, 27 May 2026 10:00:00 +0000\r\n"
                 b"\r\n"
@@ -401,6 +402,7 @@ class EmailServiceSyncTests(unittest.TestCase):
         )
 
         self.assertTrue(summary.is_read)
+        self.assertEqual(summary.recipient_emails, ["user@example.com", "team@example.com"])
         self.assertGreater(summary.received_at, 0.0)
         self.assertEqual(summary.sort_timestamp, summary.received_at)
 
@@ -451,6 +453,22 @@ class EmailServiceSyncTests(unittest.TestCase):
             True,
         )
         self.assertTrue(result.summary.is_read)
+
+    def test_opening_cached_message_cleans_old_css_noise(self) -> None:
+        summary = MessageSummary(uid="1", mailbox="INBOX", is_read=True)
+        cached = MessageContent(
+            summary=summary,
+            text="body { color: red; margin: 0; }\nReadable cached message.",
+            links=[],
+        )
+        cache = Mock()
+        cache.get_content.return_value = cached
+        service = EmailService(cache=cache)
+
+        result = service.fetch_message(self.account, summary)
+
+        self.assertEqual(result.text, "Readable cached message.")
+        cache.upsert_content.assert_called_once_with(self.account, cached)
 
     def test_missing_trash_mailbox_never_permanently_deletes_message(self) -> None:
         service = FakeSyncService(message_count=1)

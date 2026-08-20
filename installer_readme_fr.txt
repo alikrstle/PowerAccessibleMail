@@ -21,6 +21,8 @@ Sélectionnez la connexion par navigateur ou la connexion manuelle puis appuyez 
 
 La connexion par navigateur ouvre la page d'autorisation officielle de Google ou Microsoft et ne demande jamais à l'application de lire le mot de passe de votre navigateur
 
+Après votre retour du navigateur, l'application affiche le résultat de la connexion dans une boîte de dialogue lisible avec les boutons Continuer et Copier. En cas d'échec, vous pouvez copier les détails de l'erreur et les envoyer au développeur ; les jetons de connexion et les secrets sont masqués avant l'affichage ou la copie
+
 La connexion manuelle commence par le choix du service de messagerie
 
 Sélectionnez Google ou Microsoft et l'application remplit les paramètres IMAP et SMTP correspondants tout en laissant les champs disponibles pour vérification
@@ -89,6 +91,8 @@ La touche Suppr demande une confirmation et indique combien de messages seront d
 
 Composer un courriel ouvre une fenêtre complète de rédaction
 
+Le programme d'installation enregistre Power Accessible Mail parmi les applications de messagerie proposées par Windows. Dans les paramètres de l'application choisissez Choisir PowerAccessibleMail comme application de messagerie par défaut puis confirmez votre choix dans les paramètres Windows. Sous Windows 11 Entrée peut ne pas ouvrir le sélecteur des applications associées ; appuyez sur Espace sur MAILTO pour l'ouvrir. Ensuite la sélection d'une adresse e-mail ou d'un lien mailto dans un navigateur ouvre la fenêtre de rédaction avec le destinataire l'objet et le contenu du lien automatiquement renseignés. L'application ne modifie jamais le choix par défaut de Windows sans votre autorisation
+
 Répondre Suivre Traduire Épingler en haut et déplacer vers la Corbeille du fournisseur sont disponibles dans le menu contextuel du message. La liste de la visionneuse des éléments n'a pas de menu contextuel et le bouton Actions de l'élément affiche directement les commandes des pièces jointes des images et des liens
 
 Utilisez Maj+F10 ou la touche Applications pour le menu contextuel du message et le bouton Actions de l'élément pour les pièces jointes les images et les liens
@@ -101,11 +105,13 @@ Dans Paramètres choisissez si la traduction remplace le contenu de la visionneu
 
 La traduction est disponible uniquement lorsque vous êtes dans la visionneuse de messages
 
-Elle nécessite une connexion Internet et envoie le texte du message sélectionné à Google Translate uniquement lorsque vous demandez sa traduction
+Elle nécessite une connexion Internet et envoie le texte du message sélectionné au service officiel Google Translate uniquement lorsque vous demandez sa traduction. Avant la première traduction, l'application explique ce transfert et propose Autoriser ou Annuler. Après avoir choisi Autoriser, votre choix est enregistré et l'avertissement ne s'affiche plus
 
 Adaptez l'application à vos préférences
 
 Paramètres permet de choisir l'arabe l'anglais ou le français la visionneuse HTML ou simple la traduction dans la page ou dans une fenêtre séparée ainsi que l'apparence claire ou sombre
+
+Vous pouvez également contrôler le nombre d'actions annoncées par la bibliothèque NVDA avec quatre niveaux : aucune certaines la plupart ou toutes. Le bouton Personnaliser et gérer l'annonce des actions à côté du niveau ouvre des catégories contenant de véritables cases à cocher Windows. Utilisez Tab pour passer de l'une à l'autre entendre son état et Espace pour le modifier puis enregistrez. Le niveau par défaut n'annonce pas les changements d'état lu ou non lu ni leur enregistrement sur le serveur sauf si l'utilisateur active cette catégorie dans la personnalisation. Les paramètres contiennent aussi Choisir PowerAccessibleMail comme application de messagerie par défaut qui ouvre la page de l'application dans les paramètres Windows ; appuyez sur Espace sur MAILTO pour ouvrir le sélecteur si Entrée ne répond pas
 
 Vos choix sont conservés pour le prochain démarrage
 
@@ -138,6 +144,8 @@ Charger des messages plus anciens récupère un lot antérieur aux messages actu
 Options et gestion des comptes ouvre les commandes permettant d'ajouter un compte de se reconnecter ou de supprimer le compte
 
 Composer un courriel ouvre la fenêtre de création d'un message
+
+Carnet d'adresses ouvre les adresses e-mail enregistrées et permet de composer modifier épingler afficher les messages associés ou supprimer une adresse
 
 Paramètres ouvre les choix concernant la langue de l'application la visionneuse de messages le mode de traduction et l'apparence
 
@@ -197,7 +205,9 @@ Pour enregistrer une seule pièce jointe ciblez-la dans la visionneuse des élé
 
 Composer un message et ajouter des pièces jointes sortantes
 
-La fenêtre de composition commence par les champs À puis Sujet et Corps sur plusieurs lignes. La liste Pièces jointes ajoutées suit le Corps et le bouton Ajouter une pièce jointe suit cette liste. La liste se trouve donc entre le contenu du message et le bouton dans l'ordre de tabulation
+La fenêtre de composition commence par À suivi du bouton Ajouter l'adresse e-mail au carnet d'adresses puis Sujet et Corps sur plusieurs lignes. Ajouter une pièce jointe suit le Corps puis viennent la liste Pièces jointes ajoutées et les boutons Envoyer et Annuler dans l'ordre de tabulation
+
+Lorsque le focus est dans À appuyez sur Flèche bas pour ouvrir les adresses enregistrées. Déplacez-vous avec les flèches et appuyez sur Entrée ou Espace pour en choisir une ; l'adresse sélectionnée remplace tout le texte du champ. Si vous appuyez sur le bouton d'ajout lorsque le champ est vide ou non valide l'application annonce le problème et ne l'enregistre pas
 
 Appuyez sur Ajouter une pièce jointe pour ouvrir le sélecteur de fichiers. Vous pouvez choisir un seul fichier ou plusieurs fichiers au cours de la même opération. Chaque fichier choisi apparaît dans la liste avec son nom et sa taille afin que vous puissiez vérifier exactement ce qui sera envoyé
 
@@ -205,9 +215,15 @@ Pour retirer un fichier ajouté par erreur ciblez-le dans la liste des pièces j
 
 Lorsque vous appuyez sur Envoyer l'application ajoute tous les fichiers encore affichés dans la liste au message MIME. Cette fonction est disponible pour les comptes Gmail API et SMTP. Le fournisseur de messagerie fixe les limites de taille du message et des pièces jointes et peut refuser un message qui dépasse la taille autorisée
 
+Utiliser le carnet d'adresses
+
+Ouvrez Carnet d'adresses depuis la liste des commandes de l'application. Une liste verticale apparaît à côté du bouton Ajouter une nouvelle adresse e-mail. Parcourez-la avec les flèches et appuyez sur Entrée ou Espace ou double-cliquez sur une adresse pour ouvrir la fenêtre de composition avec le destinataire rempli automatiquement
+
+Appuyez sur la touche Applications ou Maj+F10 sur une adresse pour ouvrir son menu contextuel. Vous pouvez modifier l'adresse e-mail ou l'épingler en haut ; pour une adresse épinglée la commande devient Désépingler l'adresse e-mail du haut. Vous pouvez aussi afficher les messages qui lui ont été envoyés et ceux reçus de cette adresse ou la supprimer. Dans la fenêtre des messages associés utilisez les flèches et appuyez sur Entrée ou Espace pour ouvrir le message sélectionné dans la fenêtre principale
+
 Menus contextuels et touche Applications
 
-La touche Applications du clavier est parfois appelée Menu ou Menu contextuel. Elle ouvre le menu contextuel du contrôle qui possède le focus. Power Accessible Mail la prend en charge dans la liste des messages la visionneuse de messages le bouton Actions de l'élément et la liste des pièces jointes sortantes. La liste de la visionneuse des éléments n'a pas de menu contextuel; appuyez sur Tab pour atteindre Actions de l'élément. Maj+F10 est équivalent lorsqu'un menu contextuel est disponible
+La touche Applications du clavier est parfois appelée Menu ou Menu contextuel. Elle ouvre le menu contextuel du contrôle qui possède le focus. Power Accessible Mail la prend en charge dans la liste des messages la visionneuse de messages le bouton Actions de l'élément la liste des pièces jointes sortantes et le carnet d'adresses. La liste de la visionneuse des éléments n'a pas de menu contextuel; appuyez sur Tab pour atteindre Actions de l'élément. Maj+F10 est équivalent lorsqu'un menu contextuel est disponible
 
 Le menu contextuel de la visionneuse de messages propose Répondre Marquer comme lu si nécessaire Suivre Traduire Épingler et Supprimer. Le bouton Actions de l'élément affiche directement les sept commandes des pièces jointes des images et des liens sans sous-menu. Pour les atteindre appuyez sur Ctrl+Entrée afin de passer à la visionneuse des éléments sélectionnez un élément puis appuyez sur Tab pour atteindre Actions de l'élément
 

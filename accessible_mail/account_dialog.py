@@ -1,11 +1,12 @@
 from __future__ import annotations
 
+import re
 import threading
 from dataclasses import replace
 
 import wx
 
-from .accessibility import set_accessible
+from .accessibility import announce_to_screen_reader, set_accessible
 from .config import load_oauth_clients
 from .error_logging import record_handled_exception
 from .i18n import tr
@@ -31,6 +32,154 @@ from .ui_helpers import (
     localize_window,
     login_background_path,
 )
+
+
+_SIGN_IN_SECRET_PATTERNS = (
+    re.compile(
+        r"(?i)([?&](?:code|access_token|refresh_token|id_token|client_secret|password)=)[^&\s]+"
+    ),
+    re.compile(
+        r"(?i)\b(access_token|refresh_token|id_token|client_secret|password|authorization)"
+        r"\b\s*[:=]\s*(?:\"[^\"]*\"|'[^']*'|[^\s&,;]+)"
+    ),
+    re.compile(r"(?i)\bBearer\s+[A-Za-z0-9._~+/=-]+"),
+)
+
+
+def sanitize_sign_in_diagnostic(message: str, *, max_length: int = 4000) -> str:
+    """Remove credentials from a sign-in error before showing or copying it."""
+    sanitized = str(message or "").strip()
+    sanitized = _SIGN_IN_SECRET_PATTERNS[2].sub("Bearer [محجوب]", sanitized)
+    sanitized = _SIGN_IN_SECRET_PATTERNS[0].sub(r"\1[محجوب]", sanitized)
+    sanitized = _SIGN_IN_SECRET_PATTERNS[1].sub(r"\1=[محجوب]", sanitized)
+    return sanitized[:max_length] or tr("حدث خطأ غير معروف أثناء تسجيل الدخول.")
+
+
+def sign_in_success_details(
+    provider_id: str,
+    email_address: str,
+    *,
+    renewed: bool = False,
+) -> str:
+    provider_name = "Google" if provider_id.startswith("google") else "Microsoft"
+    heading = (
+        tr("تم تجديد تسجيل الدخول بنجاح.")
+        if renewed
+        else tr("تم تسجيل الدخول وإضافة الحساب بنجاح.")
+    )
+    return "\n".join(
+        (
+            heading,
+            "",
+            f"{tr('الخدمة:')} {provider_name}",
+            f"{tr('الحساب:')} {email_address}",
+            "",
+            tr("اضغط استمرار للعودة إلى البرنامج، أو نسخ لنسخ هذه النتيجة."),
+        )
+    )
+
+
+def sign_in_error_details(error: Exception, provider_id: str = "") -> str:
+    provider_name = ""
+    if provider_id:
+        provider_name = "Google" if provider_id.startswith("google") else "Microsoft"
+    lines = [tr("تعذر تسجيل الدخول."), ""]
+    if provider_name:
+        lines.append(f"{tr('الخدمة:')} {provider_name}")
+    lines.extend(
+        (
+            f"{tr('نوع الخطأ:')} {type(error).__name__}",
+            f"{tr('تفاصيل الخطأ:')} {sanitize_sign_in_diagnostic(tr(str(error)))}",
+            "",
+            tr("اضغط نسخ لنسخ التفاصيل وإرسالها إلى المطور، أو استمرار للعودة."),
+        )
+    )
+    return "\n".join(lines)
+
+
+class SignInResultDialog(wx.Dialog):
+    """Accessible, copyable result shown after a browser sign-in attempt."""
+
+    def __init__(self, parent: wx.Window, title: str, details: str) -> None:
+        super().__init__(parent, title=tr(title), size=(700, 430))
+        self.details_text = details
+        panel = wx.Panel(self)
+        apply_layout_direction(panel)
+        root = wx.BoxSizer(wx.VERTICAL)
+
+        heading = wx.StaticText(panel, label=tr(title))
+        heading.SetFont(heading.GetFont().Bold())
+        root.Add(heading, 0, wx.EXPAND | wx.ALL, 12)
+
+        self.details = wx.TextCtrl(
+            panel,
+            value=details,
+            style=wx.TE_MULTILINE | wx.TE_READONLY | wx.TE_RICH2,
+        )
+        set_accessible(
+            self.details,
+            tr("تفاصيل نتيجة تسجيل الدخول"),
+            tr("استخدم الأسهم لقراءة النتيجة، ثم Tab للوصول إلى استمرار أو نسخ."),
+        )
+        self.details.SetInsertionPoint(0)
+        root.Add(self.details, 1, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM, 12)
+
+        buttons = wx.BoxSizer(wx.HORIZONTAL)
+        self.continue_button = wx.Button(panel, wx.ID_OK, label=tr("استمرار"))
+        self.copy_button = wx.Button(panel, label=tr("نسخ"))
+        set_accessible(
+            self.continue_button,
+            tr("استمرار"),
+            tr("إغلاق النتيجة والعودة إلى البرنامج"),
+        )
+        set_accessible(
+            self.copy_button,
+            tr("نسخ"),
+            tr("نسخ نتيجة تسجيل الدخول إلى الحافظة"),
+        )
+        self.continue_button.SetDefault()
+        self.copy_button.Bind(wx.EVT_BUTTON, self.on_copy)
+        buttons.Add(self.continue_button, 0, wx.RIGHT, 8)
+        buttons.Add(self.copy_button, 0)
+        root.Add(buttons, 0, wx.ALIGN_RIGHT | wx.LEFT | wx.RIGHT | wx.BOTTOM, 12)
+
+        panel.SetSizer(root)
+        outer = wx.BoxSizer(wx.VERTICAL)
+        outer.Add(panel, 1, wx.EXPAND)
+        self.SetSizer(outer)
+        self.CentreOnParent()
+        wx.CallAfter(self.details.SetFocus)
+
+    def on_copy(self, _event: wx.CommandEvent | None = None) -> None:
+        copied = False
+        if wx.TheClipboard.Open():
+            try:
+                copied = bool(wx.TheClipboard.SetData(wx.TextDataObject(self.details_text)))
+                if copied:
+                    wx.TheClipboard.Flush()
+            finally:
+                wx.TheClipboard.Close()
+        message = (
+            tr("تم نسخ نتيجة تسجيل الدخول إلى الحافظة.")
+            if copied
+            else tr("تعذر نسخ نتيجة تسجيل الدخول إلى الحافظة.")
+        )
+        announce_to_screen_reader(message)
+        if copied:
+            self.copy_button.SetLabel(tr("تم النسخ"))
+            set_accessible(self.copy_button, tr("تم النسخ"), message)
+
+
+def show_sign_in_result_dialog(
+    parent: wx.Window,
+    title: str,
+    details: str,
+) -> None:
+    dialog = SignInResultDialog(parent, title, details)
+    try:
+        dialog.ShowModal()
+    finally:
+        dialog.Destroy()
 
 
 class AccountDialog(wx.Dialog):
@@ -555,11 +704,10 @@ class AccountDialog(wx.Dialog):
             self.close_to_main_interface()
             return
         if key_code == wx.WXK_BACK:
-            if self.mode == "password":
-                focus = wx.Window.FindFocus()
-                if isinstance(focus, wx.TextCtrl):
-                    event.Skip()
-                    return
+            focus = wx.Window.FindFocus()
+            if isinstance(focus, wx.TextCtrl):
+                event.Skip()
+                return
             self.on_back()
             return
         if key_code in {wx.WXK_RETURN, wx.WXK_NUMPAD_ENTER}:
@@ -733,11 +881,10 @@ class AccountDialog(wx.Dialog):
             record_handled_exception(error, origin="OAuth account sign-in")
             self.Raise()
             self.RequestUserAttention(wx.USER_ATTENTION_ERROR)
-            wx.MessageBox(
-                tr(str(error)),
-                tr("تعذر تسجيل الدخول"),
-                wx.OK | wx.ICON_ERROR,
+            show_sign_in_result_dialog(
                 self,
+                "تعذر تسجيل الدخول",
+                sign_in_error_details(error, result.provider_id if result else ""),
             )
             return
         if result is None:
@@ -757,6 +904,11 @@ class AccountDialog(wx.Dialog):
         account.display_name = result.display_name
         apply_provider_settings(account, result.provider_id)
         self.Raise()
+        show_sign_in_result_dialog(
+            self,
+            "نجاح تسجيل الدخول",
+            sign_in_success_details(result.provider_id, result.email_address),
+        )
         self.EndModal(wx.ID_OK)
 
     def ask_oauth_provider(self) -> str | None:

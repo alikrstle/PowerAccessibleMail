@@ -1,7 +1,10 @@
 from __future__ import annotations
 
+import functools
 import ipaddress
 import socket
+import ssl
+import sys
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -9,6 +12,28 @@ import urllib.request
 
 class UnsafeRemoteUrl(ValueError):
     pass
+
+
+@functools.lru_cache(maxsize=1)
+def trusted_https_context() -> ssl.SSLContext:
+    """Build a verified TLS context that also trusts the Windows certificate store."""
+    context = ssl.create_default_context()
+    enum_certificates = getattr(ssl, "enum_certificates", None)
+    if sys.platform != "win32" or enum_certificates is None:
+        return context
+    for store_name in ("ROOT", "CA"):
+        try:
+            certificates = enum_certificates(store_name)
+        except OSError:
+            continue
+        for certificate, encoding, _trust in certificates:
+            if encoding != "x509_asn":
+                continue
+            try:
+                context.load_verify_locations(cadata=certificate)
+            except (ValueError, ssl.SSLError):
+                continue
+    return context
 
 
 def validate_public_http_url(value: object) -> str:

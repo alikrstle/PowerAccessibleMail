@@ -9,6 +9,14 @@ from unittest.mock import Mock, call, patch
 
 import wx
 
+from accessible_mail.accessibility import message_box, should_announce_status
+from accessible_mail.account_dialog import (
+    SignInResultDialog,
+    sanitize_sign_in_diagnostic,
+    sign_in_error_details,
+)
+from accessible_mail.address_book_dialog import AddressBookDialog
+from accessible_mail.dialogs import SettingsDialog, SpokenNotificationsDialog
 from accessible_mail.app import (
     AccountDialog,
     BULK_ACTION_DELETE,
@@ -24,22 +32,84 @@ from accessible_mail.app import (
     UpdateAvailableDialog,
     UpdateDownloadDialog,
     announce_to_screen_reader,
+    run,
     run_bulk_operations,
 )
 from accessible_mail.main_frame import call_after_if_open
 from accessible_mail.config import (
     LANGUAGE_ENGLISH,
+    MESSAGE_READ_MANUAL,
+    MESSAGE_READ_ON_VIEWER_ENTER,
     THEME_LIGHT,
     TRANSLATION_INLINE,
     VIEWER_HTML,
+    VIEWER_SIMPLE,
     ProgramSettings,
 )
-from accessible_mail.models import Account, LinkItem, MessageSummary
-from accessible_mail.oauth import OAuthReauthenticationRequired
+from accessible_mail.models import Account, LinkItem, MessageContent, MessageSummary
+from accessible_mail.oauth import OAuthFlowResult, OAuthReauthenticationRequired
+from accessible_mail.notification_preferences import (
+    NOTIFICATION_LEVEL_NONE,
+    preset_event_ids,
+)
 from accessible_mail.update_checker import UpdateCheckResult
 
 
 class AppBehaviorTests(unittest.TestCase):
+    @patch("accessible_mail.app.wx.CallAfter")
+    @patch("accessible_mail.app.MainFrame")
+    @patch("accessible_mail.app.AccessibleMailApp")
+    def test_mailto_launch_opens_a_prefilled_compose_window(
+        self,
+        app_class: Mock,
+        frame_class: Mock,
+        call_after: Mock,
+    ) -> None:
+        frame = frame_class.return_value
+
+        run(
+            [
+                "mailto:person@example.com?"
+                "subject=Hello&body=Message%20body"
+            ]
+        )
+
+        frame.Show.assert_called_once_with()
+        call_after.assert_called_once_with(
+            frame.open_compose_dialog,
+            "person@example.com",
+            "Hello",
+            "Message body",
+        )
+        app_class.return_value.MainLoop.assert_called_once_with()
+
+    @patch("accessible_mail.main_frame.ComposeDialog")
+    def test_compose_window_receives_all_supported_mailto_fields(
+        self,
+        dialog_class: Mock,
+    ) -> None:
+        account = Mock()
+        dialog_class.return_value.ShowModal.return_value = wx.ID_CANCEL
+        frame = SimpleNamespace(
+            selected_account=Mock(return_value=account),
+            ensure_password=Mock(return_value=True),
+        )
+
+        MainFrame.open_compose_dialog(
+            frame,
+            "person@example.com",
+            "Prefilled subject",
+            "Prefilled body",
+        )
+
+        dialog_class.assert_called_once_with(
+            frame,
+            to_address="person@example.com",
+            subject="Prefilled subject",
+            body="Prefilled body",
+        )
+        dialog_class.return_value.Destroy.assert_called_once_with()
+
     @patch("accessible_mail.main_frame.wx.CallAfter")
     def test_delayed_ui_callback_is_ignored_after_close(
         self,
@@ -110,6 +180,7 @@ class AppBehaviorTests(unittest.TestCase):
         frame = SimpleNamespace(
             current_page=lambda: page,
             can_translate_current_message=Mock(return_value=True),
+            confirm_translation_data_transfer=Mock(return_value=True),
             current_content=SimpleNamespace(summary=summary, text="Original message"),
             settings=ProgramSettings(
                 language=LANGUAGE_ENGLISH,
@@ -125,6 +196,7 @@ class AppBehaviorTests(unittest.TestCase):
         translate.assert_called_once_with("Original message", target_language=LANGUAGE_ENGLISH)
         page.set_viewer_action_ranges.assert_called_once_with("Translated message", [])
         page.set_viewer_text.assert_called_once_with("Translated message")
+        self.assertEqual(page.restore_context_focus.call_count, 2)
         frame.show_translation_dialog.assert_not_called()
 
     @patch("accessible_mail.app.wx.CallAfter", side_effect=lambda function, *args: function(*args))
@@ -152,6 +224,7 @@ class AppBehaviorTests(unittest.TestCase):
         frame = SimpleNamespace(
             current_page=lambda: page,
             can_translate_current_message=Mock(return_value=True),
+            confirm_translation_data_transfer=Mock(return_value=True),
             current_content=SimpleNamespace(
                 summary=original_summary,
                 text="Original message",
@@ -173,6 +246,65 @@ class AppBehaviorTests(unittest.TestCase):
             "اكتملت ترجمة الرسالة السابقة دون تغيير الرسالة الحالية."
         )
 
+    @patch("accessible_mail.main_frame.save_settings")
+    @patch("accessible_mail.main_frame.wx.MessageDialog")
+    def test_first_translation_consent_is_saved(
+        self,
+        dialog_class: Mock,
+        save: Mock,
+    ) -> None:
+        dialog = dialog_class.return_value
+        dialog.ShowModal.return_value = wx.ID_YES
+        settings = ProgramSettings()
+        frame = SimpleNamespace(settings=settings, SetStatusText=Mock())
+
+        accepted = MainFrame.confirm_translation_data_transfer(frame)
+
+        self.assertTrue(accepted)
+        self.assertTrue(settings.translation_data_notice_accepted)
+        dialog.SetYesNoLabels.assert_called_once_with(
+            "السماح",
+            "إلغاء",
+        )
+        dialog_style = dialog_class.call_args.args[3]
+        self.assertFalse(dialog_style & wx.NO_DEFAULT)
+        dialog.Destroy.assert_called_once_with()
+        save.assert_called_once_with(settings)
+
+    @patch("accessible_mail.main_frame.save_settings")
+    @patch("accessible_mail.main_frame.wx.MessageDialog")
+    def test_translation_consent_can_be_canceled_before_sending_text(
+        self,
+        dialog_class: Mock,
+        save: Mock,
+    ) -> None:
+        dialog = dialog_class.return_value
+        dialog.ShowModal.return_value = wx.ID_NO
+        settings = ProgramSettings()
+        frame = SimpleNamespace(settings=settings, SetStatusText=Mock())
+
+        accepted = MainFrame.confirm_translation_data_transfer(frame)
+
+        self.assertFalse(accepted)
+        self.assertFalse(settings.translation_data_notice_accepted)
+        save.assert_not_called()
+        frame.SetStatusText.assert_called_once_with(
+            "ألغيت ترجمة الرسالة قبل إرسال النص."
+        )
+        dialog.Destroy.assert_called_once_with()
+
+    @patch("accessible_mail.main_frame.wx.MessageDialog")
+    def test_saved_translation_consent_skips_the_dialog(
+        self,
+        dialog_class: Mock,
+    ) -> None:
+        frame = SimpleNamespace(
+            settings=ProgramSettings(translation_data_notice_accepted=True)
+        )
+
+        self.assertTrue(MainFrame.confirm_translation_data_transfer(frame))
+        dialog_class.assert_not_called()
+
     def test_starred_filter_remains_second(self) -> None:
         self.assertEqual(FILTER_CHOICES[1], FILTER_STARRED)
 
@@ -192,6 +324,386 @@ class AppBehaviorTests(unittest.TestCase):
         self.assertIn("}, true);", rendered)
         self.assertIn("EnableContextMenu(False)", inspect.getsource(MailPage._build))
         self.assertIn("request_html_context_menu", inspect.getsource(MailPage.on_html_context_menu))
+
+    def test_html_viewer_routes_link_activation_through_the_application(self) -> None:
+        page = SimpleNamespace(
+            theme=THEME_LIGHT,
+            message_html_content=lambda text: text,
+        )
+
+        rendered = MailPage.message_html(page, "message")
+
+        self.assertIn('document.addEventListener("click"', rendered)
+        self.assertIn('pamActionCommand("open-action", event.target)', rendered)
+        self.assertIn('document.addEventListener("contextmenu"', rendered)
+        self.assertIn('pamSend("context-menu:pointer")', rendered)
+        self.assertNotIn('pamActionCommand("context-action"', rendered)
+        self.assertIn('event.key === " "', rendered)
+        self.assertIn("!event.repeat", rendered)
+
+    def test_html_viewer_does_not_add_a_duplicate_links_and_items_section(self) -> None:
+        page = SimpleNamespace(
+            theme=THEME_LIGHT,
+            message_html_content=lambda text: text,
+        )
+
+        rendered = MailPage.message_html(page, "نص الرسالة")
+
+        self.assertNotIn('<nav class="message-actions"', rendered)
+        self.assertNotIn('id="viewer-instructions"', rendered)
+        self.assertNotIn("aria-describedby", rendered)
+        self.assertNotIn("aria-keyshortcuts", rendered)
+        self.assertNotIn("Tab وShift+Tab", rendered)
+        self.assertNotIn("اضغط Enter أو Space", rendered)
+
+    def test_html_viewer_places_only_the_item_shortcut_note_after_message(self) -> None:
+        page = SimpleNamespace(
+            theme=THEME_LIGHT,
+            message_html_content=lambda text: text,
+        )
+
+        rendered = MailPage.message_html(page, "نص الرسالة")
+
+        note = "يمكن الوصول إلى قائمة روابط وعناصر الرسالة بالضغط على Control مع Enter."
+        self.assertIn(note, rendered)
+        self.assertLess(
+            rendered.index('<div class="message-content">نص الرسالة</div>'),
+            rendered.index('<p class="items-shortcut-note">'),
+        )
+
+    def test_inline_html_link_has_program_action_without_spoken_shortcut_metadata(self) -> None:
+        item = LinkItem("الموقع", "https://example.com")
+        page = SimpleNamespace(links=[item])
+        page.html_action_items = lambda: MailPage.html_action_items(page)
+        page.html_action_index = lambda value: MailPage.html_action_index(page, value)
+
+        rendered = MailPage.message_html_action(page, "الموقع", item)
+
+        self.assertIn('data-pam-action="0"', rendered)
+        self.assertNotIn("aria-keyshortcuts", rendered)
+
+    @patch("accessible_mail.mail_page.wx.CallAfter")
+    def test_html_open_action_command_validates_index_before_dispatch(
+        self,
+        call_after: Mock,
+    ) -> None:
+        item = LinkItem("الموقع", "https://example.com")
+        page = SimpleNamespace(
+            html_action_items=lambda: [item],
+            open_html_action=Mock(),
+            schedule_html_focus_action=Mock(),
+            request_html_context_menu=Mock(),
+        )
+        page.parse_html_action_index = lambda value: MailPage.parse_html_action_index(
+            page, value
+        )
+
+        self.assertTrue(MailPage.handle_html_command(page, "open-action:0"))
+        call_after.assert_called_once_with(page.open_html_action, 0)
+
+        call_after.reset_mock()
+        self.assertFalse(MailPage.handle_html_command(page, "open-action:99"))
+        self.assertFalse(MailPage.handle_html_command(page, "open-action:not-a-number"))
+        call_after.assert_not_called()
+
+    @patch("accessible_mail.mail_page.wx.CallAfter")
+    def test_html_context_action_cannot_open_the_item_viewer_menu(
+        self,
+        call_after: Mock,
+    ) -> None:
+        item = LinkItem("الموقع", "https://example.com")
+        page = SimpleNamespace(
+            html_action_items=lambda: [item],
+            open_html_action=Mock(),
+            schedule_html_focus_action=Mock(),
+            request_html_context_menu=Mock(),
+        )
+        page.parse_html_action_index = lambda value: MailPage.parse_html_action_index(
+            page, value
+        )
+
+        self.assertFalse(MailPage.handle_html_command(page, "context-action:0"))
+
+        call_after.assert_not_called()
+
+    def test_open_html_action_uses_the_same_secure_item_handler(self) -> None:
+        item = LinkItem("الموقع", "https://example.com")
+        page = SimpleNamespace(
+            html_action_items=lambda: [item],
+            open_item=Mock(),
+        )
+
+        MailPage.open_html_action(page, 0)
+        MailPage.open_html_action(page, 3)
+
+        page.open_item.assert_called_once_with(item)
+
+    def test_item_menu_requested_from_html_is_redirected_to_message_menu(self) -> None:
+        item = LinkItem("الموقع", "https://example.com")
+        html_viewer = object()
+        link_list = object()
+        actions_button = object()
+        page = SimpleNamespace(
+            link_list=link_list,
+            actions_button=actions_button,
+            show_message_context_menu=Mock(),
+            has_translatable_content=Mock(return_value=True),
+        )
+
+        MailPage.show_item_menu(page, html_viewer, item)
+
+        page.show_message_context_menu.assert_called_once_with(html_viewer, True)
+
+    def test_message_text_urls_are_discovered_for_html_keyboard_navigation(self) -> None:
+        link_list = Mock()
+        page = SimpleNamespace(
+            links=[],
+            link_list=link_list,
+            viewer_action_ranges=[],
+            current_viewer_action_range=None,
+            resource_labels=lambda links: [item.label for item in links],
+        )
+
+        MailPage.set_links(
+            page,
+            [],
+            message_text="قم بزيارة https://example.com/help للحصول على المساعدة",
+        )
+
+        self.assertEqual(len(page.links), 1)
+        self.assertEqual(page.links[0].url, "https://example.com/help")
+        link_list.SetSelection.assert_called_once_with(0)
+
+    @patch("accessible_mail.mail_page.time.monotonic", return_value=10.0)
+    @patch("accessible_mail.mail_page.wx.CallAfter")
+    def test_html_context_menu_request_uses_current_translation_state(
+        self,
+        call_after: Mock,
+        _monotonic: Mock,
+    ) -> None:
+        html_viewer = object()
+        page = SimpleNamespace(
+            _last_context_menu_request_at=0.0,
+            html_viewer=html_viewer,
+            has_translatable_content=Mock(return_value=True),
+            show_message_context_menu=Mock(),
+        )
+
+        MailPage.request_html_context_menu(page)
+
+        call_after.assert_called_once_with(
+            page.show_message_context_menu,
+            html_viewer,
+            True,
+        )
+
+    @patch("accessible_mail.mail_page.wx.CallAfter")
+    @patch("accessible_mail.mail_page.announce_context_menu")
+    @patch("accessible_mail.mail_page.wx.Menu")
+    def test_html_context_menu_builds_and_restores_focus_without_native_menu(
+        self,
+        menu_class: Mock,
+        announce_menu: Mock,
+        call_after: Mock,
+    ) -> None:
+        summary = MessageSummary(uid="1", mailbox="INBOX")
+        menu = menu_class.return_value
+        items = [Mock() for _index in range(6)]
+        menu.Append.side_effect = items
+        html_viewer = object()
+        popup_owner = SimpleNamespace(PopupMenu=Mock())
+        page = SimpleNamespace(
+            actions_button=object(),
+            html_viewer=html_viewer,
+            multi_select_mode=False,
+            selected_summaries=lambda: [summary],
+            selected_summary=lambda: summary,
+            context_return_control=lambda control: control,
+            context_menu_popup_owner=lambda _control: popup_owner,
+            on_reply=Mock(),
+            on_toggle_star=Mock(),
+            on_toggle_read=Mock(),
+            on_translate=Mock(),
+            on_toggle_pin=Mock(),
+            on_delete=Mock(),
+            focus_message_list=Mock(),
+            focus_list_index=Mock(),
+            restore_context_focus=Mock(),
+            _translation_return_control=None,
+        )
+
+        MailPage.show_message_context_menu(page, html_viewer, True)
+
+        popup_owner.PopupMenu.assert_called_once_with(menu)
+        announce_menu.assert_called_once_with(html_viewer)
+        call_after.assert_called_once_with(page.restore_context_focus, html_viewer)
+        menu.Destroy.assert_called_once_with()
+
+    @patch("accessible_mail.mail_page.tr", side_effect=lambda value: value)
+    @patch("accessible_mail.mail_page.wx.CallAfter")
+    @patch("accessible_mail.mail_page.announce_context_menu")
+    @patch("accessible_mail.mail_page.wx.Menu")
+    def test_message_viewer_context_menu_starts_with_reply_copy_translate(
+        self,
+        menu_class: Mock,
+        _announce_menu: Mock,
+        _call_after: Mock,
+        _translate: Mock,
+    ) -> None:
+        summary = MessageSummary(uid="1", mailbox="INBOX", is_read=True)
+        menu = menu_class.return_value
+        menu.Append.side_effect = lambda *_args: Mock()
+        viewer = object()
+        page = SimpleNamespace(
+            actions_button=object(),
+            viewer=viewer,
+            html_viewer=object(),
+            list=object(),
+            viewer_text="نص الرسالة",
+            multi_select_mode=False,
+            selected_summaries=lambda: [summary],
+            selected_summary=lambda: summary,
+            context_return_control=lambda control: control,
+            context_menu_popup_owner=lambda _control: SimpleNamespace(PopupMenu=Mock()),
+            on_reply=Mock(),
+            copy_message_viewer_text=Mock(),
+            on_toggle_star=Mock(),
+            on_toggle_read=Mock(),
+            on_translate=Mock(),
+            on_toggle_pin=Mock(),
+            on_delete=Mock(),
+            focus_message_list=Mock(),
+            focus_list_index=Mock(),
+            restore_context_focus=Mock(),
+            _translation_return_control=None,
+        )
+
+        MailPage.show_message_context_menu(page, viewer, True)
+
+        labels = [call.args[1] for call in menu.Append.call_args_list]
+        self.assertEqual(labels[:3], ["رد", "نسخ", "ترجمة"])
+        self.assertNotIn("التثبيت في الأعلى", labels)
+        self.assertNotIn("إلغاء التثبيت في الأعلى", labels)
+
+    @patch("accessible_mail.mail_page.tr", side_effect=lambda value: value)
+    @patch("accessible_mail.mail_page.wx.CallAfter")
+    @patch("accessible_mail.mail_page.announce_context_menu")
+    @patch("accessible_mail.mail_page.wx.Menu")
+    def test_message_list_context_menu_hides_copy_and_translation_but_keeps_pin(
+        self,
+        menu_class: Mock,
+        _announce_menu: Mock,
+        _call_after: Mock,
+        _translate: Mock,
+    ) -> None:
+        summary = MessageSummary(uid="1", mailbox="INBOX", is_read=True)
+        menu = menu_class.return_value
+        menu.Append.side_effect = lambda *_args: Mock()
+        message_list = object()
+        page = SimpleNamespace(
+            actions_button=object(),
+            viewer=object(),
+            html_viewer=object(),
+            list=message_list,
+            viewer_text="نص الرسالة",
+            multi_select_mode=False,
+            selected_summaries=lambda: [summary],
+            selected_summary=lambda: summary,
+            context_return_control=lambda control: control,
+            context_menu_popup_owner=lambda _control: SimpleNamespace(PopupMenu=Mock()),
+            on_reply=Mock(),
+            on_toggle_star=Mock(),
+            on_toggle_read=Mock(),
+            on_translate=Mock(),
+            on_toggle_pin=Mock(),
+            on_delete=Mock(),
+            focus_message_list=Mock(),
+            focus_list_index=Mock(),
+            restore_context_focus=Mock(),
+            _translation_return_control=None,
+        )
+
+        MailPage.show_message_context_menu(page, message_list, False)
+
+        labels = [call.args[1] for call in menu.Append.call_args_list]
+        self.assertNotIn("نسخ", labels)
+        self.assertNotIn("ترجمة", labels)
+        self.assertIn("التثبيت في الأعلى", labels)
+
+    @patch("accessible_mail.mail_page.wx.TheClipboard")
+    def test_copy_from_simple_viewer_prefers_selected_text(
+        self,
+        clipboard: Mock,
+    ) -> None:
+        clipboard.Open.return_value = True
+        clipboard.SetData.return_value = True
+        viewer = SimpleNamespace(GetStringSelection=Mock(return_value="النص المحدد"))
+        page = SimpleNamespace(
+            viewer=viewer,
+            html_viewer=object(),
+            viewer_text="نص الرسالة الكامل",
+            message_viewer_copy_text=lambda control: MailPage.message_viewer_copy_text(
+                page, control
+            ),
+            set_status=Mock(),
+        )
+
+        MailPage.copy_message_viewer_text(page, viewer)
+
+        copied_data = clipboard.SetData.call_args.args[0]
+        self.assertEqual(copied_data.GetText(), "النص المحدد")
+        page.set_status.assert_called_once_with(
+            "تم نسخ النص المحدد إلى الحافظة."
+        )
+
+    @patch("accessible_mail.mail_page.wx.TheClipboard")
+    def test_copy_from_html_viewer_falls_back_to_complete_message_text(
+        self,
+        clipboard: Mock,
+    ) -> None:
+        clipboard.Open.return_value = True
+        clipboard.SetData.return_value = True
+        html_viewer = SimpleNamespace(GetSelectedText=Mock(return_value=""))
+        page = SimpleNamespace(
+            viewer=object(),
+            html_viewer=html_viewer,
+            viewer_text="نص الرسالة الكامل",
+            message_viewer_copy_text=lambda control: MailPage.message_viewer_copy_text(
+                page, control
+            ),
+            set_status=Mock(),
+        )
+
+        MailPage.copy_message_viewer_text(page, html_viewer)
+
+        copied_data = clipboard.SetData.call_args.args[0]
+        self.assertEqual(copied_data.GetText(), "نص الرسالة الكامل")
+        page.set_status.assert_called_once_with(
+            "تم نسخ نص الرسالة إلى الحافظة."
+        )
+
+    @patch("accessible_mail.mail_page.wx.TheClipboard")
+    def test_copy_message_reports_when_clipboard_cannot_be_opened(
+        self,
+        clipboard: Mock,
+    ) -> None:
+        clipboard.Open.return_value = False
+        viewer = SimpleNamespace(GetStringSelection=Mock(return_value="نص"))
+        page = SimpleNamespace(
+            viewer=viewer,
+            html_viewer=object(),
+            viewer_text="نص الرسالة",
+            message_viewer_copy_text=lambda control: MailPage.message_viewer_copy_text(
+                page, control
+            ),
+            set_status=Mock(),
+        )
+
+        MailPage.copy_message_viewer_text(page, viewer)
+
+        page.set_status.assert_called_once_with(
+            "تعذر نسخ النص إلى الحافظة."
+        )
 
     def test_rapid_list_navigation_does_not_rebuild_html_before_debounce(self) -> None:
         summary = object()
@@ -239,6 +751,25 @@ class AppBehaviorTests(unittest.TestCase):
         MailPage.set_viewer_text(page, "message")
 
         schedule_html_refresh.assert_called_once_with(focus_start=True)
+
+    @patch("accessible_mail.mail_page.wx.CallLater")
+    def test_scheduled_html_refresh_keeps_active_viewer_visible_and_focused(
+        self,
+        call_later: Mock,
+    ) -> None:
+        page = SimpleNamespace(
+            _html_focus_after_load=False,
+            _html_refresh_call=None,
+            run_scheduled_html_refresh=Mock(),
+            show_plain_viewer=Mock(),
+            viewer=SimpleNamespace(SetFocus=Mock()),
+        )
+
+        MailPage.schedule_html_refresh(page, focus_start=True)
+
+        page.show_plain_viewer.assert_not_called()
+        page.viewer.SetFocus.assert_not_called()
+        call_later.assert_called_once_with(40, page.run_scheduled_html_refresh)
 
     def test_activating_html_viewer_loads_pending_content(self) -> None:
         schedule_html_refresh = Mock()
@@ -307,6 +838,7 @@ class AppBehaviorTests(unittest.TestCase):
             _html_refresh_pending=True,
             _html_viewer_active=True,
             _html_focus_after_load=True,
+            _html_load_timeout_call=None,
             schedule_html_refresh=Mock(),
         )
 
@@ -314,6 +846,88 @@ class AppBehaviorTests(unittest.TestCase):
 
         self.assertFalse(page._html_loading)
         page.schedule_html_refresh.assert_called_once_with(focus_start=True)
+
+    @patch("accessible_mail.mail_page.LOGGER.warning")
+    @patch("accessible_mail.mail_page.wx.CallAfter", side_effect=lambda action: action())
+    def test_html_load_timeout_recovers_active_viewer_focus(
+        self,
+        _call_after: Mock,
+        warning: Mock,
+    ) -> None:
+        page = SimpleNamespace(
+            _html_load_timeout_call=object(),
+            _html_loading=True,
+            _html_refresh_pending=False,
+            _html_viewer_active=True,
+            _html_focus_after_load=True,
+            focus_html_document_start=Mock(),
+        )
+
+        MailPage.on_html_viewer_load_timeout(page)
+
+        self.assertFalse(page._html_loading)
+        self.assertFalse(page._html_focus_after_load)
+        self.assertIsNone(page._html_load_timeout_call)
+        page.focus_html_document_start.assert_called_once_with()
+        warning.assert_called_once()
+
+    def test_read_filter_selects_replacement_when_current_message_disappears(self) -> None:
+        current = MessageSummary(uid="1", mailbox="INBOX", is_read=False)
+        replacement = MessageSummary(uid="2", mailbox="INBOX", is_read=False)
+        page = SimpleNamespace(
+            messages=[current, replacement],
+            trash_messages=[],
+            visible_messages=[current, replacement],
+            message_key=lambda message: (message.mailbox, message.uid),
+            selected_message_key=lambda: ("INBOX", "1"),
+            selected_filter_key=lambda: "unread",
+            apply_filter=Mock(),
+            select_replacement_after_filter=Mock(),
+        )
+
+        def apply_filter(*, preserve_key: tuple[str, str]) -> None:
+            self.assertEqual(preserve_key, ("INBOX", "1"))
+            page.visible_messages = [replacement]
+
+        page.apply_filter.side_effect = apply_filter
+
+        MailPage.update_message_read_state(page, current, True)
+
+        self.assertTrue(current.is_read)
+        page.select_replacement_after_filter.assert_called_once_with(0)
+
+    def test_filtered_replacement_is_selected_and_loaded_explicitly(self) -> None:
+        replacement = MessageSummary(uid="2", mailbox="INBOX")
+        list_control = SimpleNamespace(
+            SetItemState=Mock(),
+            EnsureVisible=Mock(),
+        )
+        page = SimpleNamespace(
+            visible_messages=[replacement],
+            list=list_control,
+            _suppress_selection_event=False,
+            on_selected=Mock(),
+        )
+
+        MailPage.select_replacement_after_filter(page, 4)
+
+        list_control.EnsureVisible.assert_called_once_with(0)
+        page.on_selected.assert_called_once_with(page, replacement)
+        self.assertFalse(page._suppress_selection_event)
+
+    def test_empty_filtered_view_clears_stale_message_content(self) -> None:
+        page = SimpleNamespace(
+            visible_messages=[],
+            current_content_key=("INBOX", "1"),
+            set_links=Mock(),
+            set_viewer_text=Mock(),
+        )
+
+        MailPage.select_replacement_after_filter(page, 0)
+
+        page.set_links.assert_called_once_with([])
+        page.set_viewer_text.assert_called_once_with("")
+        self.assertIsNone(page.current_content_key)
 
     def test_native_html_escape_returns_to_message_list(self) -> None:
         event = SimpleNamespace(
@@ -394,7 +1008,24 @@ class AppBehaviorTests(unittest.TestCase):
     def test_help_menu_contains_accessible_contact_submenu(self) -> None:
         source = inspect.getsource(MainFrame._create_menu)
 
+        self.assertIn('help_menu.Append(wx.ID_ANY, "سياسة الخصوصية")', source)
+        self.assertIn('help_menu.Append(wx.ID_ANY, "شروط الاستخدام")', source)
+        self.assertIn("PRIVACY_POLICY_URL", source)
+        self.assertIn("TERMS_OF_USE_URL", source)
+        self.assertNotIn(
+            '"اختيار PowerAccessibleMail كتطبيق البريد الافتراضي"',
+            source,
+        )
+        self.assertNotIn("self.on_open_default_apps", source)
         self.assertIn('AppendSubMenu(contact_menu, "تواصل معنا")', source)
+        self.assertLess(
+            source.index('AppendSubMenu(contact_menu, "تواصل معنا")'),
+            source.index('help_menu.Append(wx.ID_ANY, "سياسة الخصوصية")'),
+        )
+        self.assertLess(
+            source.index('help_menu.Append(wx.ID_ANY, "سياسة الخصوصية")'),
+            source.index('help_menu.Append(wx.ID_ANY, "شروط الاستخدام")'),
+        )
         for label in (
             "زيارة الموقع الرسمي",
             "إرسال رسالة إلى المطور عبر PowerAccessibleMail",
@@ -402,6 +1033,73 @@ class AppBehaviorTests(unittest.TestCase):
             "التواصل مع المطور عبر تليجرام",
         ):
             self.assertIn(label, source)
+
+    def test_alt_menu_contains_only_general_actions_and_help(self) -> None:
+        source = inspect.getsource(MainFrame._create_menu)
+
+        self.assertEqual(source.count("menu_bar.Append("), 2)
+        self.assertIn(
+            'menu_bar.Append(general_actions_menu, "الإجراءات العامة")',
+            source,
+        )
+        self.assertIn('menu_bar.Append(help_menu, "المساعدة")', source)
+        self.assertNotIn("message_menu", source)
+        self.assertNotIn('"رد\\tCtrl+R"', source)
+        self.assertNotIn('"ترجمة الرسالة\\tCtrl+T"', source)
+
+    def test_settings_expose_notification_level_customization_and_default_mail(self) -> None:
+        build_source = inspect.getsource(SettingsDialog._build)
+        selected_source = inspect.getsource(SettingsDialog.selected_settings)
+        checklist_source = inspect.getsource(SpokenNotificationsDialog.__init__)
+
+        self.assertIn("SPOKEN_NOTIFICATION_LEVEL_CHOICES", build_source)
+        self.assertIn("self.customize_notifications_button", build_source)
+        self.assertIn('label="تخصيص نطق الإجراءات وإدارتها"', build_source)
+        self.assertIn("self.default_mail_button", build_source)
+        self.assertIn("self.on_default_mail", build_source)
+        self.assertIn("اضغط Space لفتح اختيار التطبيق", build_source)
+        self.assertIn("spoken_notification_level", selected_source)
+        self.assertIn("spoken_notification_events", selected_source)
+        self.assertIn("MESSAGE_READ_MODE_CHOICES", build_source)
+        self.assertIn("self.message_read_mode_box", build_source)
+        self.assertIn("message_read_mode", selected_source)
+        self.assertIn("wx.ListBox", checklist_source)
+        self.assertIn("wx.EVT_LISTBOX", checklist_source)
+        self.assertIn("wx.TAB_TRAVERSAL", checklist_source)
+        self.assertNotIn("wx.Simplebook", checklist_source)
+        self.assertNotIn("wx.CheckListBox", checklist_source)
+        self.assertIn('label=tr("حفظ")', checklist_source)
+
+        category_source = inspect.getsource(SpokenNotificationsDialog._show_category)
+        self.assertIn("self.category_event_ids[category_index]", category_source)
+        self.assertIn("wx.FlexGridSizer", category_source)
+        self.assertIn("cols=2", category_source)
+        self.assertIn("wx.CheckBox", category_source)
+        self.assertIn("Clear(delete_windows=True)", category_source)
+
+    def test_notification_level_choice_resets_the_custom_checklist_to_its_preset(self) -> None:
+        dialog = SimpleNamespace(
+            notification_level_box=Mock(),
+            settings=ProgramSettings(),
+            notification_event_ids={"ready"},
+            value_for_index=Mock(return_value=NOTIFICATION_LEVEL_NONE),
+        )
+
+        SettingsDialog.on_notification_level_changed(dialog, Mock())
+
+        self.assertEqual(
+            dialog.notification_event_ids,
+            preset_event_ids(NOTIFICATION_LEVEL_NONE),
+        )
+
+    def test_default_mail_button_opens_windows_settings_through_main_frame(self) -> None:
+        event = Mock()
+        parent = SimpleNamespace(on_open_default_apps=Mock())
+        dialog = SimpleNamespace(GetParent=lambda: parent)
+
+        SettingsDialog.on_default_mail(dialog, event)
+
+        parent.on_open_default_apps.assert_called_once_with(event)
 
     def test_email_developer_uses_internal_composer(self) -> None:
         frame = SimpleNamespace(open_compose_dialog=Mock())
@@ -424,15 +1122,15 @@ class AppBehaviorTests(unittest.TestCase):
         self.assertIn("wx.WXK_WINDOWS_MENU", source)
         self.assertIn("wx.WXK_MENU", source)
 
-    def test_item_viewer_has_no_context_menu(self) -> None:
+    def test_item_context_menu_is_available_only_in_item_viewer(self) -> None:
         build_source = inspect.getsource(MailPage._build)
         key_source = inspect.getsource(MailPage.on_link_key)
         accelerator_source = inspect.getsource(MainFrame.on_context_menu_accelerator)
 
-        self.assertNotIn("link_list.Bind(wx.EVT_CONTEXT_MENU", build_source)
-        self.assertNotIn("show_item_context_menu", key_source)
-        self.assertNotIn("show_item_context_menu", accelerator_source)
-        self.assertFalse(hasattr(MailPage, "show_item_context_menu"))
+        self.assertIn("link_list.Bind(wx.EVT_CONTEXT_MENU", build_source)
+        self.assertIn("self.show_item_menu(self.link_list)", key_source)
+        self.assertIn("page.show_item_menu", accelerator_source)
+        self.assertTrue(hasattr(MailPage, "on_item_context_menu"))
         self.assertFalse(hasattr(MailPage, "append_item_management_submenu"))
 
     def test_item_actions_button_has_focused_item_commands(self) -> None:
@@ -450,6 +1148,14 @@ class AppBehaviorTests(unittest.TestCase):
             self.assertIn(label, commands_source)
         self.assertIn("safe_external_url", commands_source)
         self.assertIn("save_all_attachments", commands_source)
+        self.assertLess(
+            commands_source.index("فتح الرابط المحدد"),
+            commands_source.index("فتح المرفق المحدد"),
+        )
+        self.assertLess(
+            commands_source.index("فتح المرفق المحدد"),
+            commands_source.index("فتح الصورة"),
+        )
 
     def test_item_actions_button_opens_commands_without_submenu(self) -> None:
         source = inspect.getsource(MailPage.on_actions_button)
@@ -533,12 +1239,10 @@ class AppBehaviorTests(unittest.TestCase):
         self.assertNotIn("append_item_management_submenu", source)
         self.assertNotIn('tr("حفظ المرفقات")', source)
 
-    @patch("accessible_mail.mail_page.announce_to_screen_reader")
     @patch("accessible_mail.mail_page.wx.TheClipboard")
     def test_copy_selected_link_uses_windows_clipboard(
         self,
         clipboard: Mock,
-        announce: Mock,
     ) -> None:
         clipboard.Open.return_value = True
         clipboard.SetData.return_value = True
@@ -555,10 +1259,6 @@ class AppBehaviorTests(unittest.TestCase):
         clipboard.Flush.assert_called_once_with()
         clipboard.Close.assert_called_once_with()
         page.set_status.assert_called_once_with("تم نسخ الرابط إلى الحافظة.")
-        announce.assert_called_once_with(
-            page.link_list,
-            "تم نسخ الرابط إلى الحافظة.",
-        )
 
     @patch("accessible_mail.mail_page.wx.TheClipboard")
     def test_copy_selected_link_rejects_unsafe_url(self, clipboard: Mock) -> None:
@@ -582,6 +1282,97 @@ class AppBehaviorTests(unittest.TestCase):
         self.assertLess(body_position, button_position)
         self.assertLess(button_position, list_position)
         self.assertLess(list_position, send_position)
+
+    def test_compose_dialog_places_address_book_button_after_recipient_field(self) -> None:
+        source = inspect.getsource(ComposeDialog._recipient_row)
+
+        field_position = source.index("control = wx.TextCtrl")
+        button_position = source.index("self.add_address_button = wx.Button")
+        self.assertLess(field_position, button_position)
+        self.assertIn("self.on_to_address_key", source)
+        self.assertIn("إضافة البريد الإلكتروني إلى سجل العناوين", source)
+
+    @patch("accessible_mail.dialogs.wx.MessageBox")
+    def test_compose_address_button_rejects_an_empty_recipient(
+        self,
+        message_box: Mock,
+    ) -> None:
+        recipient = Mock()
+        recipient.GetValue.return_value = ""
+        dialog = SimpleNamespace(to_address=recipient)
+
+        ComposeDialog.on_add_address(dialog, Mock())
+
+        message_box.assert_called_once()
+        self.assertIn("يرجى كتابة بريد إلكتروني أولاً", message_box.call_args.args[0])
+        recipient.SetFocus.assert_called_once_with()
+
+    @patch("accessible_mail.dialogs.announce_to_screen_reader")
+    @patch("accessible_mail.dialogs.AddressPickerDialog")
+    @patch("accessible_mail.dialogs.load_address_book")
+    def test_down_arrow_replaces_recipient_with_saved_address(
+        self,
+        load_addresses: Mock,
+        picker_class: Mock,
+        announce: Mock,
+    ) -> None:
+        load_addresses.return_value = [SimpleNamespace(email="saved@example.com")]
+        picker = picker_class.return_value
+        picker.ShowModal.return_value = wx.ID_OK
+        picker.selected_email.return_value = "saved@example.com"
+        recipient = Mock()
+        dialog = SimpleNamespace(to_address=recipient)
+        event = SimpleNamespace(GetKeyCode=lambda: wx.WXK_DOWN, Skip=Mock())
+
+        ComposeDialog.on_to_address_key(dialog, event)
+
+        recipient.SetValue.assert_called_once_with("saved@example.com")
+        recipient.SetInsertionPointEnd.assert_called_once_with()
+        recipient.SetFocus.assert_called_once_with()
+        announce.assert_called_once()
+        picker.Destroy.assert_called_once_with()
+
+    def test_address_book_is_available_in_the_command_list(self) -> None:
+        labels = MainFrame.command_labels()
+
+        self.assertEqual(labels[5], "سجل العناوين")
+        self.assertEqual(labels[6], "الإعدادات")
+
+    def test_address_context_menu_changes_pin_label_for_pinned_entries(self) -> None:
+        from accessible_mail.address_book_dialog import AddressBookDialog
+
+        source = inspect.getsource(AddressBookDialog.show_context_menu)
+
+        self.assertIn("تثبيت البريد الإلكتروني بالأعلى", source)
+        self.assertIn("إلغاء تثبيت البريد الإلكتروني من الأعلى", source)
+
+    def test_address_message_matches_include_sent_and_received(self) -> None:
+        received = MessageSummary(
+            uid="received",
+            mailbox="INBOX",
+            sender_email="friend@example.com",
+            received_at=10,
+        )
+        sent = MessageSummary(
+            uid="sent",
+            mailbox="SENT",
+            recipient_emails=["friend@example.com"],
+            received_at=20,
+        )
+        pages = {
+            "inbox": SimpleNamespace(messages=[received], trash_messages=[]),
+            "spam": SimpleNamespace(messages=[], trash_messages=[]),
+            "sent": SimpleNamespace(messages=[sent], trash_messages=[]),
+            "all": SimpleNamespace(messages=[], trash_messages=[]),
+        }
+        frame = SimpleNamespace(pages=pages)
+
+        matches = MainFrame.address_message_matches(frame, "FRIEND@example.com")
+
+        self.assertEqual(
+            [(match[1].uid, match[2]) for match in matches],
+            [("sent", "مرسلة"), ("received", "مستلمة")],
+        )
 
     def test_compose_dialog_adds_unique_existing_attachment_paths(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -609,6 +1400,59 @@ class AppBehaviorTests(unittest.TestCase):
 
         self.assertIn('<article id="message" tabindex="0"', rendered)
         self.assertNotIn('role="document"', rendered)
+
+    def test_show_content_cleans_legacy_message_text_before_display(self) -> None:
+        summary = MessageSummary(uid="message", mailbox="INBOX")
+        content = MessageContent(
+            summary=summary,
+            text="body { color: red; margin: 0; }\nReadable message.",
+            links=[],
+        )
+        page = SimpleNamespace(
+            message_key=lambda value: (value.mailbox, value.uid),
+            links=[],
+            set_links=Mock(),
+            set_viewer_action_ranges=Mock(),
+            viewer_mode=VIEWER_SIMPLE,
+            set_viewer_text=Mock(),
+            update_message_row=Mock(),
+        )
+
+        MailPage.show_content(page, content)
+
+        page.set_links.assert_called_once_with([], message_text="Readable message.")
+        page.set_viewer_action_ranges.assert_called_once_with("Readable message.", [])
+        page.set_viewer_text.assert_called_once_with("Readable message.")
+
+    def test_stale_link_range_is_relocated_after_message_cleaning(self) -> None:
+        link = LinkItem(
+            "الموقع",
+            "https://example.com",
+            activation_text="Click here",
+            activation_start=0,
+            activation_end=10,
+        )
+        page = SimpleNamespace(
+            viewer_action_ranges=[],
+            current_viewer_action_range=None,
+        )
+        page.link_has_viewer_range = lambda value, item: MailPage.link_has_viewer_range(
+            page, value, item
+        )
+        page.viewer_activation_candidates = (
+            lambda value, item: MailPage.viewer_activation_candidates(page, value, item)
+        )
+        page.find_viewer_action_range = (
+            lambda value, candidate, offsets: MailPage.find_viewer_action_range(
+                page, value, candidate, offsets
+            )
+        )
+        text = "Readable message. Click here"
+
+        MailPage.set_viewer_action_ranges(page, text, [link])
+
+        start = text.index("Click here")
+        self.assertEqual(page.viewer_action_ranges, [(start, start + 10, link)])
 
     def test_html_message_uses_the_selected_french_language(self) -> None:
         page = SimpleNamespace(
@@ -668,6 +1512,64 @@ class AppBehaviorTests(unittest.TestCase):
 
         page.focus_message_viewer.assert_called_once_with()
         event.Skip.assert_not_called()
+
+    def test_enter_from_message_list_focuses_start_of_message_viewer(self) -> None:
+        event = SimpleNamespace(
+            GetKeyCode=lambda: wx.WXK_RETURN,
+            ControlDown=lambda: False,
+            ShiftDown=lambda: False,
+            AltDown=lambda: False,
+            Skip=Mock(),
+        )
+        page = SimpleNamespace(
+            multi_select_mode=False,
+            _control_pressed_alone=False,
+            selected_summary=Mock(return_value=object()),
+            focus_message_viewer_start=Mock(),
+        )
+
+        MailPage.on_list_key(page, event)
+
+        page.focus_message_viewer_start.assert_called_once_with()
+        event.Skip.assert_not_called()
+
+    def test_plain_message_viewer_focus_starts_at_first_character(self) -> None:
+        summary = object()
+        viewer = Mock()
+        page = SimpleNamespace(
+            viewer_mode=VIEWER_SIMPLE,
+            selected_summary=Mock(return_value=summary),
+            current_content_key=("Inbox", "1"),
+            message_key=Mock(return_value=("Inbox", "1")),
+            viewer=viewer,
+            _focus_plain_start_after_content=False,
+            set_status=Mock(),
+        )
+
+        MailPage.focus_message_viewer_start(page)
+
+        viewer.SetInsertionPoint.assert_called_once_with(0)
+        viewer.ShowPosition.assert_called_once_with(0)
+        viewer.SetFocus.assert_called_once_with()
+        self.assertFalse(page._focus_plain_start_after_content)
+
+    def test_plain_message_focus_stays_at_start_when_content_finishes_loading(self) -> None:
+        viewer = Mock()
+        page = SimpleNamespace(
+            viewer_mode=VIEWER_SIMPLE,
+            viewer=viewer,
+            viewer_text="",
+            _focus_plain_start_after_content=True,
+            show_plain_viewer=Mock(),
+        )
+
+        MailPage.set_viewer_text(page, "Message body")
+
+        viewer.ChangeValue.assert_called_once_with("Message body")
+        viewer.SetInsertionPoint.assert_called_once_with(0)
+        viewer.ShowPosition.assert_called_once_with(0)
+        viewer.SetFocus.assert_called_once_with()
+        self.assertFalse(page._focus_plain_start_after_content)
 
     def test_message_list_uses_native_multiple_selection(self) -> None:
         source = inspect.getsource(MailPage._build)
@@ -1036,6 +1938,124 @@ class AppBehaviorTests(unittest.TestCase):
         page.deactivate_html_viewer.assert_called_once_with()
         event.Skip.assert_called_once_with()
 
+    def test_manual_read_mode_does_not_mark_message_on_viewer_focus(self) -> None:
+        summary = MessageSummary(uid="1", mailbox="INBOX", is_read=False)
+        page = SimpleNamespace(
+            message_read_mode=MESSAGE_READ_MANUAL,
+            selected_summary=lambda: summary,
+            on_viewer_enter=Mock(),
+        )
+
+        MailPage.notify_message_viewer_entered(page)
+
+        page.on_viewer_enter.assert_not_called()
+
+    def test_automatic_read_mode_marks_loaded_message_on_viewer_focus(self) -> None:
+        summary = MessageSummary(uid="1", mailbox="INBOX", is_read=False)
+        page = SimpleNamespace(
+            message_read_mode=MESSAGE_READ_ON_VIEWER_ENTER,
+            selected_summary=lambda: summary,
+            message_key=lambda value: (value.mailbox, value.uid),
+            current_content_key=("INBOX", "1"),
+            _pending_auto_read_key=None,
+            on_viewer_enter=Mock(),
+        )
+
+        MailPage.notify_message_viewer_entered(page)
+
+        page.on_viewer_enter.assert_called_once_with(page, summary)
+        self.assertIsNone(page._pending_auto_read_key)
+
+    def test_automatic_read_waits_until_full_message_has_loaded(self) -> None:
+        summary = MessageSummary(uid="1", mailbox="INBOX", is_read=False)
+        page = SimpleNamespace(
+            message_read_mode=MESSAGE_READ_ON_VIEWER_ENTER,
+            selected_summary=lambda: summary,
+            message_key=lambda value: (value.mailbox, value.uid),
+            current_content_key=None,
+            _pending_auto_read_key=None,
+            on_viewer_enter=Mock(),
+        )
+
+        MailPage.notify_message_viewer_entered(page)
+        self.assertEqual(page._pending_auto_read_key, ("INBOX", "1"))
+        page.on_viewer_enter.assert_not_called()
+
+        page.current_content_key = ("INBOX", "1")
+        MailPage.complete_pending_auto_read(page, summary)
+
+        page.on_viewer_enter.assert_called_once_with(page, summary)
+
+    def test_automatic_read_keeps_unread_filter_message_open_until_list_return(self) -> None:
+        summary = MessageSummary(uid="1", mailbox="INBOX", is_read=False)
+        list_control = SimpleNamespace(SetItem=Mock())
+        page = SimpleNamespace(
+            messages=[summary],
+            trash_messages=[],
+            visible_messages=[summary],
+            list=list_control,
+            message_key=lambda value: (value.mailbox, value.uid),
+            selected_message_key=lambda: ("INBOX", "1"),
+            selected_filter_key=lambda: "unread",
+            apply_filter=Mock(),
+            _deferred_filter_refresh=False,
+        )
+
+        MailPage.update_message_read_state(
+            page,
+            summary,
+            True,
+            preserve_open_message=True,
+        )
+
+        self.assertTrue(summary.is_read)
+        self.assertTrue(page._deferred_filter_refresh)
+        self.assertEqual(page._deferred_filter_previous_index, 0)
+        page.apply_filter.assert_not_called()
+        list_control.SetItem.assert_called_once_with(0, 0, summary.status_label)
+
+    def test_returning_to_unread_list_refreshes_filter_and_selects_replacement(self) -> None:
+        current = MessageSummary(uid="1", mailbox="INBOX", is_read=True)
+        replacement = MessageSummary(uid="2", mailbox="INBOX", is_read=False)
+        event = SimpleNamespace(Skip=Mock())
+        page = SimpleNamespace(
+            _deferred_filter_refresh=True,
+            _deferred_filter_previous_index=1,
+            visible_messages=[current, replacement],
+            deactivate_html_viewer=Mock(),
+            selected_summary=lambda: current,
+            message_key=lambda value: (value.mailbox, value.uid),
+            apply_filter=Mock(),
+            select_replacement_after_filter=Mock(),
+        )
+
+        def refresh(*, preserve_key: tuple[str, str]) -> None:
+            self.assertEqual(preserve_key, ("INBOX", "1"))
+            page.visible_messages = [replacement]
+
+        page.apply_filter.side_effect = refresh
+
+        MailPage.on_message_list_focus(page, event)
+
+        page.select_replacement_after_filter.assert_called_once_with(1)
+        event.Skip.assert_called_once_with()
+
+    def test_viewer_enter_marks_only_unread_messages(self) -> None:
+        unread = MessageSummary(uid="1", mailbox="INBOX", is_read=False)
+        read = MessageSummary(uid="2", mailbox="INBOX", is_read=True)
+        page = object()
+        frame = SimpleNamespace(set_message_read_state=Mock())
+
+        MainFrame.on_message_viewer_enter(frame, page, unread)
+        MainFrame.on_message_viewer_enter(frame, page, read)
+
+        frame.set_message_read_state.assert_called_once_with(
+            page,
+            unread,
+            True,
+            preserve_open_message=True,
+        )
+
     def test_deactivated_html_viewer_returns_to_plain_preview(self) -> None:
         page = SimpleNamespace(
             _html_viewer_active=True,
@@ -1127,6 +2147,32 @@ class AppBehaviorTests(unittest.TestCase):
         )
         self.assertNotIn("FullSetup", installer)
         self.assertNotIn("GmailApiLimited", installer)
+
+    def test_installer_registers_power_accessible_mail_as_a_mailto_handler(self) -> None:
+        project_root = Path(__file__).resolve().parents[1]
+        installer = (project_root / "installer_power_accessible_mail.iss").read_text(
+            encoding="utf-8-sig"
+        )
+
+        self.assertIn("[Registry]", installer)
+        self.assertIn("Software\\RegisteredApplications", installer)
+        self.assertIn("Software\\Clients\\Mail\\PowerAccessibleMail", installer)
+        self.assertIn(
+            'Subkey: "Software\\RegisteredApplications"; ValueType: string; ValueName: "{#MyAppName}"',
+            installer,
+        )
+        self.assertIn("Software\\Clients\\Mail\\PowerAccessibleMail\\Capabilities\\Startmenu", installer)
+        self.assertIn('ValueName: "mailto"; ValueData: "PowerAccessibleMail.mailto"', installer)
+        self.assertIn("Software\\Classes\\PowerAccessibleMail.mailto", installer)
+        self.assertIn("Software\\Classes\\mailto\\OpenWithProgids", installer)
+        self.assertIn("ChangesAssociations=yes", installer)
+        self.assertIn('ValueName: "FriendlyTypeName"', installer)
+        self.assertIn('ValueName: "ApplicationName"; ValueData: "{#MyAppName}"', installer)
+        self.assertIn('""%1""', installer)
+        self.assertIn(
+            'Filename: "ms-settings:defaultapps?registeredAppUser=Power%20Accessible%20Mail"',
+            installer,
+        )
 
     def test_installer_navigation_buttons_use_native_localized_captions(self) -> None:
         project_root = Path(__file__).resolve().parents[1]
@@ -1239,6 +2285,119 @@ class AppBehaviorTests(unittest.TestCase):
         oauth_flow.assert_not_called()
         self.assertTrue(dialog._oauth_login_active)
 
+    def test_sign_in_diagnostic_redacts_oauth_secrets(self) -> None:
+        diagnostic = sanitize_sign_in_diagnostic(
+            "request failed?code=secret-code&state=ok "
+            "access_token=secret-access refresh_token: secret-refresh "
+            "Authorization: Bearer secret-bearer"
+        )
+
+        self.assertNotIn("secret-code", diagnostic)
+        self.assertNotIn("secret-access", diagnostic)
+        self.assertNotIn("secret-refresh", diagnostic)
+        self.assertNotIn("secret-bearer", diagnostic)
+        self.assertIn("[محجوب]", diagnostic)
+
+    def test_sign_in_error_details_are_copyable_without_credentials(self) -> None:
+        details = sign_in_error_details(
+            RuntimeError("invalid_grant access_token=do-not-copy"),
+            "google_gmail_api",
+        )
+
+        self.assertIn("RuntimeError", details)
+        self.assertIn("invalid_grant", details)
+        self.assertIn("Google", details)
+        self.assertNotIn("do-not-copy", details)
+
+    @patch("accessible_mail.account_dialog.set_accessible")
+    @patch("accessible_mail.account_dialog.announce_to_screen_reader")
+    @patch("accessible_mail.account_dialog.wx.TheClipboard")
+    def test_sign_in_result_copy_button_keeps_dialog_open(
+        self,
+        clipboard: Mock,
+        announce: Mock,
+        _set_accessible: Mock,
+    ) -> None:
+        clipboard.Open.return_value = True
+        clipboard.SetData.return_value = True
+        dialog = SimpleNamespace(
+            details_text="copyable diagnostic",
+            copy_button=SimpleNamespace(SetLabel=Mock()),
+        )
+
+        SignInResultDialog.on_copy(dialog)
+
+        copied_data = clipboard.SetData.call_args.args[0]
+        self.assertEqual(copied_data.GetText(), "copyable diagnostic")
+        clipboard.Flush.assert_called_once_with()
+        clipboard.Close.assert_called_once_with()
+        announce.assert_called_once_with("تم نسخ نتيجة تسجيل الدخول إلى الحافظة.")
+        dialog.copy_button.SetLabel.assert_called_once_with("تم النسخ")
+
+    @patch("accessible_mail.account_dialog.show_sign_in_result_dialog")
+    @patch("accessible_mail.account_dialog.apply_provider_settings")
+    @patch("accessible_mail.account_dialog.wx.IsBusy", return_value=False)
+    def test_oauth_success_shows_copyable_result_before_closing_login(
+        self,
+        _is_busy: Mock,
+        _apply_provider: Mock,
+        show_result: Mock,
+    ) -> None:
+        result = OAuthFlowResult(
+            provider_id="google_gmail_api",
+            email_address="person@example.com",
+            display_name="Person",
+            access_token="access-secret",
+            refresh_token="refresh-secret",
+            expires_at=12345.0,
+        )
+        dialog = SimpleNamespace(
+            _oauth_login_generation=4,
+            _oauth_login_active=True,
+            _oauth_cancel_event=object(),
+            account=Account(),
+            Raise=Mock(),
+            RequestUserAttention=Mock(),
+            EndModal=Mock(),
+        )
+
+        AccountDialog.finish_oauth_login(
+            dialog,
+            4,
+            "client-id",
+            "client-secret",
+            result,
+            None,
+        )
+
+        show_result.assert_called_once()
+        title = show_result.call_args.args[1]
+        details = show_result.call_args.args[2]
+        self.assertEqual(title, "نجاح تسجيل الدخول")
+        self.assertIn("person@example.com", details)
+        self.assertNotIn("access-secret", details)
+        self.assertNotIn("refresh-secret", details)
+        dialog.EndModal.assert_called_once_with(wx.ID_OK)
+
+    @patch("accessible_mail.main_frame.wx.MessageBox")
+    def test_handled_worker_error_does_not_show_a_second_error_dialog(
+        self,
+        message_box: Mock,
+    ) -> None:
+        failed = Mock(return_value=True)
+        frame = SimpleNamespace(
+            _active_worker_count=1,
+            set_busy=Mock(),
+            SetStatusText=Mock(),
+            reset_transfer_progress=Mock(),
+        )
+
+        MainFrame.on_worker_error(frame, RuntimeError("sign-in failed"), failed)
+
+        failed.assert_called_once()
+        frame.reset_transfer_progress.assert_called_once_with()
+        message_box.assert_not_called()
+
     @patch(
         "accessible_mail.account_dialog.google_provider_id",
         return_value="google_gmail_api",
@@ -1329,14 +2488,12 @@ class AppBehaviorTests(unittest.TestCase):
         )
 
     @patch("accessible_mail.app.wx.CallLater")
-    @patch("accessible_mail.main_frame.announce_to_screen_reader")
     @patch("accessible_mail.main_frame.restore_control_focus")
     @patch("accessible_mail.main_frame.focused_control", return_value=None)
     def test_in_app_notification_uses_interrupting_screen_reader_path(
         self,
         _focused_control: Mock,
         restore_focus: Mock,
-        announce: Mock,
         call_later: Mock,
     ) -> None:
         frame = SimpleNamespace(
@@ -1357,12 +2514,72 @@ class AppBehaviorTests(unittest.TestCase):
             "تم التفعيل",
             wx.ICON_INFORMATION,
         )
-        announce.assert_called_once_with(
-            frame.notification_bar,
-            "تم التفعيل",
-        )
+        frame.SetStatusText.assert_called_once_with("تم التفعيل")
         restore_focus.assert_called_once_with(None)
         call_later.assert_called_once_with(8000, frame.dismiss_notification)
+
+    def test_every_status_message_routes_through_nvda(self) -> None:
+        source = inspect.getsource(MainFrame.SetStatusText)
+
+        self.assertIn("announce_to_screen_reader", source)
+        self.assertIn("should_announce_status", source)
+        self.assertIn("GetStatusBar", source)
+
+    def test_obvious_or_repetitive_statuses_are_not_announced(self) -> None:
+        for message in (
+            "جاهز",
+            "جار تحميل الرسالة...",
+            "تم تحميل الرسالة.",
+            "مستعرض العناصر.",
+            "مستعرض الرسالة.",
+            "قائمة الرسائل.",
+            "جار استلام الرسائل (45%).",
+        ):
+            with self.subTest(message=message):
+                self.assertFalse(should_announce_status(message))
+
+    def test_meaningful_action_statuses_are_announced(self) -> None:
+        for message in (
+            "تم تثبيت البريد الإلكتروني بالأعلى.",
+            "تم حذف عنوان البريد الإلكتروني.",
+            "تم إرسال الرسالة.",
+            "تعذر فتح الرابط في المتصفح الافتراضي.",
+        ):
+            with self.subTest(message=message):
+                self.assertTrue(should_announce_status(message))
+
+    def test_all_popup_context_menus_announce_opening_through_nvda(self) -> None:
+        sources = (
+            inspect.getsource(MainFrame.on_account_options),
+            inspect.getsource(ComposeDialog.show_attachment_context_menu),
+            inspect.getsource(AddressBookDialog.show_context_menu),
+            inspect.getsource(MailPage.show_item_menu),
+            inspect.getsource(MailPage.show_message_context_menu),
+            inspect.getsource(MailPage.show_multi_message_context_menu),
+        )
+
+        for source in sources:
+            self.assertIn("announce_context_menu", source)
+
+    @patch("accessible_mail.accessibility.tr", side_effect=lambda value: value)
+    @patch("accessible_mail.accessibility._native_message_box", return_value=wx.ID_OK)
+    @patch("accessible_mail.accessibility.interrupt_and_speak", return_value=True)
+    def test_message_boxes_are_passed_to_nvda_controller(
+        self,
+        speak: Mock,
+        native_message_box: Mock,
+        _translate: Mock,
+    ) -> None:
+        result = message_box("اكتملت العملية.", "نجاح")
+
+        self.assertEqual(result, wx.ID_OK)
+        speak.assert_called_once_with("اكتملت العملية.")
+        native_message_box.assert_called_once_with(
+            "اكتملت العملية.",
+            "نجاح",
+            wx.OK,
+            None,
+        )
 
     def test_both_builds_bundle_the_nvda_controller_client(self) -> None:
         project_root = Path(__file__).resolve().parents[1]
@@ -1530,7 +2747,8 @@ class AppBehaviorTests(unittest.TestCase):
         dialog.close_to_main_interface.assert_called_once_with()
         event.Skip.assert_not_called()
 
-    def test_backspace_returns_to_previous_account_view(self) -> None:
+    @patch("accessible_mail.account_dialog.wx.Window.FindFocus", return_value=None)
+    def test_backspace_returns_to_previous_account_view(self, _find_focus: Mock) -> None:
         event = SimpleNamespace(GetKeyCode=lambda: wx.WXK_BACK, Skip=Mock())
         dialog = SimpleNamespace(mode="oauth2", on_back=Mock())
 
@@ -1538,6 +2756,26 @@ class AppBehaviorTests(unittest.TestCase):
 
         dialog.on_back.assert_called_once_with()
         event.Skip.assert_not_called()
+
+    def test_backspace_edits_email_field_on_first_run_instead_of_leaving(self) -> None:
+        class FakeTextCtrl:
+            pass
+
+        focus = FakeTextCtrl()
+        event = SimpleNamespace(GetKeyCode=lambda: wx.WXK_BACK, Skip=Mock())
+        dialog = SimpleNamespace(mode="startup", on_back=Mock())
+
+        with (
+            patch("accessible_mail.account_dialog.wx.TextCtrl", FakeTextCtrl),
+            patch(
+                "accessible_mail.account_dialog.wx.Window.FindFocus",
+                return_value=focus,
+            ),
+        ):
+            AccountDialog.on_dialog_key(dialog, event)
+
+        event.Skip.assert_called_once_with()
+        dialog.on_back.assert_not_called()
 
     @patch("accessible_mail.app.wx.CallAfter", side_effect=lambda function, *args: function(*args))
     @patch("accessible_mail.main_frame.AccountDialog")
@@ -1697,11 +2935,13 @@ class AppBehaviorTests(unittest.TestCase):
         self.assertTrue(dialog.smtp_starttls.value)
 
     def test_manual_provider_choice_fills_google_servers(self) -> None:
-        text_control = lambda: SimpleNamespace(
-            value="",
-            GetValue=lambda: "",
-            SetValue=Mock(),
-        )
+        def text_control() -> SimpleNamespace:
+            return SimpleNamespace(
+                value="",
+                GetValue=lambda: "",
+                SetValue=Mock(),
+            )
+
         dialog = SimpleNamespace(
             selected_manual_provider_id=lambda: MANUAL_PROVIDER_GOOGLE,
             imap_server=text_control(),
@@ -1854,6 +3094,7 @@ class AppBehaviorTests(unittest.TestCase):
             SetStatusText=Mock(),
             refresh_all=Mock(),
             show_notification=Mock(),
+            show_sign_in_result=Mock(),
         )
 
         MainFrame.on_reauthenticate_account(frame)
@@ -1869,4 +3110,10 @@ class AppBehaviorTests(unittest.TestCase):
         self.assertEqual(account.email_address, "new@example.com")
         self.assertFalse(frame.content_cache)
         save.assert_called_once_with(frame.accounts)
+        frame.show_sign_in_result.assert_called_once()
+        result_title, result_details = frame.show_sign_in_result.call_args.args
+        self.assertEqual(result_title, "نجاح تسجيل الدخول")
+        self.assertIn("new@example.com", result_details)
+        self.assertNotIn("new-access", result_details)
+        self.assertNotIn("new-refresh", result_details)
         frame.refresh_all.assert_called_once_with()

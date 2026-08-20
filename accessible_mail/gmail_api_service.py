@@ -11,19 +11,18 @@ import urllib.request
 from collections.abc import Callable, Sequence
 from concurrent.futures import ThreadPoolExecutor
 from email.message import Message
-from email.utils import parseaddr
+from email.utils import getaddresses, parseaddr
 from pathlib import Path
 from typing import Any
 
 from .email_service import MailError, MailSyncResult
 from .email_utils import (
+    clean_message_text_for_display,
     header_to_text,
     html_to_text_and_links,
     is_plain_text_placeholder,
     looks_like_visual_markup_dump,
-    normalize_message_text,
     organize_message_items,
-    strip_html_client_warning,
 )
 from .message_builder import build_outgoing_message
 from .models import Account, LinkItem, MessageContent, MessageSummary
@@ -32,7 +31,7 @@ from .secure_store import MessageCache
 
 
 GMAIL_API_BASE = "https://gmail.googleapis.com/gmail/v1/users/me"
-GMAIL_METADATA_HEADERS = ("From", "Subject", "Date", "Message-ID", "References", "In-Reply-To")
+GMAIL_METADATA_HEADERS = ("From", "To", "Subject", "Date", "Message-ID", "References", "In-Reply-To")
 GMAIL_READ_RETRY_DELAYS = (0.35, 0.9)
 GMAIL_TRANSIENT_HTTP_CODES = {429, 500, 502, 503, 504}
 GMAIL_CACHED_METADATA_REFRESH_COUNT = 8
@@ -108,7 +107,7 @@ class GmailApiService:
     ) -> MessageContent:
         cached = self.cache.get_content(account.id, summary.mailbox, summary.uid)
         if cached:
-            cleaned_cached_text = strip_html_client_warning(cached.text)
+            cleaned_cached_text = clean_message_text_for_display(cached.text)
             if cleaned_cached_text != cached.text:
                 cached.text = cleaned_cached_text or "لا يوجد نص قابل للعرض داخل هذه الرسالة."
                 self.cache.upsert_content(account, cached)
@@ -400,6 +399,11 @@ class GmailApiService:
         headers = self._headers_from_payload(message.get("payload", {}))
         sender = header_to_text(headers.get("from", ""))
         sender_name, sender_email = parseaddr(sender)
+        recipients = [
+            address
+            for _name, address in getaddresses([header_to_text(headers.get("to", ""))])
+            if address
+        ]
         date_text = header_to_text(headers.get("date", ""))
         received_at = self._internal_date_timestamp(message)
         return MessageSummary(
@@ -407,6 +411,7 @@ class GmailApiService:
             mailbox=mailbox,
             sender=sender_name or sender_email or sender,
             sender_email=sender_email,
+            recipient_emails=recipients,
             subject=header_to_text(headers.get("subject", "")),
             date=date_text,
             received_at=received_at,
@@ -428,8 +433,9 @@ class GmailApiService:
         html_parts: list[str] = []
         attachments: list[LinkItem] = []
         self._collect_payload_parts(account, summary.uid, message.get("payload", {}), text_parts, html_parts, attachments)
-        raw_plain_text = normalize_message_text("\n".join(part.strip() for part in text_parts if part.strip()))
-        plain_text = strip_html_client_warning(raw_plain_text)
+        raw_plain_text = "\n".join(part.strip() for part in text_parts if part.strip())
+        plain_text_has_visual_noise = looks_like_visual_markup_dump(raw_plain_text)
+        plain_text = clean_message_text_for_display(raw_plain_text)
         text = plain_text
         html_links: list[LinkItem] = []
         html_text = ""
@@ -437,7 +443,7 @@ class GmailApiService:
             html_text, html_links = html_to_text_and_links("\n".join(html_parts))
         if html_parts and (
             not plain_text
-            or looks_like_visual_markup_dump(plain_text)
+            or plain_text_has_visual_noise
             or is_plain_text_placeholder(raw_plain_text)
         ):
             if html_text:

@@ -12,6 +12,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from .config import APP_VERSION, app_dir, data_dir
+from .network_security import trusted_https_context
 
 
 DEFAULT_GITHUB_REPOSITORY = "alikrstle/PowerAccessibleMail"
@@ -333,7 +334,11 @@ def _check_github_latest_page(
         },
     )
     try:
-        with urllib.request.urlopen(request, timeout=timeout) as response:
+        with urllib.request.urlopen(
+            request,
+            timeout=timeout,
+            context=trusted_https_context(),
+        ) as response:
             response.read(1)
             release_url = response.geturl()
     except urllib.error.HTTPError as exc:
@@ -395,7 +400,11 @@ def _find_public_installer(
             headers={"User-Agent": f"PowerAccessibleMail/{current_version}"},
         )
         try:
-            with urllib.request.urlopen(request, timeout=timeout):
+            with urllib.request.urlopen(
+                request,
+                timeout=timeout,
+                context=trusted_https_context(),
+            ):
                 return url
         except urllib.error.HTTPError as exc:
             exc.close()
@@ -408,7 +417,11 @@ def _read_json_response(request: urllib.request.Request, timeout: int) -> object
     request_url = request.full_url
     if not _https_url(request_url):
         raise ValueError("رفض البرنامج مصدر تحديثات غير آمن.")
-    with urllib.request.urlopen(request, timeout=timeout) as response:
+    with urllib.request.urlopen(
+        request,
+        timeout=timeout,
+        context=trusted_https_context(),
+    ) as response:
         final_url = str(getattr(response, "geturl", lambda: request_url)() or request_url)
         if not _https_url(final_url):
             raise ValueError("أعاد خادم التحديثات التوجيه إلى اتصال غير آمن.")

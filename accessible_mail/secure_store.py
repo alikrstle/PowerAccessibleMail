@@ -564,6 +564,7 @@ class MessageCache:
             "mailbox": summary.mailbox,
             "sender": summary.sender,
             "sender_email": summary.sender_email,
+            "recipient_emails": list(summary.recipient_emails),
             "subject": summary.subject,
             "date": summary.date,
             "received_at": summary.received_at,
@@ -583,6 +584,11 @@ class MessageCache:
             mailbox=str(payload.get("mailbox", "")),
             sender=str(payload.get("sender", "")),
             sender_email=str(payload.get("sender_email", "")),
+            recipient_emails=[
+                str(value)
+                for value in payload.get("recipient_emails", [])
+                if isinstance(value, str)
+            ] if isinstance(payload.get("recipient_emails", []), list) else [],
             subject=str(payload.get("subject", "")),
             date=str(payload.get("date", "")),
             received_at=float(payload.get("received_at", 0.0) or 0.0),

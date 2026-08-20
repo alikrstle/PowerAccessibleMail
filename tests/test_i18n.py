@@ -50,6 +50,8 @@ class TranslationTests(unittest.TestCase):
         )
         self.assertEqual(tr("صورة 2: Company logo"), "Image 2: Company logo")
         self.assertEqual(tr("تواصل معنا"), "Contact us")
+        self.assertEqual(tr("سياسة الخصوصية"), "Privacy policy")
+        self.assertEqual(tr("شروط الاستخدام"), "Terms of use")
         self.assertEqual(
             tr("إرسال رسالة إلى المطور عبر PowerAccessibleMail"),
             "Email the developer using PowerAccessibleMail",
@@ -91,7 +93,12 @@ class TranslationTests(unittest.TestCase):
             ),
         )
         self.assertEqual(tr("صورة 2: Company logo"), "Image 2\xa0: Company logo")
+        self.assertEqual(tr("مقروءة"), "Lu")
+        self.assertEqual(tr("غير مقروءة"), "Non lu")
+        self.assertEqual(tr("تعليم كمقروءة"), "Marquer comme lu")
         self.assertEqual(tr("تواصل معنا"), "Nous contacter")
+        self.assertEqual(tr("سياسة الخصوصية"), "Politique de confidentialité")
+        self.assertEqual(tr("شروط الاستخدام"), "Conditions d'utilisation")
 
     def test_interface_can_switch_from_french_to_other_languages(self) -> None:
         set_language(LANGUAGE_ENGLISH)
@@ -120,14 +127,17 @@ class TranslationTests(unittest.TestCase):
             LANGUAGE_ARABIC: (
                 "استخدام مستعرض العناصر خطوة بخطوة",
                 "إنشاء رسالة وإضافة مرفقات صادرة",
+                "استخدام سجل العناوين",
             ),
             LANGUAGE_ENGLISH: (
                 "Use the item viewer step by step",
                 "Compose a message and add outgoing attachments",
+                "Use the address book",
             ),
             LANGUAGE_FRENCH: (
                 "Utiliser la visionneuse des éléments étape par étape",
                 "Composer un message et ajouter des pièces jointes sortantes",
+                "Utiliser le carnet d'adresses",
             ),
         }
 

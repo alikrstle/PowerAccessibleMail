@@ -9,9 +9,38 @@ from unittest.mock import patch
 
 from accessible_mail import config
 from accessible_mail import __version__
+from accessible_mail.notification_preferences import (
+    EVENT_CONTEXT_MENUS,
+    EVENT_SEND,
+    NOTIFICATION_LEVEL_SOME,
+)
 
 
 class OAuthClientConfigTests(unittest.TestCase):
+    def test_invalid_message_read_mode_falls_back_to_manual(self) -> None:
+        settings = config.normalize_settings(
+            config.ProgramSettings(message_read_mode="invalid")
+        )
+
+        self.assertEqual(settings.message_read_mode, config.MESSAGE_READ_MANUAL)
+
+    def test_notification_preferences_round_trip_in_settings(self) -> None:
+        settings = config.ProgramSettings(
+            spoken_notification_level=NOTIFICATION_LEVEL_SOME,
+            spoken_notification_events=[EVENT_CONTEXT_MENUS, EVENT_SEND],
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            settings_path = Path(directory) / "settings.json"
+            with patch("accessible_mail.config.settings_path", return_value=settings_path):
+                config.save_settings(settings)
+                loaded = config.load_settings()
+
+        self.assertEqual(loaded.spoken_notification_level, NOTIFICATION_LEVEL_SOME)
+        self.assertEqual(
+            loaded.spoken_notification_events,
+            [EVENT_CONTEXT_MENUS, EVENT_SEND],
+        )
+
     def test_launcher_probes_python_before_using_a_virtual_environment(self) -> None:
         project_root = Path(__file__).resolve().parents[1]
         batch_launcher = (project_root / "run.bat").read_text(encoding="utf-8")

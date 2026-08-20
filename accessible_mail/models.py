@@ -203,6 +203,7 @@ class MessageSummary:
     has_attachments: bool = False
     is_starred: bool = False
     is_pinned: bool = False
+    recipient_emails: list[str] = field(default_factory=list)
 
     @property
     def status_label(self) -> str:

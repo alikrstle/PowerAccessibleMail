@@ -28,7 +28,7 @@ def main() -> int:
             return 1
         raise
 
-    run()
+    run(sys.argv[1:])
     return 0
 
 

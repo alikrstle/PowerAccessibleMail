@@ -180,6 +180,28 @@ class MessageCacheTests(unittest.TestCase):
             self.assertEqual(restored.links[0].content_id, "logo")
             self.assertEqual(restored.links[0].attachment_bytes(), b"image")
 
+    def test_recipient_addresses_survive_cache_round_trip(self) -> None:
+        protect_patch, unprotect_patch = self.crypto_patches()
+        with protect_patch, unprotect_patch:
+            cache = MessageCache(self.cache_path)
+            cache.upsert_summaries(
+                self.account,
+                [
+                    MessageSummary(
+                        uid="sent",
+                        mailbox="SENT",
+                        recipient_emails=["friend@example.com", "team@example.com"],
+                    )
+                ],
+            )
+
+            restored = cache.list_summaries(self.account.id, "SENT", 1)[0]
+
+        self.assertEqual(
+            restored.recipient_emails,
+            ["friend@example.com", "team@example.com"],
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

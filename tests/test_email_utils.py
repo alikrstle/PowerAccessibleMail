@@ -5,6 +5,7 @@ from email.message import EmailMessage
 
 from accessible_mail.email_utils import (
     canonical_url_key,
+    clean_message_text_for_display,
     extract_body,
     is_plain_text_placeholder,
     normalize_message_text,
@@ -15,6 +16,75 @@ from accessible_mail.models import LinkItem
 
 
 class EmailUtilsTests(unittest.TestCase):
+    def test_clean_message_text_removes_css_rules_and_keeps_real_content(self) -> None:
+        text = clean_message_text_for_display(
+            """
+            body { margin: 0; color: #fff; }
+            .button { background: red; padding: 10px; }
+            النص المهم في الرسالة.
+            """
+        )
+
+        self.assertEqual(text, "النص المهم في الرسالة.")
+
+    def test_clean_message_text_removes_standalone_style_declarations(self) -> None:
+        text = clean_message_text_for_display(
+            "font-family: Arial; font-size: 12px; color: #000;\nمحتوى الرسالة"
+        )
+
+        self.assertEqual(text, "محتوى الرسالة")
+
+    def test_clean_message_text_ignores_hidden_html_and_programming_noise(self) -> None:
+        text = clean_message_text_for_display(
+            """
+            <html><head><style>body { color: red; }</style></head><body>
+            <script>alert('noise')</script>
+            <p>الفقرة الأولى.</p>
+            <span aria-hidden="true">نص مخفي</span>
+            <div style="display: none">محتوى مخفي</div>
+            <p>الفقرة الثانية.</p>
+            </body></html>
+            """
+        )
+
+        self.assertEqual(text, "الفقرة الأولى.\nالفقرة الثانية.")
+        self.assertNotIn("alert", text)
+        self.assertNotIn("مخفي", text)
+
+    def test_clean_message_text_separates_table_cells_rows_and_list_items(self) -> None:
+        text = clean_message_text_for_display(
+            """
+            <table><tr><td>Name</td><td>Ali</td></tr>
+            <tr><td>Country</td><td>Iraq</td></tr></table>
+            <ul><li>One</li><li>Two</li></ul>
+            """
+        )
+
+        self.assertEqual(text, "Name Ali\nCountry Iraq\n• One\n• Two")
+
+    def test_clean_message_text_preserves_prose_quotes_and_unicode_words(self) -> None:
+        text = clean_message_text_for_display(
+            "The chosen color: red is part of the report.\n\n"
+            "> quoted first line\n> quoted second line\n\n"
+            "مرحبا\u00a0بكم في مش\u00adروعنا"
+        )
+
+        self.assertIn("The chosen color: red is part of the report.", text)
+        self.assertIn("> quoted first line\n> quoted second line", text)
+        self.assertIn("مرحبا بكم في مشروعنا", text)
+
+    def test_extract_body_cleans_css_when_no_html_alternative_exists(self) -> None:
+        message = EmailMessage()
+        message.set_content(
+            "body { margin: 0; color: red; }\n"
+            "font-family: Arial; font-size: 12px;\n"
+            "Actual readable content."
+        )
+
+        text, _resources = extract_body(message)
+
+        self.assertEqual(text, "Actual readable content.")
+
     def test_only_explicit_safe_external_url_schemes_can_be_opened(self) -> None:
         self.assertEqual(
             safe_external_url("https://example.com/message?id=1"),

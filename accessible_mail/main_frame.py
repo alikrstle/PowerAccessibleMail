@@ -19,12 +19,20 @@ from .attachment_storage import (
     cleanup_stale_opened_attachments,
 )
 from .accessibility import (
+    announce_context_menu,
     announce_to_screen_reader,
     focused_control,
     restore_control_focus,
     set_accessible,
+    should_announce_status,
 )
-from .account_dialog import AccountDialog
+from .account_dialog import (
+    AccountDialog,
+    show_sign_in_result_dialog,
+    sign_in_error_details,
+    sign_in_success_details,
+)
+from .address_book_dialog import AddressBookDialog, AddressMessageMatch, AddressMessagesDialog
 from .bulk_operations import run_bulk_operations
 from .config import (
     APP_TITLE,
@@ -53,6 +61,10 @@ from .i18n import set_language, tr
 from .mail_page import MailPage
 from .mail_service_router import MailServiceRouter
 from .models import Account, MessageContent, MessageSummary
+from .notification_preferences import (
+    configure_spoken_notifications,
+    notification_event_for_message,
+)
 from .oauth import (
     OAuthError,
     OAuthReauthenticationRequired,
@@ -86,14 +98,18 @@ from .updater import (
     download_update_installer,
     launch_update_installer,
 )
+from .windows_integration import (
+    open_default_apps_settings,
+    register_default_mail_capabilities,
+)
 
 
 OFFICIAL_WEBSITE_URL = "https://soljan-alsharq.com/"
+PRIVACY_POLICY_URL = "https://soljan-alsharq.com/privacy"
+TERMS_OF_USE_URL = "https://soljan-alsharq.com/terms"
 DEVELOPER_EMAIL = "support@soljan-alsharq.com"
 TELEGRAM_CHANNEL_URL = "https://t.me/SoljanAlSharq"
 DEVELOPER_TELEGRAM_URL = "https://t.me/AliIrass"
-
-
 def call_after_if_open(
     owner: object,
     callback: Callable[..., Any],
@@ -112,6 +128,10 @@ def call_after_if_open(
 class MainFrame(wx.Frame):
     def __init__(self) -> None:
         settings = load_settings()
+        configure_spoken_notifications(
+            settings.spoken_notification_level,
+            settings.spoken_notification_events,
+        )
         set_language(settings.language)
         super().__init__(None, title=APP_TITLE, size=(1000, 760))
         icon_path = app_icon_path()
@@ -120,6 +140,7 @@ class MainFrame(wx.Frame):
             if icon.IsOk():
                 self.SetIcon(icon)
         self.settings = settings
+        self.default_mail_registration_ready = register_default_mail_capabilities()
         self.service = MailServiceRouter(self.on_account_updated)
         self.accounts = load_accounts()
         self.content_cache: OrderedDict[tuple[str, str, str], MessageContent] = OrderedDict()
@@ -229,6 +250,7 @@ class MainFrame(wx.Frame):
             self.on_delete_current_message,
             self.on_bulk_message_action,
             self.on_mail_page_filter_changed,
+            on_viewer_enter=self.on_message_viewer_enter,
         )
         spam_page = MailPage(
             self.notebook,
@@ -242,6 +264,7 @@ class MainFrame(wx.Frame):
             self.on_delete_current_message,
             self.on_bulk_message_action,
             self.on_mail_page_filter_changed,
+            on_viewer_enter=self.on_message_viewer_enter,
         )
         sent_page = MailPage(
             self.notebook,
@@ -255,6 +278,7 @@ class MainFrame(wx.Frame):
             self.on_delete_current_message,
             self.on_bulk_message_action,
             self.on_mail_page_filter_changed,
+            on_viewer_enter=self.on_message_viewer_enter,
         )
         all_mail_page = MailPage(
             self.notebook,
@@ -268,6 +292,7 @@ class MainFrame(wx.Frame):
             self.on_delete_current_message,
             self.on_bulk_message_action,
             self.on_mail_page_filter_changed,
+            on_viewer_enter=self.on_message_viewer_enter,
         )
         self.pages["inbox"] = inbox_page
         self.pages["spam"] = spam_page
@@ -313,28 +338,34 @@ class MainFrame(wx.Frame):
             "تحميل رسائل أقدم",
             "خيارات الحسابات وإدارتها",
             "إنشاء بريد إلكتروني",
+            "سجل العناوين",
             "الإعدادات",
         ]
 
     def SetStatusText(self, text: str, number: int = 0) -> None:
-        super().SetStatusText(tr(text), number)
+        localized = tr(text)
+        super().SetStatusText(localized, number)
+        if should_announce_status(text):
+            status_control = self.GetStatusBar() or self
+            announce_to_screen_reader(
+                status_control,
+                text,
+                notification_event_for_message(text),
+            )
 
     def _create_menu(self) -> None:
         menu_bar = wx.MenuBar()
-        file_menu = wx.Menu()
-        account_options_item = file_menu.Append(wx.ID_ANY, "خيارات الحسابات وإدارتها\tCtrl+A")
-        settings_item = file_menu.Append(wx.ID_ANY, "الإعدادات")
-        compose_item = file_menu.Append(wx.ID_ANY, "إنشاء بريد\tCtrl+N")
-        refresh_item = file_menu.Append(wx.ID_ANY, "تحديث\tF5")
-        file_menu.AppendSeparator()
-        exit_item = file_menu.Append(wx.ID_EXIT, "خروج\tAlt+F4")
-        menu_bar.Append(file_menu, "ملف")
-
-        message_menu = wx.Menu()
-        reply_item = message_menu.Append(wx.ID_ANY, "رد\tCtrl+R")
-        translate_item = message_menu.Append(wx.ID_ANY, "ترجمة الرسالة\tCtrl+T")
-        self.translate_menu_item = translate_item
-        menu_bar.Append(message_menu, "رسالة")
+        general_actions_menu = wx.Menu()
+        account_options_item = general_actions_menu.Append(
+            wx.ID_ANY,
+            "خيارات الحسابات وإدارتها\tCtrl+A",
+        )
+        settings_item = general_actions_menu.Append(wx.ID_ANY, "الإعدادات")
+        compose_item = general_actions_menu.Append(wx.ID_ANY, "إنشاء بريد\tCtrl+N")
+        refresh_item = general_actions_menu.Append(wx.ID_ANY, "تحديث\tF5")
+        general_actions_menu.AppendSeparator()
+        exit_item = general_actions_menu.Append(wx.ID_EXIT, "خروج\tAlt+F4")
+        menu_bar.Append(general_actions_menu, "الإجراءات العامة")
 
         help_menu = wx.Menu()
         guide_item = help_menu.Append(wx.ID_ANY, "عرض دليل البرنامج\tF1")
@@ -354,6 +385,8 @@ class MainFrame(wx.Frame):
             "التواصل مع المطور عبر تليجرام",
         )
         help_menu.AppendSubMenu(contact_menu, "تواصل معنا")
+        privacy_policy_item = help_menu.Append(wx.ID_ANY, "سياسة الخصوصية")
+        terms_of_use_item = help_menu.Append(wx.ID_ANY, "شروط الاستخدام")
         menu_bar.Append(help_menu, "المساعدة")
         self.SetMenuBar(menu_bar)
 
@@ -362,10 +395,18 @@ class MainFrame(wx.Frame):
         self.Bind(wx.EVT_MENU, self.on_compose, compose_item)
         self.Bind(wx.EVT_MENU, self.on_refresh, refresh_item)
         self.Bind(wx.EVT_MENU, lambda _event: self.Close(), exit_item)
-        self.Bind(wx.EVT_MENU, self.on_reply, reply_item)
-        self.Bind(wx.EVT_MENU, self.on_translate_current_message, translate_item)
         self.Bind(wx.EVT_MENU, self.on_show_guide, guide_item)
         self.Bind(wx.EVT_MENU, self.on_check_updates, update_item)
+        self.Bind(
+            wx.EVT_MENU,
+            lambda _event: self.open_contact_url(PRIVACY_POLICY_URL),
+            privacy_policy_item,
+        )
+        self.Bind(
+            wx.EVT_MENU,
+            lambda _event: self.open_contact_url(TERMS_OF_USE_URL),
+            terms_of_use_item,
+        )
         self.Bind(
             wx.EVT_MENU,
             lambda _event: self.open_contact_url(OFFICIAL_WEBSITE_URL),
@@ -382,7 +423,6 @@ class MainFrame(wx.Frame):
             lambda _event: self.open_contact_url(DEVELOPER_TELEGRAM_URL),
             developer_telegram_item,
         )
-        self.Bind(wx.EVT_MENU_OPEN, self.on_menu_open)
 
     def _create_accelerators(self) -> None:
         self.accel_add = wx.NewIdRef()
@@ -422,10 +462,6 @@ class MainFrame(wx.Frame):
         self.Bind(wx.EVT_MENU, self.on_focus_items_accelerator, id=self.accel_focus_items)
         self.Bind(wx.EVT_MENU, self.on_context_menu_accelerator, id=self.accel_context_menu)
 
-    def on_menu_open(self, _event: wx.MenuEvent) -> None:
-        if hasattr(self, "translate_menu_item"):
-            self.translate_menu_item.Enable(self.can_translate_current_message())
-
     def on_focus_items_accelerator(self, _event: wx.Event | None = None) -> None:
         page = self.current_page()
         if not page:
@@ -442,6 +478,7 @@ class MainFrame(wx.Frame):
         elif focus is page.viewer:
             control = page.viewer
         elif focus is page.link_list:
+            call_after_if_open(self, page.show_item_menu, page.link_list)
             return
         elif focus is page.list:
             control = page.list
@@ -615,7 +652,92 @@ class MainFrame(wx.Frame):
         elif command == 4:
             self.on_compose(wx.CommandEvent())
         elif command == 5:
+            self.on_address_book()
+        elif command == 6:
             self.on_settings()
+
+    def on_address_book(self, _event: wx.Event | None = None) -> None:
+        dialog = AddressBookDialog(self, self.address_message_matches)
+        compose_address = ""
+        selected_message_match: AddressMessageMatch | None = None
+        try:
+            if dialog.ShowModal() == wx.ID_OK:
+                compose_address = dialog.compose_address
+                selected_message_match = dialog.selected_message_match
+        finally:
+            dialog.Destroy()
+        if compose_address:
+            self.open_compose_dialog(compose_address)
+        elif selected_message_match:
+            self.open_address_message(selected_message_match)
+
+    def address_message_matches(self, email: str) -> list[AddressMessageMatch]:
+        target = email.casefold()
+        matches: list[AddressMessageMatch] = []
+        seen: set[tuple[str, str, str]] = set()
+        for page_key in ("inbox", "spam", "sent", "all"):
+            page = self.pages[page_key]
+            for summary in [*page.messages, *page.trash_messages]:
+                recipients = {address.casefold() for address in summary.recipient_emails}
+                direction = ""
+                if target in recipients:
+                    direction = "مرسلة"
+                elif summary.sender_email.casefold() == target:
+                    direction = "مستلمة"
+                if not direction:
+                    continue
+                key = (page_key, summary.mailbox, summary.uid)
+                if key in seen:
+                    continue
+                seen.add(key)
+                matches.append((page_key, summary, direction))
+        return sorted(
+            matches,
+            key=lambda match: match[1].sort_timestamp,
+            reverse=True,
+        )
+
+    def show_address_messages(self, email: str) -> None:
+        matches = self.address_message_matches(email)
+        if not matches:
+            wx.MessageBox(
+                tr("لا توجد رسائل محفوظة مرسلة أو مستلمة لهذا العنوان."),
+                tr("لا توجد رسائل"),
+                wx.OK | wx.ICON_INFORMATION,
+                self,
+            )
+            return
+        dialog = AddressMessagesDialog(self, email, matches)
+        selected_match: AddressMessageMatch | None = None
+        try:
+            if dialog.ShowModal() == wx.ID_OK:
+                selected_match = dialog.selected_match
+        finally:
+            dialog.Destroy()
+        if selected_match:
+            self.open_address_message(selected_match)
+
+    def open_address_message(self, match: AddressMessageMatch) -> None:
+        page_key, summary, _direction = match
+        page = self.pages.get(page_key)
+        if not page:
+            return
+        page_order = ("inbox", "spam", "sent", "all")
+        self.notebook.SetSelection(page_order.index(page_key))
+        page.filter_choice.SetSelection(0)
+        page.apply_filter(preserve_key=page.message_key(summary))
+        target_key = page.message_key(summary)
+        index = next(
+            (
+                row
+                for row, candidate in enumerate(page.visible_messages)
+                if page.message_key(candidate) == target_key
+            ),
+            -1,
+        )
+        if index >= 0:
+            page.focus_list_index(index)
+            self.on_message_selected(page, page.visible_messages[index])
 
     def on_command_key(self, event: wx.KeyEvent) -> None:
         key_code = event.GetKeyCode()
@@ -648,6 +770,7 @@ class MainFrame(wx.Frame):
         self.Bind(wx.EVT_MENU, self.on_add_account, add_item)
         self.Bind(wx.EVT_MENU, self.on_reauthenticate_account, reauthenticate_item)
         self.Bind(wx.EVT_MENU, self.on_remove_account, remove_item)
+        announce_context_menu(self.command_list)
         self.command_list.PopupMenu(menu, wx.Point(0, self.command_list.GetSize().GetHeight()))
         menu.Destroy()
 
@@ -667,6 +790,10 @@ class MainFrame(wx.Frame):
             dialog.Destroy()
 
     def apply_settings(self) -> None:
+        configure_spoken_notifications(
+            self.settings.spoken_notification_level,
+            self.settings.spoken_notification_events,
+        )
         set_language(self.settings.language)
         set_localized_items(self.command_list, self.command_labels())
         page_labels = ("الرسائل الواردة", "الرسائل غير المرغوب بها", "الرسائل المرسلة", "كل الرسائل")
@@ -675,6 +802,7 @@ class MainFrame(wx.Frame):
         for page in self.pages.values():
             page.set_theme(self.settings.theme)
             page.set_viewer_mode(self.settings.message_viewer)
+            page.set_message_read_mode(self.settings.message_read_mode)
             page.localize_ui()
         localize_window(self)
         localize_menu_bar(self.GetMenuBar())
@@ -745,6 +873,9 @@ class MainFrame(wx.Frame):
         dialog.Destroy()
         return account_saved
 
+    def show_sign_in_result(self, title: str, details: str) -> None:
+        show_sign_in_result_dialog(self, title, details)
+
     def show_notification(self, message: str, timeout_ms: int = 8000) -> None:
         focus_owner = focused_control()
         if self._notification_timer and self._notification_timer.IsRunning():
@@ -755,7 +886,6 @@ class MainFrame(wx.Frame):
         self.SetStatusText(message)
         self.main_panel.Layout()
         restore_control_focus(focus_owner)
-        announce_to_screen_reader(self.notification_bar, message)
         self._notification_timer = wx.CallLater(timeout_ms, self.dismiss_notification)
 
     def dismiss_notification(self) -> None:
@@ -817,11 +947,37 @@ class MainFrame(wx.Frame):
             apply_provider_settings(account, result.provider_id)
             save_accounts(self.accounts)
             self.content_cache.clear()
+            raise_window = getattr(self, "Raise", None)
+            if callable(raise_window):
+                raise_window()
+            show_result = getattr(self, "show_sign_in_result", None)
+            if callable(show_result):
+                show_result(
+                    "نجاح تسجيل الدخول",
+                    sign_in_success_details(
+                        result.provider_id,
+                        result.email_address,
+                        renewed=True,
+                    ),
+                )
             self.SetStatusText("تم تجديد تسجيل الدخول. جار تحديث الرسائل...")
             self.refresh_all()
 
-        def failed(_exc: Exception) -> None:
+        def failed(exc: Exception) -> bool:
             self._reauthentication_active = False
+            raise_window = getattr(self, "Raise", None)
+            if callable(raise_window):
+                raise_window()
+            request_attention = getattr(self, "RequestUserAttention", None)
+            if callable(request_attention):
+                request_attention(wx.USER_ATTENTION_ERROR)
+            show_result = getattr(self, "show_sign_in_result", None)
+            if callable(show_result):
+                show_result(
+                    "تعذر تسجيل الدخول",
+                    sign_in_error_details(exc, provider_id),
+                )
+            return True
 
         self.run_worker(
             "جار انتظار تسجيل الدخول عبر المتصفح...",
@@ -1358,13 +1514,38 @@ class MainFrame(wx.Frame):
             self.content_cache.popitem(last=False)
 
     def on_toggle_message_read(self, page: MailPage, summary: MessageSummary) -> None:
+        self.set_message_read_state(page, summary, not summary.is_read)
+
+    def on_message_viewer_enter(self, page: MailPage, summary: MessageSummary) -> None:
+        if summary.is_read:
+            return
+        self.set_message_read_state(
+            page,
+            summary,
+            True,
+            preserve_open_message=True,
+        )
+
+    def set_message_read_state(
+        self,
+        page: MailPage,
+        summary: MessageSummary,
+        new_state: bool,
+        *,
+        preserve_open_message: bool = False,
+    ) -> None:
         account = self.selected_account()
         if not account:
             return
         old_state = summary.is_read
-        new_state = not old_state
+        if old_state == new_state:
+            return
 
-        def update_local_state(is_read: bool) -> None:
+        def update_local_state(
+            is_read: bool,
+            *,
+            preserve_message: bool = preserve_open_message,
+        ) -> None:
             summary.is_read = is_read
             cache_key = (account.id, summary.mailbox, summary.uid)
             cached = self.content_cache.get(cache_key)
@@ -1372,7 +1553,11 @@ class MainFrame(wx.Frame):
                 cached.summary.is_read = is_read
             if self.current_content and self.current_content.summary.uid == summary.uid:
                 self.current_content.summary.is_read = is_read
-            page.update_message_read_state(summary, is_read)
+            page.update_message_read_state(
+                summary,
+                is_read,
+                preserve_open_message=preserve_message,
+            )
             self.sync_gmail_message_flags(account, summary, source_page=page)
 
         update_local_state(new_state)
@@ -1390,7 +1575,7 @@ class MainFrame(wx.Frame):
         def failed(_exc: Exception) -> None:
             if self.displayed_account_id != account.id or summary.is_read != new_state:
                 return
-            update_local_state(old_state)
+            update_local_state(old_state, preserve_message=False)
 
         self.run_worker("جار حفظ حالة الرسالة...", work, done, failed)
         state_label = "مقروءة" if new_state else "غير مقروءة"
@@ -1751,14 +1936,24 @@ class MainFrame(wx.Frame):
                 continue
             target_page.update_message_flags_by_uid(summary)
 
-    def open_compose_dialog(self, to_address: str = "") -> None:
+    def open_compose_dialog(
+        self,
+        to_address: str = "",
+        subject: str = "",
+        body: str = "",
+    ) -> None:
         account = self.selected_account()
         if not account:
             wx.MessageBox("أضف حساب بريد أولا.", "لا يوجد حساب", wx.OK | wx.ICON_INFORMATION, self)
             return
         if not self.ensure_password(account):
             return
-        dialog = ComposeDialog(self, to_address=to_address)
+        dialog = ComposeDialog(
+            self,
+            to_address=to_address,
+            subject=subject,
+            body=body,
+        )
         if dialog.ShowModal() == wx.ID_OK:
             to_address, subject, body, attachments = dialog.values()
             self.send_message(
@@ -1776,6 +1971,23 @@ class MainFrame(wx.Frame):
 
     def on_email_developer(self, _event: wx.Event) -> None:
         self.open_compose_dialog(DEVELOPER_EMAIL)
+
+    def on_open_default_apps(self, _event: wx.Event) -> None:
+        if not register_default_mail_capabilities():
+            wx.MessageBox(
+                tr("تعذر تسجيل PowerAccessibleMail ضمن التطبيقات الافتراضية في Windows."),
+                tr("تعذر تسجيل التطبيق"),
+                wx.OK | wx.ICON_ERROR,
+                self,
+            )
+            return
+        if not open_default_apps_settings():
+            wx.MessageBox(
+                tr("تعذر فتح إعدادات التطبيقات الافتراضية في Windows."),
+                tr("تعذر فتح الإعدادات"),
+                wx.OK | wx.ICON_ERROR,
+                self,
+            )
 
     def open_contact_url(self, url: str) -> None:
         try:
@@ -1866,6 +2078,8 @@ class MainFrame(wx.Frame):
         if not text or text == tr("جار تحميل الرسالة..."):
             wx.MessageBox("اختر رسالة وانتظر تحميل نصها أولا.", "لا توجد رسالة للترجمة", wx.OK | wx.ICON_INFORMATION, self)
             return
+        if not self.confirm_translation_data_transfer():
+            return
         source_uid = summary.uid if summary else ""
         return_control = page.take_translation_return_control() if isinstance(_event, MailPage) else wx.Window.FindFocus()
 
@@ -1881,6 +2095,7 @@ class MainFrame(wx.Frame):
                 page.set_viewer_action_ranges(translated, [])
                 page.set_viewer_text(normalize_message_text(translated))
                 self.SetStatusText("تمت ترجمة الرسالة داخل المستعرض.")
+                call_after_if_open(self, page.restore_context_focus, return_control)
                 return
             self.show_translation_dialog(translated)
             if page:
@@ -1893,6 +2108,39 @@ class MainFrame(wx.Frame):
         self.run_worker("جار ترجمة الرسالة...", work, done, failed)
         if page:
             call_after_if_open(self, page.restore_context_focus, return_control)
+
+    def confirm_translation_data_transfer(self) -> bool:
+        if self.settings.translation_data_notice_accepted:
+            return True
+
+        dialog = wx.MessageDialog(
+            self,
+            tr(
+                "لترجمة الرسالة، سيرسل Power Accessible Mail نص الرسالة المحددة إلى "
+                "خدمة Google Translate الرسمية. لن تُرسل المرفقات أو رموز تسجيل الدخول. "
+                "هل تسمح بمتابعة الترجمة؟"
+            ),
+            tr("خصوصية ترجمة الرسائل"),
+            wx.YES_NO | wx.ICON_INFORMATION,
+        )
+        try:
+            dialog.SetYesNoLabels(tr("السماح"), tr("إلغاء"))
+            accepted = dialog.ShowModal() == wx.ID_YES
+        finally:
+            dialog.Destroy()
+
+        if not accepted:
+            self.SetStatusText("ألغيت ترجمة الرسالة قبل إرسال النص.")
+            return False
+
+        self.settings.translation_data_notice_accepted = True
+        try:
+            save_settings(self.settings)
+        except OSError:
+            self.SetStatusText(
+                "تمت الموافقة على الترجمة، لكن تعذر حفظ اختيار الخصوصية."
+            )
+        return True
 
     def can_translate_current_message(self, page: MailPage | None = None) -> bool:
         page = page or self.current_page()
@@ -1964,7 +2212,7 @@ When the application starts without an account, you can continue with Google, co
 
 From Account options and management, choose Add account. The sign-in methods appear as a real list. Select browser sign-in or manual sign-in, then press Enter, right-click the selected item, or use the OK button beside Cancel.
 
-Browser sign-in opens the official Google or Microsoft consent page and never asks the application to read your browser password. Manual sign-in begins with an Email service choice. Select Google or Microsoft and the application fills the matching IMAP and SMTP settings while keeping the fields available for review. Gmail manual sign-in normally requires an app password. For Microsoft, browser sign-in is the recommended method because password-based IMAP access may be restricted by the account policy.
+Browser sign-in opens the official Google or Microsoft consent page and never asks the application to read your browser password. After you return from the browser, the app shows the sign-in result in a readable dialog with Continue and Copy buttons. If sign-in fails, you can copy the error details and send them to the developer; sign-in tokens and secrets are redacted before display or copying. Manual sign-in begins with an Email service choice. Select Google or Microsoft and the application fills the matching IMAP and SMTP settings while keeping the fields available for review. Gmail manual sign-in normally requires an app password. For Microsoft, browser sign-in is the recommended method because password-based IMAP access may be restricted by the account policy.
 
 Your mail sections
 Inbox reads the real Inbox folder. Spam reads Spam or Junk. Sent holds the messages you sent. All Mail opens Gmail All Mail when it is available, which can reveal recent messages that do not carry the Inbox label.
@@ -1974,7 +2222,7 @@ Inside each section, the filter lets you show all messages, starred messages, un
 Read each message in the viewer you prefer
 The HTML viewer keeps links and buttons in their natural positions as real page elements. Use Tab or your screen reader's browsing commands to reach them, then press Enter or Space to activate them. Press Ctrl+Enter to move between the message viewer and the item viewer. Press Escape to return directly to the message list.
 
-The easy viewer removes repeated blank lines and presents a clean text version. Its item viewer collects links, buttons, images, and attachments under clear names. Selecting a message does not mark it as read automatically; press Space in the normal message list to switch the focused message between read and unread.
+The easy viewer removes repeated blank lines and presents a clean text version. Its item viewer collects links, buttons, images, and attachments under clear names. In Settings, choose whether messages are marked as read manually with Space or the context menu, or automatically only after entering the message viewer and displaying the full message. Merely moving across messages in the list never marks them as read.
 
 Work with several messages at once
 In normal mode, messages are list items without check boxes. Press Ctrl+Shift+Space to enter multiple-selection mode, where every message becomes a check box. Move with the arrow keys and press Space to check or uncheck a message, or use the mouse.
@@ -1985,7 +2233,7 @@ Write and act without leaving the keyboard
 Compose email opens a complete message window. Reply, Star, Translate, Pin to top, and move to the provider's Trash are available from the message context menu. The item viewer list has no context menu, while the Item actions button displays attachment, image, and link commands directly without a submenu.
 
 Translation when you need it
-Ctrl+T translates the current message into the application language. In Settings, choose whether the translation replaces the content inside the HTML or easy viewer, or opens in a separate window. Translation becomes available only while you are inside the message viewer. It requires an internet connection and sends the selected message text to Google Translate only when you request it.
+Ctrl+T translates the current message into the application language. In Settings, choose whether the translation replaces the content inside the HTML or easy viewer, or opens in a separate window. Translation becomes available only while you are inside the message viewer. It requires an internet connection and sends the selected message text to the official Google Translate service only when you request it. Before the first translation, the app explains this transfer and provides Allow and Cancel choices. After you choose Allow, the choice is saved and the notice is not shown again.
 
 Make the application yours
 Settings lets you choose Arabic, English, or French, the HTML or easy message viewer, translation inside the page or in a separate window, and light or dark appearance. Your choices are saved for the next launch.
@@ -2024,7 +2272,7 @@ Power Accessible Mail برنامج صمم ليجعل قراءة البريد و�
 
 من خيارات الحسابات وإدارتها اختر إضافة حساب. تظهر طريقتا التسجيل داخل قائمة حقيقية. حدد التسجيل عبر المتصفح أو التسجيل اليدوي ثم اضغط Enter أو انقر على العنصر بالنقر الأيمن أو استخدم زر موافق الموجود بجوار إلغاء.
 
-التسجيل عبر المتصفح يفتح صفحة Google أو Microsoft الرسمية ولا يطلب من البرنامج قراءة كلمة مرور المتصفح. أما التسجيل اليدوي فيبدأ بصندوق خدمة البريد. اختر Google أو Microsoft ليملأ البرنامج إعدادات IMAP وSMTP المناسبة، وتبقى الحقول أمامك للمراجعة. يحتاج Gmail عادة إلى كلمة مرور تطبيق عند التسجيل اليدوي، وينصح باستخدام التسجيل عبر المتصفح مع Microsoft لأن سياسة الحساب قد تمنع الدخول التقليدي بكلمة المرور.
+التسجيل عبر المتصفح يفتح صفحة Google أو Microsoft الرسمية ولا يطلب من البرنامج قراءة كلمة مرور المتصفح. بعد الرجوع من المتصفح يعرض البرنامج نتيجة تسجيل الدخول في نافذة قابلة للقراءة مع زري استمرار ونسخ. عند الفشل تستطيع نسخ تفاصيل الخطأ وإرسالها إلى المطور، ويحجب البرنامج رموز الدخول والأسرار قبل العرض والنسخ. أما التسجيل اليدوي فيبدأ بصندوق خدمة البريد. اختر Google أو Microsoft ليملأ البرنامج إعدادات IMAP وSMTP المناسبة، وتبقى الحقول أمامك للمراجعة. يحتاج Gmail عادة إلى كلمة مرور تطبيق عند التسجيل اليدوي، وينصح باستخدام التسجيل عبر المتصفح مع Microsoft لأن سياسة الحساب قد تمنع الدخول التقليدي بكلمة المرور.
 
 أقسام بريدك أمامك
 الرسائل الواردة تقرأ صندوق الوارد الحقيقي. الرسائل غير المرغوب بها تقرأ Spam أو Junk. الرسائل المرسلة تعرض ما أرسلته. قسم كل الرسائل يفتح صندوق كل البريد في Gmail عند توفره، وهو مفيد للرسائل الحديثة التي لا تحمل تصنيف الوارد.
@@ -2034,7 +2282,7 @@ Power Accessible Mail برنامج صمم ليجعل قراءة البريد و�
 اقرأ الرسالة بالمستعرض الذي يناسبك
 مستعرض HTML يبقي الروابط والأزرار في مواضعها الطبيعية كعناصر حقيقية. استخدم Tab أو أوامر التصفح في قارئ الشاشة للوصول إليها ثم Enter أو Space لتفعيلها. ينقلك Ctrl+Enter بين مستعرض الرسالة ومستعرض العناصر، ويعيدك Escape مباشرة إلى قائمة الرسائل.
 
-المستعرض السهل ينظف تكرار الأسطر الخالية ويعرض نصا مرتبا. ويجمع مستعرض العناصر الروابط والأزرار والصور والمرفقات تحت أسماء واضحة. مجرد اختيار الرسالة لا يجعلها مقروءة؛ اضغط Space في قائمة الرسائل العادية للتبديل بين مقروءة وغير مقروءة.
+المستعرض السهل ينظف تكرار الأسطر الخالية ويعرض نصا مرتبا. ويجمع مستعرض العناصر الروابط والأزرار والصور والمرفقات تحت أسماء واضحة. من الإعدادات تستطيع اختيار تعليم الرسائل كمقروءة يدويا عبر Space أو قائمة السياق، أو تلقائيا فقط عند الدخول إلى مستعرض الرسالة وظهور محتواها الكامل. مجرد التنقل بين الرسائل في القائمة لا يجعلها مقروءة في أي من الوضعين.
 
 تعامل مع عدة رسائل في خطوة واحدة
 في الوضع العادي تظهر الرسائل كعناصر قائمة من دون مربعات اختيار. اضغط Ctrl+Shift+Space للدخول إلى وضع التحديد المتعدد، وعندها تتحول الرسائل إلى مربعات اختيار. تنقل بالأسهم واضغط Space لتحديد الرسالة أو إلغاء تحديدها، أو استخدم الفأرة.
@@ -2045,7 +2293,7 @@ Power Accessible Mail برنامج صمم ليجعل قراءة البريد و�
 إنشاء بريد إلكتروني يفتح نافذة كاملة لكتابة رسالتك. تتوفر أوامر الرد والتمييز بنجمة والترجمة والتثبيت في الأعلى والنقل إلى سلة مزود البريد من قائمة سياق الرسالة. لا توجد قائمة سياق داخل قائمة مستعرض العناصر، بينما يعرض زر إجراءات العنصر أوامر المرفقات والصور والروابط مباشرة من دون قائمة فرعية.
 
 ترجمة في مكانها أو في نافذة مستقلة
-يترجم Ctrl+T الرسالة الحالية إلى لغة البرنامج. ومن الإعدادات تستطيع اختيار عرض الترجمة مباشرة داخل مستعرض HTML أو المستعرض السهل، أو فتحها في نافذة مستقلة. لا تتفعل الترجمة إلا وأنت داخل مستعرض الرسالة. تحتاج الميزة إلى الإنترنت ولا يرسل النص إلى Google Translate إلا عندما تطلب الترجمة.
+يترجم Ctrl+T الرسالة الحالية إلى لغة البرنامج. ومن الإعدادات تستطيع اختيار عرض الترجمة مباشرة داخل مستعرض HTML أو المستعرض السهل، أو فتحها في نافذة مستقلة. لا تتفعل الترجمة إلا وأنت داخل مستعرض الرسالة. تحتاج الميزة إلى الإنترنت ولا يرسل النص إلى خدمة Google Translate الرسمية إلا عندما تطلب الترجمة. عند أول ترجمة يعرض البرنامج تنبيها يشرح نقل النص مع خياري السماح وإلغاء. بعد اختيار السماح تُحفظ الموافقة ولا يظهر التنبيه مرة أخرى.
 
 اجعل البرنامج أقرب إلى طريقتك
 تتيح الإعدادات اختيار العربية أو الإنجليزية أو الفرنسية، ومستعرض HTML أو المستعرض السهل، والترجمة داخل الصفحة أو في نافذة مستقلة، والوضع الفاتح أو المظلم. يحفظ البرنامج اختياراتك ليستخدمها عند التشغيل التالي.
@@ -2348,7 +2596,7 @@ Power Accessible Mail
         message: str,
         work: Callable[[], Any],
         done: Callable[[Any], None],
-        failed: Callable[[Exception], None] | None = None,
+        failed: Callable[[Exception], bool | None] | None = None,
     ) -> None:
         self._active_worker_count += 1
         self.set_busy(True, message)
@@ -2375,19 +2623,22 @@ Power Accessible Mail
     def on_worker_error(
         self,
         exc: Exception,
-        failed: Callable[[Exception], None] | None = None,
+        failed: Callable[[Exception], bool | None] | None = None,
     ) -> None:
         self._active_worker_count = max(0, self._active_worker_count - 1)
         if self._active_worker_count == 0:
             self.set_busy(False, "حدث خطأ")
         else:
             self.SetStatusText("حدث خطأ")
+        handled = False
         if failed:
             try:
-                failed(exc)
+                handled = bool(failed(exc))
             except Exception:
                 pass
         self.reset_transfer_progress()
+        if handled:
+            return
         if isinstance(exc, OAuthReauthenticationRequired):
             self.handle_oauth_reauthentication_required(exc)
             return

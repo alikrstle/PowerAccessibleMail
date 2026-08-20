@@ -37,7 +37,7 @@
 4. أضف النطاقات `openid` و`email` و`profile` و`gmail.modify`.
 5. انشر التطبيق إلى Production واختر Prepare for verification.
 6. أرفق التبرير من `scope_justification_en.md`.
-7. أرفق فيديو العرض المعد وفق `demo_video_script_ar.md`.
+7. أرفق فيديو العرض المعد وفق `demo_video_script_ar.md`، ويمكن استخدام النص الإنجليزي الجاهز في `demo_video_script_en.md`.
 8. راقب بريد مالك المشروع للرد على طلبات Google.
 
 ## الملفات
@@ -46,5 +46,6 @@
 - `privacy_policy_ar.md`: النسخة العربية.
 - `scope_justification_en.md`: تبرير النطاقات.
 - `demo_video_script_ar.md`: سيناريو فيديو المراجعة.
+- `demo_video_script_en.md`: النص الإنجليزي الجاهز للتسجيل والتعليق الصوتي.
 - `homepage_content_ar.md`: نص صفحة البرنامج.
 - `submission_checklist_ar.md`: قائمة التحقق.

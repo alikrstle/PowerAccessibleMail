@@ -11,6 +11,7 @@ from collections.abc import Callable
 from pathlib import Path
 
 from .update_checker import UpdateCheckResult, current_architecture, normalize_sha256
+from .network_security import trusted_https_context
 
 
 MAX_INSTALLER_BYTES = 250 * 1024 * 1024
@@ -134,7 +135,11 @@ def download_update_installer(
     downloaded = 0
     digest = hashlib.sha256()
     try:
-        with urllib.request.urlopen(request, timeout=timeout) as response:
+        with urllib.request.urlopen(
+            request,
+            timeout=timeout,
+            context=trusted_https_context(),
+        ) as response:
             final_url = response.geturl()
             if urllib.parse.urlparse(final_url).scheme.lower() != "https":
                 raise UpdateInstallError(

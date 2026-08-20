@@ -21,6 +21,8 @@ Select browser sign in or manual sign in then press Enter right click the select
 
 Browser sign in opens the official Google or Microsoft consent page and never asks the application to read your browser password
 
+After you return from the browser, the app shows the sign-in result in a readable dialog with Continue and Copy buttons. If sign-in fails, you can copy the error details and send them to the developer; sign-in tokens and secrets are redacted before display or copying
+
 Manual sign in begins with an Email service choice
 
 Select Google or Microsoft and the application fills the matching IMAP and SMTP settings while keeping the fields available for review
@@ -89,6 +91,8 @@ Write and act without leaving the keyboard
 
 Compose email opens a complete message window
 
+Setup registers Power Accessible Mail among the email applications available to Windows. From application Settings choose Choose PowerAccessibleMail as the default email app then confirm your choice in Windows Settings. In Windows 11 Enter might not open the associated-app picker; press Space on MAILTO to open it. Afterward selecting an email address or mailto link in a browser opens Compose with the recipient subject and body from the link filled automatically. The application never changes the Windows default without your approval
+
 Reply Star Translate Pin to top and move to the provider Trash are available from the message context menu. The item viewer list has no context menu, and the Item actions button displays attachment and link commands directly
 
 Use Shift+F10 or the Application key for the message context menu and use the Item actions button for attachments images and links
@@ -101,11 +105,13 @@ In Settings choose whether translation replaces the content inside the HTML or e
 
 Translation becomes available only while you are inside the message viewer
 
-It requires an internet connection and sends the selected message text to Google Translate only when you request it
+It requires an internet connection and sends the selected message text to the official Google Translate service only when you request it. Before the first translation, the app explains this transfer and provides Allow and Cancel choices. After you choose Allow, the choice is saved and the notice is not shown again
 
 Make the application yours
 
 Settings lets you choose Arabic English or French the HTML or easy message viewer translation inside the page or in a separate window and light or dark appearance
+
+You can also control how many application actions the NVDA library announces with four levels: none some most or all. The Customize and manage action announcements button beside the level opens categories containing native Windows checkboxes. Use Tab to move between them hear their state and Space to change it then save. The default level does not announce read or unread state changes or server-save confirmations unless the user enables that category in customization. Settings also includes Choose PowerAccessibleMail as the default email app which opens the application's page in Windows Settings; press Space on MAILTO to open the app picker if Enter does not respond
 
 Your choices are saved for the next launch
 
@@ -138,6 +144,8 @@ Load older messages retrieves one batch older than the messages currently displa
 Account options and management opens commands to add an account sign in again or remove the account
 
 Compose email opens the new message window
+
+Address book opens the email addresses you saved and lets you compose edit pin view associated messages or delete an address
 
 Settings opens the application language message viewer translation mode and appearance choices
 
@@ -197,7 +205,9 @@ To save one attachment focus it in the item viewer then move to the Item actions
 
 Compose a message and add outgoing attachments
 
-The compose window starts with To then Subject and the multiline Body field. The Added attachments list follows the Body and the Add attachment button follows that list so the list sits between the message content and the button in Tab order
+The compose window starts with To followed by Add email address to the address book then Subject and the multiline Body field. Add attachment follows the Body followed by the Added attachments list then Send and Cancel in Tab order
+
+While focus is in To press Down Arrow to open the saved addresses. Move with the arrow keys and press Enter or Space to choose one; the selected address replaces all text in the field. If you press the add-address button while the field is empty or invalid the application announces the problem and does not save it
 
 Press Add attachment to open the file picker. You can select one file or several files in the same operation. Each selected file appears in the list with its filename and size so you can review exactly what will be sent
 
@@ -205,9 +215,15 @@ To remove a file added by mistake focus it in the attachment list and press Dele
 
 When you press Send the application adds every file still shown in the list to the MIME message. This works for both Gmail API and SMTP accounts. The email provider controls message and attachment size limits and may reject a message that exceeds its permitted size
 
+Use the address book
+
+Open Address book from the application command list. A vertical address list appears beside Add a new email address. Browse with the arrow keys and press Enter or Space or double-click an address to open Compose with the recipient filled automatically
+
+Press the Application key or Shift+F10 on an address to open its context menu. You can edit the email address or pin it to the top; for a pinned address the command changes to Unpin email address from the top. You can also view messages sent to it and received from it or delete it. In the associated-messages window move with the arrow keys and press Enter or Space to open the selected message in the main window
+
 Context menus and the Application key
 
-The keyboard Application key is sometimes named Menu or Context Menu. It opens the context menu for the control that currently has focus. Power Accessible Mail supports it in the message list message viewer Item actions button and the outgoing attachment list. The item viewer list has no context menu; press Tab from it to reach Item actions. Shift+F10 is equivalent where a context menu is available
+The keyboard Application key is sometimes named Menu or Context Menu. It opens the context menu for the control that currently has focus. Power Accessible Mail supports it in the message list message viewer Item actions button outgoing attachment list and address book. The item viewer list has no context menu; press Tab from it to reach Item actions. Shift+F10 is equivalent where a context menu is available
 
 The message viewer context menu provides Reply Mark as read when needed Star Translate Pin and Delete. The Item actions button displays the seven attachment image and link commands directly without a submenu. To reach them press Ctrl+Enter to move to the item viewer select an item then press Tab to reach Item actions
 

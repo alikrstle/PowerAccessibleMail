@@ -24,10 +24,13 @@
 11. أظهر الرسائل الواردة.
 12. افتح رسالة، وأظهر مستعرض نص الرسالة.
 13. أظهر مستعرض الروابط والمرفقات.
-14. افتح نافذة الرد أو إنشاء بريد إلكتروني وأرسل رسالة اختبار.
-15. افتح قسم الرسائل المرسلة وأظهر الرسالة.
-16. افتح دليل البرنامج من قائمة المساعدة، وأظهر فقرة الخصوصية والتخزين المحلي المشفر.
+14. غيّر رسالة اختبار بين مقروءة وغير مقروءة، ثم أضف النجمة وأزلها.
+15. افتح نافذة الرد أو إنشاء بريد إلكتروني وأرسل رسالة اختبار.
+16. افتح قسم الرسائل المرسلة وأظهر الرسالة.
+17. انقل رسالة اختبار إلى سلة Gmail وأظهرها في مرشح سلة المحذوفات دون حذفها نهائيا.
+18. اطلب ترجمة رسالة اختبار غير حساسة، وأظهر تنبيه الخصوصية القابل للوصول وزري السماح وإلغاء، ثم اختر السماح وأظهر النتيجة. اطلب الترجمة مرة أخرى لتوضيح أن الموافقة حُفظت وأن التنبيه لا يظهر مجددا.
+19. افتح دليل البرنامج من قائمة المساعدة، وأظهر فقرة الخصوصية والتخزين المحلي المشفر.
 
 ## نص قصير يمكن قوله في الفيديو
 
-Power Accessible Mail is a desktop email client designed for blind and screen-reader users. It uses Google OAuth to let users connect Gmail without typing their Gmail password into the app. The app uses Gmail access only to show inbox, spam, sent messages, read selected messages, display links and attachments, mark messages as read, and send messages or replies. Message data is stored locally on the user's Windows device and encrypted using Windows DPAPI. The developer does not receive Gmail message content or OAuth tokens on any server.
+Power Accessible Mail is a desktop email client designed for blind and screen-reader users. It uses Google OAuth to let users connect Gmail without typing their Gmail password into the app. The app uses Gmail access only to show inbox, spam, sent messages, read selected messages, display links and attachments, change read state, add or remove the Starred label, move selected messages to Gmail Trash, and send messages or replies. Message data is stored locally on the user's Windows device and encrypted using Windows DPAPI. The developer does not receive Gmail message content or OAuth tokens on any server. Translation is optional, and the app explains the transfer before sending selected message text directly to Google Translate for the first time.

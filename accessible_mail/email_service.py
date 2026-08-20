@@ -10,15 +10,15 @@ from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from email import policy
 from email.parser import BytesParser
-from email.utils import parseaddr, parsedate_to_datetime
+from email.utils import getaddresses, parseaddr, parsedate_to_datetime
 from pathlib import Path
 
 from .email_utils import (
+    clean_message_text_for_display,
     extract_body,
     header_to_text,
     is_plain_text_placeholder,
     looks_like_visual_markup_dump,
-    strip_html_client_warning,
 )
 from .message_builder import build_outgoing_message
 from .models import Account, MessageContent, MessageSummary
@@ -212,7 +212,7 @@ class EmailService:
     ) -> MessageContent:
         cached = self.cache.get_content(account.id, summary.mailbox, summary.uid)
         if cached:
-            cleaned_cached_text = strip_html_client_warning(cached.text)
+            cleaned_cached_text = clean_message_text_for_display(cached.text)
             if cleaned_cached_text != cached.text:
                 cached.text = cleaned_cached_text or "لا يوجد نص قابل للعرض داخل هذه الرسالة."
                 self.cache.upsert_content(account, cached)
@@ -752,7 +752,7 @@ class EmailService:
     ) -> list[MessageSummary]:
         typ, data = conn.fetch(
             sequence_set,
-            "(UID FLAGS INTERNALDATE BODYSTRUCTURE BODY.PEEK[HEADER.FIELDS (FROM SUBJECT DATE MESSAGE-ID REFERENCES IN-REPLY-TO)])",
+            "(UID FLAGS INTERNALDATE BODYSTRUCTURE BODY.PEEK[HEADER.FIELDS (FROM TO SUBJECT DATE MESSAGE-ID REFERENCES IN-REPLY-TO)])",
         )
         if typ != "OK" or not data:
             return []
@@ -791,6 +791,11 @@ class EmailService:
         message = BytesParser(policy=policy.default).parsebytes(header_bytes)
         sender = header_to_text(message.get("From"))
         sender_name, sender_email = parseaddr(sender)
+        recipients = [
+            address
+            for _name, address in getaddresses([header_to_text(message.get("To"))])
+            if address
+        ]
         date_text = header_to_text(message.get("Date"))
         received_at = self._timestamp_from_internaldate(flags_blob)
         if not received_at:
@@ -800,6 +805,7 @@ class EmailService:
             mailbox=mailbox,
             sender=sender_name or sender_email or sender,
             sender_email=sender_email,
+            recipient_emails=recipients,
             subject=header_to_text(message.get("Subject")),
             date=date_text,
             received_at=received_at,

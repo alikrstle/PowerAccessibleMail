@@ -4,12 +4,20 @@ from .config import (
     LANGUAGE_ARABIC,
     LANGUAGE_ENGLISH,
     LANGUAGE_FRENCH,
+    MESSAGE_READ_MANUAL,
+    MESSAGE_READ_ON_VIEWER_ENTER,
     THEME_DARK,
     THEME_LIGHT,
     TRANSLATION_DIALOG,
     TRANSLATION_INLINE,
     VIEWER_HTML,
     VIEWER_SIMPLE,
+)
+from .notification_preferences import (
+    NOTIFICATION_LEVEL_ALL,
+    NOTIFICATION_LEVEL_MOST,
+    NOTIFICATION_LEVEL_NONE,
+    NOTIFICATION_LEVEL_SOME,
 )
 
 
@@ -42,6 +50,10 @@ VIEWER_CHOICES = {
     "مستعرض HTML": VIEWER_HTML,
     "المستعرض السهل": VIEWER_SIMPLE,
 }
+MESSAGE_READ_MODE_CHOICES = {
+    "يدوي عبر Space أو قائمة السياق": MESSAGE_READ_MANUAL,
+    "تلقائي عند الدخول إلى مستعرض الرسالة": MESSAGE_READ_ON_VIEWER_ENTER,
+}
 THEME_CHOICES = {
     "الوضع الفاتح": THEME_LIGHT,
     "الوضع المظلم": THEME_DARK,
@@ -49,6 +61,12 @@ THEME_CHOICES = {
 TRANSLATION_MODE_CHOICES = {
     "ترجمة داخل مستعرض الرسالة": TRANSLATION_INLINE,
     "ترجمة في نافذة مستقلة": TRANSLATION_DIALOG,
+}
+SPOKEN_NOTIFICATION_LEVEL_CHOICES = {
+    "عدم نطق إجراءات البرنامج مطلقًا": NOTIFICATION_LEVEL_NONE,
+    "نطق بعض إجراءات البرنامج": NOTIFICATION_LEVEL_SOME,
+    "نطق معظم إجراءات البرنامج": NOTIFICATION_LEVEL_MOST,
+    "نطق كل إجراءات البرنامج": NOTIFICATION_LEVEL_ALL,
 }
 
 MANUAL_PROVIDER_GOOGLE = "google"

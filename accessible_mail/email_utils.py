@@ -21,10 +21,20 @@ ACTIVATION_MARKER_PATTERN = re.compile(r"\[\[PAM-ACTION-(\d+)-(START|END)\]\]")
 HTML_TAG_PATTERN = re.compile(r"</?(?:html|head|body|style|script|div|table|tr|td|span|p|a)\b", re.IGNORECASE)
 CSS_BLOCK_PATTERN = re.compile(r"\b(?:body|img|table|td|tr|p|div|span|a|html)\s*\{", re.IGNORECASE)
 CSS_PROPERTY_PATTERN = re.compile(
-    r"\b(?:margin|padding|border|outline|font-family|font-size|background|color|width|height|display)\s*:",
+    r"(?:^|[;{\s])(?:margin(?:-[\w-]+)?|padding(?:-[\w-]+)?|border(?:-[\w-]+)?|outline(?:-[\w-]+)?|font(?:-[\w-]+)?|background(?:-[\w-]+)?|color|width|height|display|position|visibility|opacity|line-height|text-align|vertical-align|overflow|float|max-width|min-width|max-height|min-height|mso-[\w-]+|-webkit-[\w-]+|-ms-[\w-]+)\s*:",
     re.IGNORECASE,
 )
 LIST_LINE_PATTERN = re.compile(r"^\s*(?:[-*+•●○]|\d+[.)]|[اأإآبتثجحخدذرزسشصضطظعغفقكلمنهوي][.)])\s+")
+QUOTED_LINE_PATTERN = re.compile(r"^\s*(?:>|--\s*$)")
+HTML_COMMENT_PATTERN = re.compile(r"<!--[\s\S]*?-->")
+STYLE_OR_SCRIPT_BLOCK_PATTERN = re.compile(
+    r"<(style|script|noscript|template|svg|xml)\b[^>]*>[\s\S]*?</\1\s*>",
+    re.IGNORECASE,
+)
+HTML_DISPLAY_TAG_PATTERN = re.compile(
+    r"</?(?:!doctype|html|head|body|title|meta|link|style|script|noscript|template|svg|xml|section|article|header|footer|main|nav|div|table|thead|tbody|tfoot|tr|td|th|span|p|a|button|form|input|img|font|center|blockquote|ul|ol|li|h[1-6]|br|hr)\b",
+    re.IGNORECASE,
+)
 GENERIC_LINK_TITLES = {
     "",
     "click here",
@@ -129,7 +139,17 @@ def safe_external_url(value: object) -> str:
 
 
 class _HtmlToTextParser(HTMLParser):
-    IGNORED_TAGS = {"head", "style", "script", "noscript", "template", "svg"}
+    IGNORED_TAGS = {
+        "head",
+        "style",
+        "script",
+        "noscript",
+        "template",
+        "svg",
+        "xml",
+        "title",
+    }
+    VOID_TAGS = {"area", "base", "br", "col", "embed", "hr", "img", "input", "link", "meta", "source", "track", "wbr"}
 
     def __init__(self) -> None:
         super().__init__()
@@ -146,6 +166,7 @@ class _HtmlToTextParser(HTMLParser):
         self._current_button_marker = ""
         self._next_marker_id = 0
         self._ignored_depth = 0
+        self._hidden_element_stack: list[str] = []
 
     def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
         tag = tag.lower()
@@ -154,9 +175,39 @@ class _HtmlToTextParser(HTMLParser):
             return
         if self._ignored_depth:
             return
-        if tag in {"br", "p", "div", "li", "tr", "h1", "h2", "h3"}:
-            self.parts.append("\n")
+        if self._hidden_element_stack:
+            if tag not in self.VOID_TAGS:
+                self._hidden_element_stack.append(tag)
+            return
         attrs_dict = {name.lower(): value or "" for name, value in attrs}
+        compact_style = re.sub(r"\s+", "", attrs_dict.get("style", "").casefold())
+        hidden_by_attribute = any(name.casefold() == "hidden" for name, _value in attrs)
+        hidden_by_style = any(
+            marker in compact_style
+            for marker in (
+                "display:none",
+                "visibility:hidden",
+                "opacity:0",
+                "mso-hide:all",
+                "font-size:0",
+            )
+        )
+        if (
+            hidden_by_attribute
+            or attrs_dict.get("aria-hidden", "").casefold() == "true"
+            or hidden_by_style
+        ):
+            if tag not in self.VOID_TAGS:
+                self._hidden_element_stack.append(tag)
+            return
+        if tag == "br":
+            self.parts.append("\n")
+        elif tag == "li":
+            self.parts.append("\n• ")
+        elif tag in {"td", "th"}:
+            self.parts.append(" ")
+        elif tag in {"p", "div", "tr", "section", "article", "header", "footer", "main", "blockquote", "ul", "ol", "h1", "h2", "h3", "h4", "h5", "h6"}:
+            self.parts.append("\n\n")
         if tag == "form":
             self._form_actions.append(attrs_dict.get("action", ""))
         if tag == "a":
@@ -227,6 +278,13 @@ class _HtmlToTextParser(HTMLParser):
             if tag in self.IGNORED_TAGS:
                 self._ignored_depth = max(0, self._ignored_depth - 1)
             return
+        if self._hidden_element_stack:
+            if tag in self._hidden_element_stack:
+                while self._hidden_element_stack:
+                    opened_tag = self._hidden_element_stack.pop()
+                    if opened_tag == tag:
+                        break
+            return
         if tag == "a" and self._current_href:
             activation_text = _clean_resource_title(" ".join("".join(self._current_text).split()))
             label = activation_text
@@ -266,11 +324,13 @@ class _HtmlToTextParser(HTMLParser):
             self._current_button_marker = ""
         if tag == "form" and self._form_actions:
             self._form_actions.pop()
-        if tag in {"p", "div", "li", "tr"}:
+        if tag == "li":
             self.parts.append("\n")
+        elif tag in {"p", "div", "tr", "section", "article", "header", "footer", "main", "blockquote", "ul", "ol", "h1", "h2", "h3", "h4", "h5", "h6"}:
+            self.parts.append("\n\n")
 
     def handle_data(self, data: str) -> None:
-        if self._ignored_depth:
+        if self._ignored_depth or self._hidden_element_stack:
             return
         if data:
             self.parts.append(data)
@@ -280,8 +340,16 @@ class _HtmlToTextParser(HTMLParser):
                 self._current_button_text.append(data)
 
     def text(self) -> str:
-        lines = [" ".join(line.split()) for line in "".join(self.parts).splitlines()]
-        return "\n".join(line for line in lines if line).strip()
+        output: list[str] = []
+        for raw_line in "".join(self.parts).splitlines():
+            line = " ".join(raw_line.split())
+            if line:
+                output.append(line)
+            elif output and output[-1] != "":
+                output.append("")
+        while output and not output[-1]:
+            output.pop()
+        return "\n".join(output).strip()
 
     def _nearby_context_title(self, label: str) -> str:
         text = ACTIVATION_MARKER_PATTERN.sub("", "".join(self.parts))
@@ -686,7 +754,11 @@ def normalize_message_text(text: str) -> str:
         text.replace("\r\n", "\n")
         .replace("\r", "\n")
         .replace("\t", " ")
+        .replace("\u00a0", " ")
+        .replace("\u202f", " ")
+        .replace("\u00ad", "")
         .replace("\u200b", "")
+        .replace("\u2060", "")
         .replace("\ufeff", "")
     )
     blocks: list[list[str]] = []
@@ -704,7 +776,10 @@ def normalize_message_text(text: str) -> str:
 
     cleaned_blocks: list[str] = []
     for lines in blocks:
-        if any(LIST_LINE_PATTERN.match(line) for line in lines):
+        if any(
+            LIST_LINE_PATTERN.match(line) or QUOTED_LINE_PATTERN.match(line)
+            for line in lines
+        ):
             cleaned_blocks.append("\n".join(lines))
         else:
             cleaned_blocks.append(" ".join(lines))
@@ -727,6 +802,87 @@ def looks_like_visual_markup_dump(text: str) -> bool:
     return score >= 4
 
 
+def clean_message_text_for_display(text: str) -> str:
+    """Return readable message text without HTML/CSS presentation noise."""
+    cleaned = str(text or "")
+    parsed_html = bool(HTML_DISPLAY_TAG_PATTERN.search(cleaned))
+    if parsed_html:
+        parsed_text, _links = html_to_text_and_links(cleaned)
+        cleaned = parsed_text
+    else:
+        cleaned = STYLE_OR_SCRIPT_BLOCK_PATTERN.sub("\n", cleaned)
+        cleaned = HTML_COMMENT_PATTERN.sub("\n", cleaned)
+    cleaned = _remove_css_rule_blocks(cleaned)
+    kept_lines = [
+        line
+        for line in cleaned.splitlines()
+        if not _is_standalone_style_line(line)
+    ]
+    display_text = "\n".join(kept_lines)
+    if not parsed_html:
+        display_text = normalize_message_text(display_text)
+    return strip_html_client_warning(display_text)
+
+
+def _remove_css_rule_blocks(text: str) -> str:
+    spans: list[tuple[int, int]] = []
+    stack: list[int] = []
+    for index, character in enumerate(text):
+        if character == "{":
+            stack.append(index)
+            continue
+        if character != "}" or not stack:
+            continue
+        opening = stack.pop()
+        if stack:
+            continue
+        selector_start = max(
+            text.rfind("\n", 0, opening),
+            text.rfind("}", 0, opening),
+        ) + 1
+        selector = text[selector_start:opening].strip()
+        declarations = text[opening + 1 : index]
+        if _looks_like_css_rule(selector, declarations):
+            spans.append((selector_start, index + 1))
+    for start, end in reversed(spans):
+        text = f"{text[:start]}\n{text[end:]}"
+    return text
+
+
+def _looks_like_css_rule(selector: str, declarations: str) -> bool:
+    if not selector or len(selector) > 500:
+        return False
+    property_count = len(CSS_PROPERTY_PATTERN.findall(declarations))
+    lowered_selector = selector.casefold()
+    if lowered_selector.startswith(("@media", "@supports", "@font-face", "@keyframes", "@-")):
+        return property_count > 0 or "{" in declarations
+    selector_is_markup = bool(
+        re.fullmatch(r"[-.#:*\w\s,>+~\[\]=\"'()|^$]+", selector)
+    )
+    return selector_is_markup and property_count > 0
+
+
+def _is_standalone_style_line(line: str) -> bool:
+    stripped = line.strip()
+    if not stripped:
+        return False
+    lowered = stripped.casefold()
+    if lowered in {"{", "}", "};"}:
+        return True
+    if lowered.startswith(("@media", "@supports", "@font-face", "@keyframes")):
+        return True
+    property_count = len(CSS_PROPERTY_PATTERN.findall(stripped))
+    if property_count >= 2:
+        return True
+    if property_count == 1 and (
+        stripped.endswith(";")
+        or "!important" in lowered
+        or lowered.startswith(("mso-", "-webkit-", "-ms-"))
+    ):
+        return True
+    return False
+
+
 def is_plain_text_placeholder(text: str) -> bool:
     normalized = " ".join(text.lower().split()).strip(" .:-")
     if not normalized or len(normalized) > 500:
@@ -739,11 +895,15 @@ def strip_html_client_warning(text: str) -> str:
     for pattern in HTML_CLIENT_WARNING_PATTERNS:
         cleaned = pattern.sub("", cleaned)
     kept_lines = []
+    removed_placeholder_line = False
     for line in cleaned.splitlines():
         visible_line = ACTIVATION_MARKER_PATTERN.sub("", line)
         if is_plain_text_placeholder(visible_line):
+            removed_placeholder_line = True
             continue
         kept_lines.append(line)
+    if cleaned == text and not removed_placeholder_line:
+        return text.strip()
     return normalize_message_text("\n".join(kept_lines))
 
 
@@ -829,9 +989,14 @@ def extract_body(message: Message | EmailMessage) -> tuple[str, list[LinkItem]]:
         html_text, html_links = html_to_text_and_links(html)
 
     if text_parts:
-        raw_text = normalize_message_text("\n".join(part.strip() for part in text_parts if part.strip()))
-        text = strip_html_client_warning(raw_text)
-        if html_text and (not text or looks_like_visual_markup_dump(text) or is_plain_text_placeholder(raw_text)):
+        raw_text = "\n".join(part.strip() for part in text_parts if part.strip())
+        plain_text_has_visual_noise = looks_like_visual_markup_dump(raw_text)
+        text = clean_message_text_for_display(raw_text)
+        if html_text and (
+            not text
+            or plain_text_has_visual_noise
+            or is_plain_text_placeholder(raw_text)
+        ):
             return html_text, organize_message_items(html_text, html_links + attachments)
         body = text or "لا يوجد نص قابل للعرض داخل هذه الرسالة."
         return body, organize_message_items(body, html_links + attachments)

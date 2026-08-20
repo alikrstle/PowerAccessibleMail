@@ -35,6 +35,7 @@ class GmailApiServiceTests(unittest.TestCase):
             "payload": {
                 "headers": [
                     {"name": "From", "value": "Sender <sender@example.com>"},
+                    {"name": "To", "value": "User <user@example.com>, Team <team@example.com>"},
                     {"name": "Subject", "value": "Hello"},
                     {"name": "Date", "value": "Sat, 30 May 2026 10:00:00 +0000"},
                 ],
@@ -58,6 +59,7 @@ class GmailApiServiceTests(unittest.TestCase):
 
         self.assertEqual(summary.uid, "abc123")
         self.assertEqual(summary.sender_email, "sender@example.com")
+        self.assertEqual(summary.recipient_emails, ["user@example.com", "team@example.com"])
         self.assertTrue(summary.has_attachments)
         self.assertFalse(summary.is_read)
         self.assertEqual(content.text, "Hello")
@@ -322,6 +324,23 @@ class GmailApiServiceTests(unittest.TestCase):
 
         service.set_message_read.assert_called_once_with(account, summary, True)
         self.assertTrue(result.summary.is_read)
+
+    def test_opening_cached_gmail_message_cleans_old_css_noise(self) -> None:
+        summary = MessageSummary(uid="message", mailbox="INBOX", is_read=True)
+        cached = MessageContent(
+            summary=summary,
+            text=".mail { padding: 8px; color: blue; }\nReadable Gmail content.",
+            links=[],
+        )
+        cache = Mock()
+        cache.get_content.return_value = cached
+        service = GmailApiService(cache=cache)
+        account = Account(id="account", oauth_provider="google_gmail_api")
+
+        result = service.fetch_message(account, summary)
+
+        self.assertEqual(result.text, "Readable Gmail content.")
+        cache.upsert_content.assert_called_once_with(account, cached)
 
     def test_content_uses_html_when_plain_part_is_only_a_placeholder(self) -> None:
         service = GmailApiService()

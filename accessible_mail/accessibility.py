@@ -3,6 +3,12 @@ from __future__ import annotations
 import wx
 
 from .i18n import tr
+from .notification_preferences import (
+    EVENT_CONTEXT_MENUS,
+    EVENT_DIALOGS,
+    event_is_enabled,
+    notification_event_for_message,
+)
 from .screen_reader import interrupt_and_speak
 
 
@@ -33,7 +39,14 @@ def restore_control_focus(control: wx.Window | None) -> None:
         return
 
 
-def announce_to_screen_reader(control: wx.Window, message: str) -> bool:
+def announce_to_screen_reader(
+    control: wx.Window,
+    message: str,
+    event_id: str | None = None,
+) -> bool:
+    resolved_event_id = event_id or notification_event_for_message(message)
+    if not event_is_enabled(resolved_event_id):
+        return False
     localized = tr(message)
     if interrupt_and_speak(localized):
         return True
@@ -49,13 +62,28 @@ def announce_to_screen_reader(control: wx.Window, message: str) -> bool:
         return False
 
 
+def announce_context_menu(control: wx.Window) -> bool:
+    return announce_to_screen_reader(
+        control,
+        "تم فتح قائمة السياق.",
+        EVENT_CONTEXT_MENUS,
+    )
+
+
+def should_announce_status(message: str) -> bool:
+    return bool(message and event_is_enabled(notification_event_for_message(message)))
+
+
 def message_box(
     message: str,
     caption: str,
     style: int = wx.OK,
     parent: wx.Window | None = None,
 ) -> int:
-    return _native_message_box(tr(message), tr(caption), style, parent)
+    localized_message = tr(message)
+    if event_is_enabled(EVENT_DIALOGS):
+        interrupt_and_speak(localized_message)
+    return _native_message_box(localized_message, tr(caption), style, parent)
 
 
 def install_message_box_translation() -> None:

@@ -48,6 +48,7 @@ SolidCompression=no
 #endif
 WizardStyle=modern
 PrivilegesRequired=lowest
+ChangesAssociations=yes
 #if TargetArchitecture == "x64"
 ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
@@ -80,6 +81,12 @@ french.ReadLocalizedReadme=Lire le guide du programme en français
 arabic.LaunchLocalizedApp=تشغيل البرنامج بعد إنهاء التثبيت
 english.LaunchLocalizedApp=Launch the application after Setup finishes
 french.LaunchLocalizedApp=Lancer l'application à la fin de l'installation
+arabic.DefaultMailIntegration=تكامل البريد الافتراضي في Windows
+english.DefaultMailIntegration=Windows default email integration
+french.DefaultMailIntegration=Intégration de la messagerie par défaut de Windows
+arabic.OpenDefaultMailSettings=فتح إعدادات Windows لاختيار Power Accessible Mail كتطبيق البريد الافتراضي
+english.OpenDefaultMailSettings=Open Windows Settings to choose Power Accessible Mail as the default email app
+french.OpenDefaultMailSettings=Ouvrir les paramètres Windows pour choisir Power Accessible Mail comme application de messagerie par défaut
 arabic.AcceptPrivacy=أنا أوافق على شروط الخصوصية
 english.AcceptPrivacy=I agree to the privacy terms
 french.AcceptPrivacy=J'accepte les conditions de confidentialité
@@ -101,6 +108,7 @@ french.CloseSetup=Fermer
 
 [Tasks]
 Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{cm:AdditionalIcons}"
+Name: "defaultmailsettings"; Description: "{cm:OpenDefaultMailSettings}"; GroupDescription: "{cm:DefaultMailIntegration}"; Flags: unchecked
 
 [Files]
 #ifdef SignedBuild
@@ -113,6 +121,28 @@ Source: "installer_readme_ar.txt"; DestDir: "{app}"; DestName: "README_AR.txt"; 
 Source: "installer_readme_en.txt"; DestDir: "{app}"; DestName: "README_EN.txt"; Flags: ignoreversion
 Source: "installer_readme_fr.txt"; DestDir: "{app}"; DestName: "README_FR.txt"; Flags: ignoreversion
 
+[Registry]
+Root: HKCU; Subkey: "Software\Clients\Mail\PowerAccessibleMail"; ValueType: string; ValueName: ""; ValueData: "{#MyAppName}"; Flags: uninsdeletekey
+Root: HKCU; Subkey: "Software\Clients\Mail\PowerAccessibleMail\DefaultIcon"; ValueType: string; ValueName: ""; ValueData: "{app}\{#MyAppExeName},0"
+Root: HKCU; Subkey: "Software\Clients\Mail\PowerAccessibleMail\shell\open\command"; ValueType: string; ValueName: ""; ValueData: """{app}\{#MyAppExeName}"" ""%1"""
+Root: HKCU; Subkey: "Software\Clients\Mail\PowerAccessibleMail\Capabilities"; ValueType: string; ValueName: "ApplicationName"; ValueData: "{#MyAppName}"
+Root: HKCU; Subkey: "Software\Clients\Mail\PowerAccessibleMail\Capabilities"; ValueType: string; ValueName: "ApplicationDescription"; ValueData: "Accessible email client with NVDA support"
+Root: HKCU; Subkey: "Software\Clients\Mail\PowerAccessibleMail\Capabilities"; ValueType: string; ValueName: "ApplicationIcon"; ValueData: "{app}\{#MyAppExeName},0"
+Root: HKCU; Subkey: "Software\Clients\Mail\PowerAccessibleMail\Capabilities"; ValueType: dword; ValueName: "Hidden"; ValueData: "0"
+Root: HKCU; Subkey: "Software\Clients\Mail\PowerAccessibleMail\Capabilities\Startmenu"; ValueType: string; ValueName: "Mail"; ValueData: "PowerAccessibleMail"
+Root: HKCU; Subkey: "Software\Clients\Mail\PowerAccessibleMail\Capabilities\UrlAssociations"; ValueType: string; ValueName: "mailto"; ValueData: "PowerAccessibleMail.mailto"
+Root: HKCU; Subkey: "Software\RegisteredApplications"; ValueType: string; ValueName: "{#MyAppName}"; ValueData: "Software\Clients\Mail\PowerAccessibleMail\Capabilities"; Flags: uninsdeletevalue
+Root: HKCU; Subkey: "Software\Classes\PowerAccessibleMail.mailto"; ValueType: string; ValueName: ""; ValueData: "Power Accessible Mail email link"; Flags: uninsdeletekey
+Root: HKCU; Subkey: "Software\Classes\PowerAccessibleMail.mailto"; ValueType: string; ValueName: "FriendlyTypeName"; ValueData: "Power Accessible Mail email link"
+Root: HKCU; Subkey: "Software\Classes\PowerAccessibleMail.mailto"; ValueType: string; ValueName: "URL Protocol"; ValueData: ""
+Root: HKCU; Subkey: "Software\Classes\PowerAccessibleMail.mailto\DefaultIcon"; ValueType: string; ValueName: ""; ValueData: "{app}\{#MyAppExeName},0"
+Root: HKCU; Subkey: "Software\Classes\PowerAccessibleMail.mailto\Application"; ValueType: string; ValueName: "ApplicationName"; ValueData: "{#MyAppName}"
+Root: HKCU; Subkey: "Software\Classes\PowerAccessibleMail.mailto\Application"; ValueType: string; ValueName: "ApplicationDescription"; ValueData: "Accessible email client with NVDA support"
+Root: HKCU; Subkey: "Software\Classes\PowerAccessibleMail.mailto\Application"; ValueType: string; ValueName: "ApplicationIcon"; ValueData: "{app}\{#MyAppExeName},0"
+Root: HKCU; Subkey: "Software\Classes\PowerAccessibleMail.mailto\Application"; ValueType: string; ValueName: "ApplicationCompany"; ValueData: "{#MyAppPublisher}"
+Root: HKCU; Subkey: "Software\Classes\PowerAccessibleMail.mailto\shell\open\command"; ValueType: string; ValueName: ""; ValueData: """{app}\{#MyAppExeName}"" ""%1"""
+Root: HKCU; Subkey: "Software\Classes\mailto\OpenWithProgids"; ValueType: none; ValueName: "PowerAccessibleMail.mailto"; Flags: uninsdeletevalue
+
 [Icons]
 Name: "{group}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"
 Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; Tasks: desktopicon
@@ -122,6 +152,7 @@ Filename: "{app}\README_AR.txt"; Description: "{cm:ReadLocalizedReadme}"; Flags:
 Filename: "{app}\README_EN.txt"; Description: "{cm:ReadLocalizedReadme}"; Flags: shellexec nowait postinstall skipifsilent; Languages: english
 Filename: "{app}\README_FR.txt"; Description: "{cm:ReadLocalizedReadme}"; Flags: shellexec nowait postinstall skipifsilent; Languages: french
 Filename: "{app}\{#MyAppExeName}"; Description: "{cm:LaunchLocalizedApp}"; Flags: nowait postinstall skipifsilent
+Filename: "ms-settings:defaultapps?registeredAppUser=Power%20Accessible%20Mail"; Description: "{cm:OpenDefaultMailSettings}"; Flags: shellexec nowait postinstall skipifsilent; Tasks: defaultmailsettings; Check: not IsInternalUpdate
 Filename: "{app}\{#MyAppExeName}"; Flags: nowait skipifdoesntexist; Check: IsInternalUpdate
 
 [Code]

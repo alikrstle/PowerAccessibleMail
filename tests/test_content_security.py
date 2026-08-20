@@ -9,10 +9,40 @@ from accessible_mail.content_security import (
     scan_bytes_with_antimalware,
     validate_and_scan_image,
 )
-from accessible_mail.network_security import UnsafeRemoteUrl, validate_public_http_url
+from accessible_mail.network_security import (
+    UnsafeRemoteUrl,
+    trusted_https_context,
+    validate_public_http_url,
+)
 
 
 class NetworkSecurityTests(unittest.TestCase):
+    def tearDown(self) -> None:
+        trusted_https_context.cache_clear()
+
+    @patch("accessible_mail.network_security.sys.platform", "win32")
+    @patch("accessible_mail.network_security.ssl.enum_certificates")
+    @patch("accessible_mail.network_security.ssl.create_default_context")
+    def test_https_context_loads_windows_root_certificates(
+        self,
+        create_default_context: Mock,
+        enum_certificates: Mock,
+    ) -> None:
+        context = create_default_context.return_value
+        enum_certificates.side_effect = [
+            [(b"root-certificate", "x509_asn", True)],
+            [],
+        ]
+        trusted_https_context.cache_clear()
+
+        result = trusted_https_context()
+
+        self.assertIs(result, context)
+        self.assertEqual(enum_certificates.call_count, 2)
+        context.load_verify_locations.assert_called_once_with(
+            cadata=b"root-certificate"
+        )
+
     @patch("accessible_mail.network_security.socket.getaddrinfo")
     def test_public_http_image_url_remains_supported(self, getaddrinfo: Mock) -> None:
         getaddrinfo.return_value = [(2, 1, 6, "", ("93.184.216.34", 80))]

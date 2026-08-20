@@ -108,7 +108,12 @@ class InternalUpdaterTests(unittest.TestCase):
             download_update_installer(result)
 
     @patch("accessible_mail.updater.urllib.request.urlopen")
-    def test_download_verifies_sha256_and_reports_progress(self, urlopen) -> None:
+    @patch("accessible_mail.updater.trusted_https_context")
+    def test_download_verifies_sha256_and_reports_progress(
+        self,
+        https_context,
+        urlopen,
+    ) -> None:
         payload = b"MZ" + (b"installer-data" * 100)
         urlopen.return_value = DownloadResponse(payload)
         progress: list[tuple[int, int]] = []
@@ -126,6 +131,7 @@ class InternalUpdaterTests(unittest.TestCase):
 
         self.assertTrue(progress)
         self.assertEqual(progress[-1], (len(payload), len(payload)))
+        self.assertIs(urlopen.call_args.kwargs["context"], https_context.return_value)
 
     @patch("accessible_mail.updater.urllib.request.urlopen")
     def test_download_rejects_wrong_sha256_and_removes_partial_file(

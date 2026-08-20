@@ -6,11 +6,23 @@ from pathlib import Path
 
 import wx
 
-from .accessibility import announce_to_screen_reader, set_accessible
+from .accessibility import announce_context_menu, announce_to_screen_reader, set_accessible
+from .address_book import add_address, load_address_book
+from .address_book_dialog import AddressPickerDialog
 from .config import ProgramSettings, THEME_DARK, THEME_LIGHT
 from .i18n import tr
+from .notification_preferences import (
+    EVENT_ADDRESS_BOOK,
+    EVENT_COMPOSE_ATTACHMENTS,
+    EVENTS_BY_ID,
+    SPOKEN_NOTIFICATION_GROUPS,
+    normalize_event_ids,
+    preset_event_ids,
+)
 from .ui_constants import (
     LANGUAGE_CHOICES,
+    MESSAGE_READ_MODE_CHOICES,
+    SPOKEN_NOTIFICATION_LEVEL_CHOICES,
     THEME_CHOICES,
     TRANSLATION_MODE_CHOICES,
     VIEWER_CHOICES,
@@ -33,7 +45,7 @@ class ComposeDialog(wx.Dialog):
         panel = wx.Panel(self)
         root = wx.BoxSizer(wx.VERTICAL)
 
-        self.to_address = self._row(panel, root, "إلى:", to_address)
+        self.to_address = self._recipient_row(panel, root, to_address)
         self.subject = self._row(panel, root, "الموضوع:", subject)
 
         root.Add(wx.StaticText(panel, label="المحتوى:"), 0, wx.LEFT | wx.RIGHT | wx.TOP, 8)
@@ -98,6 +110,36 @@ class ComposeDialog(wx.Dialog):
         self.SetSizer(outer)
         localize_window(self)
 
+    def _recipient_row(
+        self,
+        parent: wx.Window,
+        root: wx.BoxSizer,
+        value: str,
+    ) -> wx.TextCtrl:
+        row = wx.BoxSizer(wx.HORIZONTAL)
+        row.Add(wx.StaticText(parent, label="إلى:"), 0, wx.ALIGN_CENTER_VERTICAL | wx.ALL, 8)
+        control = wx.TextCtrl(parent, value=value)
+        set_accessible(
+            control,
+            "إلى",
+            "اكتب عنوان المستلم أو اضغط السهم للأسفل لاختيار عنوان من سجل العناوين.",
+        )
+        control.Bind(wx.EVT_KEY_DOWN, self.on_to_address_key)
+        row.Add(control, 1, wx.EXPAND | wx.ALL, 8)
+        self.add_address_button = wx.Button(
+            parent,
+            label="إضافة البريد الإلكتروني إلى سجل العناوين",
+        )
+        set_accessible(
+            self.add_address_button,
+            "إضافة البريد الإلكتروني إلى سجل العناوين",
+            "يحفظ عنوان المستلم المكتوب في سجل العناوين.",
+        )
+        self.add_address_button.Bind(wx.EVT_BUTTON, self.on_add_address)
+        row.Add(self.add_address_button, 0, wx.ALIGN_CENTER_VERTICAL | wx.ALL, 8)
+        root.Add(row, 0, wx.EXPAND)
+        return control
+
     def _row(
         self,
         parent: wx.Window,
@@ -121,6 +163,64 @@ class ComposeDialog(wx.Dialog):
             list(self.attachment_paths),
         )
 
+    def on_add_address(self, _event: wx.Event) -> None:
+        value = self.to_address.GetValue().strip()
+        if not value:
+            wx.MessageBox(
+                tr("يرجى كتابة بريد إلكتروني أولاً."),
+                tr("عنوان البريد الإلكتروني مطلوب"),
+                wx.OK | wx.ICON_INFORMATION,
+                self,
+            )
+            self.to_address.SetFocus()
+            return
+        added, result = add_address(value)
+        if added:
+            announce_to_screen_reader(
+                self.to_address,
+                tr("تمت إضافة عنوان البريد الإلكتروني إلى سجل العناوين."),
+                EVENT_ADDRESS_BOOK,
+            )
+            return
+        if result == "duplicate":
+            message = "عنوان البريد الإلكتروني موجود بالفعل في سجل العناوين."
+            title = "العنوان موجود"
+        else:
+            message = "يرجى كتابة بريد إلكتروني صالح أولاً."
+            title = "عنوان غير صالح"
+        wx.MessageBox(tr(message), tr(title), wx.OK | wx.ICON_INFORMATION, self)
+        self.to_address.SetFocus()
+
+    def on_to_address_key(self, event: wx.KeyEvent) -> None:
+        if event.GetKeyCode() != wx.WXK_DOWN:
+            event.Skip()
+            return
+        entries = load_address_book()
+        if not entries:
+            announce_to_screen_reader(
+                self.to_address,
+                tr("سجل العناوين فارغ. أضف عنوان بريد إلكتروني أولاً."),
+                EVENT_ADDRESS_BOOK,
+            )
+            return
+        dialog = AddressPickerDialog(self, entries)
+        try:
+            if dialog.ShowModal() == wx.ID_OK:
+                selected = dialog.selected_email()
+                if selected:
+                    self.to_address.SetValue(selected)
+                    self.to_address.SetInsertionPointEnd()
+                    announce_to_screen_reader(
+                        self.to_address,
+                        tr("تم اختيار {email} من سجل العناوين.").format(
+                            email=selected
+                        ),
+                        EVENT_ADDRESS_BOOK,
+                    )
+        finally:
+            dialog.Destroy()
+        self.to_address.SetFocus()
+
     def on_add_attachments(self, _event: wx.CommandEvent) -> None:
         dialog = wx.FileDialog(
             self,
@@ -140,6 +240,7 @@ class ComposeDialog(wx.Dialog):
             announce_to_screen_reader(
                 self.attachment_list,
                 tr("تمت إضافة المرفقات إلى الرسالة."),
+                EVENT_COMPOSE_ATTACHMENTS,
             )
 
     def add_attachment_paths(self, paths: list[Path]) -> int:
@@ -194,6 +295,7 @@ class ComposeDialog(wx.Dialog):
         announce_to_screen_reader(
             self.attachment_list,
             tr("تمت إزالة المرفق من الرسالة."),
+            EVENT_COMPOSE_ATTACHMENTS,
         )
 
     def on_attachment_key(self, event: wx.KeyEvent) -> None:
@@ -228,6 +330,7 @@ class ComposeDialog(wx.Dialog):
             remove_item,
         )
         try:
+            announce_context_menu(self.attachment_list)
             self.attachment_list.PopupMenu(menu)
         finally:
             menu.Destroy()
@@ -267,10 +370,134 @@ class BulkDeleteDialog(wx.Dialog):
         wx.CallAfter(cancel_button.SetFocus)
 
 
+class SpokenNotificationsDialog(wx.Dialog):
+    def __init__(self, parent: wx.Window, selected_event_ids: set[str]) -> None:
+        super().__init__(parent, title=tr("الإشعارات التي سينطقها البرنامج"), size=(840, 620))
+        root = wx.BoxSizer(wx.VERTICAL)
+        content = wx.BoxSizer(wx.HORIZONTAL)
+
+        self.category_event_ids = tuple(
+            group.event_ids for group in SPOKEN_NOTIFICATION_GROUPS
+        )
+        self.event_values = {
+            event_id: event_id in selected_event_ids for event_id in EVENTS_BY_ID
+        }
+        self.visible_event_checkboxes: dict[str, wx.CheckBox] = {}
+        self.current_category_index: int | None = None
+
+        self.category_list = wx.ListBox(
+            self,
+            choices=[tr(group.label) for group in SPOKEN_NOTIFICATION_GROUPS],
+            style=wx.LB_SINGLE | wx.LB_NEEDED_SB,
+            size=(280, -1),
+        )
+        set_accessible(
+            self.category_list,
+            "تصنيفات نطق إجراءات البرنامج",
+            "اختر تصنيفًا ثم اضغط Tab للانتقال إلى خياراته.",
+        )
+
+        self.options_panel = wx.Panel(self, style=wx.TAB_TRAVERSAL)
+        set_accessible(
+            self.options_panel,
+            "خيارات تصنيف نطق الإجراءات",
+        )
+        self.options_sizer = wx.BoxSizer(wx.VERTICAL)
+        self.options_panel.SetSizer(self.options_sizer)
+
+        self.category_list.Bind(wx.EVT_LISTBOX, self.on_category_changed)
+        if self.category_list.GetCount():
+            self.category_list.SetSelection(0)
+            self._show_category(0, remember_current=False)
+        content.Add(self.category_list, 0, wx.EXPAND | wx.ALL, 12)
+        content.Add(self.options_panel, 1, wx.EXPAND | wx.TOP | wx.RIGHT | wx.BOTTOM, 12)
+        root.Add(content, 1, wx.EXPAND)
+
+        buttons = wx.BoxSizer(wx.HORIZONTAL)
+        buttons.AddStretchSpacer(1)
+        save_button = wx.Button(self, wx.ID_OK, label=tr("حفظ"))
+        cancel_button = wx.Button(self, wx.ID_CANCEL, label=tr("إلغاء"))
+        set_accessible(save_button, "حفظ الإشعارات المنطوقة")
+        set_accessible(cancel_button, "إلغاء تعديلات الإشعارات")
+        save_button.SetDefault()
+        buttons.Add(cancel_button, 0, wx.ALL, 8)
+        buttons.AddStretchSpacer(1)
+        buttons.Add(save_button, 0, wx.ALL, 8)
+        root.Add(buttons, 0, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM, 12)
+
+        self.SetSizer(root)
+        apply_layout_direction(self)
+        localize_window(self)
+        self.CentreOnParent()
+        wx.CallAfter(self.category_list.SetFocus)
+
+    def on_category_changed(self, _event: wx.CommandEvent) -> None:
+        self._show_category(self.category_list.GetSelection())
+
+    def _remember_visible_values(self) -> None:
+        for event_id, checkbox in self.visible_event_checkboxes.items():
+            self.event_values[event_id] = checkbox.GetValue()
+
+    def _show_category(
+        self,
+        category_index: int,
+        *,
+        remember_current: bool = True,
+    ) -> None:
+        if not 0 <= category_index < len(SPOKEN_NOTIFICATION_GROUPS):
+            return
+        if remember_current:
+            self._remember_visible_values()
+
+        self.options_sizer.Clear(delete_windows=True)
+        self.visible_event_checkboxes = {}
+        group = SPOKEN_NOTIFICATION_GROUPS[category_index]
+        self.options_sizer.Add(
+            wx.StaticText(self.options_panel, label=tr(group.label)),
+            0,
+            wx.EXPAND | wx.ALL,
+            10,
+        )
+
+        options_grid = wx.FlexGridSizer(cols=2, vgap=10, hgap=18)
+        options_grid.AddGrowableCol(0, 1)
+        options_grid.AddGrowableCol(1, 1)
+        for event_id in self.category_event_ids[category_index]:
+            event = EVENTS_BY_ID[event_id]
+            checkbox = wx.CheckBox(self.options_panel, label=tr(event.label))
+            checkbox.SetValue(self.event_values[event_id])
+            set_accessible(
+                checkbox,
+                event.label,
+                "اضغط Space لتحديد نطق هذا الإجراء أو إلغاء تحديده.",
+            )
+            self.visible_event_checkboxes[event_id] = checkbox
+            options_grid.Add(checkbox, 1, wx.EXPAND)
+
+        self.options_sizer.Add(options_grid, 0, wx.EXPAND | wx.LEFT | wx.RIGHT, 12)
+        self.options_sizer.AddStretchSpacer(1)
+        self.current_category_index = category_index
+        self.options_panel.Layout()
+        self.Layout()
+
+    def selected_event_ids(self) -> set[str]:
+        self._remember_visible_values()
+        return {
+            event_id
+            for event_id, is_selected in self.event_values.items()
+            if is_selected
+        }
+
+
 class SettingsDialog(wx.Dialog):
     def __init__(self, parent: wx.Window, settings: ProgramSettings) -> None:
-        super().__init__(parent, title="الإعدادات", size=(560, 500))
+        super().__init__(parent, title="الإعدادات", size=(680, 700))
         self.settings = replace(settings)
+        self.notification_event_ids = set(
+            settings.spoken_notification_events
+            if settings.spoken_notification_events is not None
+            else preset_event_ids(settings.spoken_notification_level)
+        )
         self._build()
 
     def _build(self) -> None:
@@ -305,6 +532,32 @@ class SettingsDialog(wx.Dialog):
         )
         root.Add(self.viewer_box, 0, wx.EXPAND | wx.ALL, 10)
 
+        root.Add(
+            wx.StaticText(self, label="طريقة تعليم الرسائل كمقروءة:"),
+            0,
+            wx.LEFT | wx.RIGHT | wx.TOP,
+            10,
+        )
+        self.message_read_mode_box = wx.Choice(
+            self,
+            choices=[tr(label) for label in MESSAGE_READ_MODE_CHOICES],
+        )
+        self.message_read_mode_box.SetSelection(
+            self.index_for_value(
+                MESSAGE_READ_MODE_CHOICES,
+                self.settings.message_read_mode,
+            )
+        )
+        set_accessible(
+            self.message_read_mode_box,
+            "طريقة قراءة الرسائل",
+            (
+                "يدوي يبقي الرسالة غير مقروءة حتى تضغط Space أو تستخدم قائمة السياق. "
+                "تلقائي يعلم الرسالة كمقروءة عند الدخول إلى مستعرض الرسالة وظهور محتواها الكامل."
+            ),
+        )
+        root.Add(self.message_read_mode_box, 0, wx.EXPAND | wx.ALL, 10)
+
         root.Add(wx.StaticText(self, label="نمط الترجمة:"), 0, wx.LEFT | wx.RIGHT | wx.TOP, 10)
         self.translation_mode_box = wx.Choice(
             self,
@@ -315,6 +568,70 @@ class SettingsDialog(wx.Dialog):
         )
         set_accessible(self.translation_mode_box, "نمط الترجمة")
         root.Add(self.translation_mode_box, 0, wx.EXPAND | wx.ALL, 10)
+
+        root.Add(
+            wx.StaticText(self, label="نطق إجراءات البرنامج:"),
+            0,
+            wx.LEFT | wx.RIGHT | wx.TOP,
+            10,
+        )
+        notification_row = wx.BoxSizer(wx.HORIZONTAL)
+        self.notification_level_box = wx.Choice(
+            self,
+            choices=[tr(label) for label in SPOKEN_NOTIFICATION_LEVEL_CHOICES],
+        )
+        self.notification_level_box.SetSelection(
+            self.index_for_value(
+                SPOKEN_NOTIFICATION_LEVEL_CHOICES,
+                self.settings.spoken_notification_level,
+            )
+        )
+        set_accessible(
+            self.notification_level_box,
+            "مستوى نطق إجراءات البرنامج",
+            "اختر مستوى جاهزًا، ثم استخدم زر عرض الإشعارات لتخصيصه.",
+        )
+        self.notification_level_box.Bind(
+            wx.EVT_CHOICE,
+            self.on_notification_level_changed,
+        )
+        notification_row.Add(self.notification_level_box, 1, wx.EXPAND | wx.ALL, 10)
+        self.customize_notifications_button = wx.Button(
+            self,
+            label="تخصيص نطق الإجراءات وإدارتها",
+        )
+        set_accessible(
+            self.customize_notifications_button,
+            "تخصيص نطق الإجراءات وإدارتها",
+            "يفتح تصنيفات تحتوي مربعات اختيار حقيقية مع زر حفظ.",
+        )
+        self.customize_notifications_button.Bind(
+            wx.EVT_BUTTON,
+            self.on_customize_notifications,
+        )
+        notification_row.Add(
+            self.customize_notifications_button,
+            0,
+            wx.ALIGN_CENTER_VERTICAL | wx.ALL,
+            10,
+        )
+        root.Add(notification_row, 0, wx.EXPAND)
+
+        self.default_mail_button = wx.Button(
+            self,
+            label="اختيار PowerAccessibleMail كتطبيق البريد الافتراضي",
+        )
+        set_accessible(
+            self.default_mail_button,
+            "اختيار PowerAccessibleMail كتطبيق البريد الافتراضي",
+            (
+                "يفتح إعدادات التطبيقات الافتراضية في Windows. داخل قائمة "
+                "التطبيقات المرتبطة اضغط Space لفتح اختيار التطبيق؛ قد لا "
+                "يستجيب Enter في Windows 11."
+            ),
+        )
+        self.default_mail_button.Bind(wx.EVT_BUTTON, self.on_default_mail)
+        root.Add(self.default_mail_button, 0, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM, 10)
 
         self.theme_box = wx.RadioBox(
             self,
@@ -335,16 +652,54 @@ class SettingsDialog(wx.Dialog):
         wx.CallAfter(self.focus_intro.SetFocus)
 
     def selected_settings(self) -> ProgramSettings:
+        selected_events = normalize_event_ids(self.notification_event_ids)
         return ProgramSettings(
             language=self.value_for_index(self.language_box, LANGUAGE_CHOICES, self.settings.language),
             message_viewer=self.value_for_index(self.viewer_box, VIEWER_CHOICES, self.settings.message_viewer),
+            message_read_mode=self.value_for_index(
+                self.message_read_mode_box,
+                MESSAGE_READ_MODE_CHOICES,
+                self.settings.message_read_mode,
+            ),
             theme=THEME_DARK if self.theme_box.GetSelection() == 1 else THEME_LIGHT,
             translation_mode=self.value_for_index(
                 self.translation_mode_box,
                 TRANSLATION_MODE_CHOICES,
                 self.settings.translation_mode,
             ),
+            translation_data_notice_accepted=(
+                self.settings.translation_data_notice_accepted
+            ),
+            spoken_notification_level=self.value_for_index(
+                self.notification_level_box,
+                SPOKEN_NOTIFICATION_LEVEL_CHOICES,
+                self.settings.spoken_notification_level,
+            ),
+            spoken_notification_events=selected_events or [],
         )
+
+    def on_notification_level_changed(self, _event: wx.Event) -> None:
+        level = self.value_for_index(
+            self.notification_level_box,
+            SPOKEN_NOTIFICATION_LEVEL_CHOICES,
+            self.settings.spoken_notification_level,
+        )
+        self.notification_event_ids = preset_event_ids(level)
+
+    def on_customize_notifications(self, _event: wx.Event) -> None:
+        dialog = SpokenNotificationsDialog(self, self.notification_event_ids)
+        try:
+            if dialog.ShowModal() == wx.ID_OK:
+                self.notification_event_ids = dialog.selected_event_ids()
+        finally:
+            dialog.Destroy()
+        self.customize_notifications_button.SetFocus()
+
+    def on_default_mail(self, event: wx.Event) -> None:
+        parent = self.GetParent()
+        handler = getattr(parent, "on_open_default_apps", None)
+        if callable(handler):
+            handler(event)
 
     def value_for_index(self, choice: wx.Choice, mapping: dict[str, str], fallback: str) -> str:
         values = list(mapping.values())

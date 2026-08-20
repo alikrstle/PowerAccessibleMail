@@ -67,8 +67,10 @@ class UpdateCheckerTests(unittest.TestCase):
         return_value="alikrstle/PowerAccessibleMail",
     )
     @patch("accessible_mail.update_checker.urllib.request.urlopen")
+    @patch("accessible_mail.update_checker.trusted_https_context")
     def test_x64_build_selects_signed_x64_installer(
         self,
+        https_context,
         urlopen,
         _repository,
         _manifest,
@@ -87,6 +89,7 @@ class UpdateCheckerTests(unittest.TestCase):
         request = urlopen.call_args.args[0]
         self.assertEqual(request.get_header("Accept"), "application/vnd.github+json")
         self.assertEqual(request.get_header("X-github-api-version"), GITHUB_API_VERSION)
+        self.assertIs(urlopen.call_args.kwargs["context"], https_context.return_value)
 
     @patch("accessible_mail.update_checker.load_update_manifest_url", return_value="")
     @patch(
