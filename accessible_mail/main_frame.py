@@ -2088,45 +2088,33 @@ class MainFrame(wx.Frame):
         )
         return_control = page.take_translation_return_control() if isinstance(_event, MailPage) else wx.Window.FindFocus()
 
-        def work() -> tuple[str, dict[str, str], bool]:
-            translated_message = translate_text_with_google(
+        def work() -> str:
+            return translate_text_with_google(
                 text,
                 target_language=self.settings.language,
             )
-            translated_descriptions: dict[str, str] = {}
-            description_translation_failed = False
-            for description in item_descriptions:
-                try:
-                    translated_descriptions[description] = translate_text_with_google(
-                        description,
-                        target_language=self.settings.language,
-                    )
-                except MailError:
-                    description_translation_failed = True
-                    translated_descriptions[description] = description
-            return (
-                translated_message,
-                translated_descriptions,
-                description_translation_failed,
-            )
 
-        def done(result: tuple[str, dict[str, str], bool]) -> None:
-            translated, translated_descriptions, description_translation_failed = result
+        def done(translated: str) -> None:
             if self.settings.translation_mode == TRANSLATION_INLINE and page:
                 current_summary = page.selected_summary()
                 if not current_summary or current_summary.uid != source_uid:
                     self.SetStatusText("اكتملت ترجمة الرسالة السابقة دون تغيير الرسالة الحالية.")
                     return
-                page.show_translated_content(
-                    normalize_message_text(translated),
-                    translated_descriptions,
+                translation_generation = page.show_translated_content(
+                    normalize_message_text(translated)
                 )
-                status = (
-                    "تمت ترجمة الرسالة، لكن تعذر ترجمة بعض أوصاف العناصر."
-                    if description_translation_failed
-                    else "تمت ترجمة الرسالة ومزامنة الروابط والمرفقات في مستعرض العناصر."
-                )
-                self.SetStatusText(tr(status))
+                if item_descriptions:
+                    self.SetStatusText(
+                        tr("تمت ترجمة نص الرسالة، وجار ترجمة أوصاف العناصر في الخلفية.")
+                    )
+                    self.start_background_item_description_translation(
+                        page,
+                        source_uid,
+                        item_descriptions,
+                        translation_generation,
+                    )
+                else:
+                    self.SetStatusText(tr("تمت ترجمة الرسالة داخل المستعرض."))
                 call_after_if_open(self, page.restore_context_focus, return_control)
                 return
             self.show_translation_dialog(translated)
@@ -2140,6 +2128,50 @@ class MainFrame(wx.Frame):
         self.run_worker("جار ترجمة الرسالة...", work, done, failed)
         if page:
             call_after_if_open(self, page.restore_context_focus, return_control)
+
+    def start_background_item_description_translation(
+        self,
+        page: MailPage,
+        source_uid: str,
+        descriptions: list[str],
+        translation_generation: int,
+    ) -> None:
+        def work() -> tuple[dict[str, str], bool]:
+            translated_descriptions: dict[str, str] = {}
+            translation_failed = False
+            for description in descriptions:
+                try:
+                    translated_descriptions[description] = translate_text_with_google(
+                        description,
+                        target_language=self.settings.language,
+                    )
+                except MailError:
+                    translation_failed = True
+                    translated_descriptions[description] = description
+            return translated_descriptions, translation_failed
+
+        def done(result: tuple[dict[str, str], bool]) -> None:
+            translated_descriptions, translation_failed = result
+            current_summary = page.selected_summary()
+            if not current_summary or current_summary.uid != source_uid:
+                return
+            if not page.show_translated_item_descriptions(
+                translated_descriptions,
+                translation_generation,
+            ):
+                return
+            status = (
+                "اكتملت ترجمة أوصاف العناصر في الخلفية، وتعذر ترجمة بعضها."
+                if translation_failed
+                else "اكتملت ترجمة أوصاف العناصر في الخلفية."
+            )
+            self.SetStatusText(tr(status))
+
+        self.run_worker(
+            "جار ترجمة أوصاف العناصر في الخلفية...",
+            work,
+            done,
+        )
 
     def confirm_translation_data_transfer(self) -> bool:
         if self.settings.translation_data_notice_accepted:
@@ -2256,7 +2288,7 @@ Inside each section, the filter lets you show all messages, starred messages, un
 Read each message in the viewer you prefer
 The HTML viewer keeps links and buttons in their natural positions as real page elements. Use Tab or your screen reader's browsing commands to reach them, then press Enter or Space to activate them. Press Ctrl+Enter to move between the message viewer and the item viewer. Press Escape to return directly to the message list.
 
-The easy viewer removes repeated blank lines and presents a clean text version. Its item viewer collects links, buttons, images, and attachments under clear names. Link entries state their description and address, while attachment entries state the file name, type, and size when available. An inline translation also refreshes the item viewer without losing attachment data. In Settings, choose whether messages are marked as read manually with Space or the context menu, or automatically only after entering the message viewer and displaying the full message. Merely moving across messages in the list never marks them as read.
+The easy viewer removes repeated blank lines and presents a clean text version. Its item viewer gives detailed descriptions for links, buttons, images, and attachments. A link states its type, description, domain, and full address; an image states its description, source, and available file details; and an attachment states its name, extension, type, and size. During inline translation, the message text appears first to reduce waiting. Item descriptions are then translated in the background and refreshed without reloading the message viewer or losing attachment data. In Settings, choose whether messages are marked as read manually with Space or the context menu, or automatically only after entering the message viewer and displaying the full message. Merely moving across messages in the list never marks them as read.
 
 Work with several messages at once
 In normal mode, messages are list items without check boxes. Press Ctrl+Shift+Space to enter multiple-selection mode, where every message becomes a check box. Move with the arrow keys and press Space to check or uncheck a message, or use the mouse.
@@ -2316,7 +2348,7 @@ Power Accessible Mail برنامج صمم ليجعل قراءة البريد و�
 اقرأ الرسالة بالمستعرض الذي يناسبك
 مستعرض HTML يبقي الروابط والأزرار في مواضعها الطبيعية كعناصر حقيقية. استخدم Tab أو أوامر التصفح في قارئ الشاشة للوصول إليها ثم Enter أو Space لتفعيلها. ينقلك Ctrl+Enter بين مستعرض الرسالة ومستعرض العناصر، ويعيدك Escape مباشرة إلى قائمة الرسائل.
 
-المستعرض السهل ينظف تكرار الأسطر الخالية ويعرض نصا مرتبا. ويجمع مستعرض العناصر الروابط والأزرار والصور والمرفقات تحت أسماء واضحة. يذكر عنصر الرابط وصفه وعنوانه، ويذكر عنصر المرفق اسم الملف ونوعه وحجمه عند توفرها. كما تصل الترجمة المعروضة داخل الرسالة إلى مستعرض العناصر من دون فقدان بيانات المرفقات. من الإعدادات تستطيع اختيار تعليم الرسائل كمقروءة يدويا عبر Space أو قائمة السياق، أو تلقائيا فقط عند الدخول إلى مستعرض الرسالة وظهور محتواها الكامل. مجرد التنقل بين الرسائل في القائمة لا يجعلها مقروءة في أي من الوضعين.
+المستعرض السهل ينظف تكرار الأسطر الخالية ويعرض نصا مرتبا. ويجمع مستعرض العناصر الروابط والأزرار والصور والمرفقات تحت أوصاف مفصلة. يذكر الرابط نوعه ووصفه ونطاقه وعنوانه الكامل، وتذكر الصورة وصفها ومصدرها وبيانات ملفها المتاحة، ويذكر المرفق اسمه وامتداده ونوعه وحجمه. عند الترجمة يظهر نص الرسالة أولا لتقليل الانتظار، ثم تترجم أوصاف العناصر في الخلفية وتتحدث في مستعرض العناصر من دون إعادة تحميل مستعرض الرسالة أو فقدان بيانات المرفقات. من الإعدادات تستطيع اختيار تعليم الرسائل كمقروءة يدويا عبر Space أو قائمة السياق، أو تلقائيا فقط عند الدخول إلى مستعرض الرسالة وظهور محتواها الكامل. مجرد التنقل بين الرسائل في القائمة لا يجعلها مقروءة في أي من الوضعين.
 
 تعامل مع عدة رسائل في خطوة واحدة
 في الوضع العادي تظهر الرسائل كعناصر قائمة من دون مربعات اختيار. اضغط Ctrl+Shift+Space للدخول إلى وضع التحديد المتعدد، وعندها تتحول الرسائل إلى مربعات اختيار. تنقل بالأسهم واضغط Space لتحديد الرسالة أو إلغاء تحديدها، أو استخدم الفأرة.

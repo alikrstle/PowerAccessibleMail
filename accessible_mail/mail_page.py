@@ -148,6 +148,7 @@ class MailPage(wx.Panel):
         self._pending_auto_read_key: tuple[str, str] | None = None
         self._deferred_filter_refresh = False
         self._deferred_filter_previous_index = 0
+        self._translation_generation = 0
         self.multi_select_mode = False
         self._multi_selected_keys: set[tuple[str, str]] = set()
         self._control_pressed_alone = False
@@ -975,9 +976,11 @@ class MailPage(wx.Panel):
     def show_translated_content(
         self,
         translated_text: str,
-        description_translations: dict[str, str],
-    ) -> None:
-        """Synchronize an inline translation with both message and item viewers."""
+        description_translations: dict[str, str] | None = None,
+    ) -> int:
+        """Show the message translation immediately and return its generation."""
+        self._translation_generation += 1
+        description_translations = description_translations or {}
         translated_items = [
             replace(
                 item,
@@ -992,6 +995,29 @@ class MailPage(wx.Panel):
         self.set_links(translated_items, message_text=translated_text)
         self.set_viewer_action_ranges(translated_text, self.links)
         self.set_viewer_text(translated_text)
+        return self._translation_generation
+
+    def show_translated_item_descriptions(
+        self,
+        description_translations: dict[str, str],
+        translation_generation: int,
+    ) -> bool:
+        """Refresh only the item viewer when background translations finish."""
+        if translation_generation != self._translation_generation:
+            return False
+        translated_items = [
+            replace(
+                item,
+                text=description_translations.get(item.text, item.text),
+                activation_text=description_translations.get(
+                    item.activation_text,
+                    item.activation_text,
+                ),
+            )
+            for item in self.links
+        ]
+        self.set_links(translated_items, message_text=self.viewer_text)
+        return True
 
     def schedule_html_refresh(self, *, focus_start: bool) -> None:
         self._html_focus_after_load = self._html_focus_after_load or focus_start
@@ -2063,7 +2089,13 @@ window.addEventListener("keydown", function (event) {{
             if link.is_attachment:
                 attachment_index += 1
                 filename = link.filename.strip() or link.text.strip() or tr("مرفق بدون اسم")
-                details = [f"{tr('اسم الملف')}: {filename}"]
+                details = [
+                    f"{tr('نوع العنصر')}: {tr('مرفق')}",
+                    f"{tr('اسم الملف')}: {filename}",
+                ]
+                extension = Path(filename).suffix.lstrip(".").upper()
+                if extension:
+                    details.append(f"{tr('امتداد الملف')}: {extension}")
                 if link.content_type:
                     details.append(f"{tr('نوع الملف')}: {link.content_type}")
                 if link.size:
@@ -2073,17 +2105,43 @@ window.addEventListener("keydown", function (event) {{
                 )
             elif link.is_button:
                 button_index += 1
-                labels.append(tr(f"زر {button_index}: {link.label}"))
+                details = [
+                    f"{tr('نوع العنصر')}: {tr('زر')}",
+                    f"{tr('الوصف')}: {link.text.strip() or tr('زر بدون عنوان')}",
+                ]
+                if link.url:
+                    details.append(f"{tr('عنوان الرابط')}: {link.url}")
+                labels.append(tr(f"زر {button_index}: {'، '.join(details)}"))
             elif link.is_image:
                 image_index += 1
-                labels.append(tr(f"صورة {image_index}: {tr(link.label)}"))
+                description = link.text.strip() or link.filename.strip() or tr("صورة بدون وصف")
+                image_source = (
+                    tr("رابط خارجي")
+                    if link.url.casefold().startswith(("http://", "https://"))
+                    else tr("صورة مضمنة")
+                )
+                details = [
+                    f"{tr('نوع العنصر')}: {tr('صورة')}",
+                    f"{tr('الوصف')}: {description}",
+                    f"{tr('مصدر الصورة')}: {image_source}",
+                ]
+                if link.filename:
+                    details.append(f"{tr('اسم الملف')}: {link.filename}")
+                if link.content_type:
+                    details.append(f"{tr('نوع الملف')}: {link.content_type}")
+                if link.size:
+                    details.append(f"{tr('الحجم')}: {LinkItem.format_size(link.size)}")
+                labels.append(tr(f"صورة {image_index}: {'، '.join(details)}"))
             else:
                 link_index += 1
                 description = link.text.strip()
-                details = []
+                details = [f"{tr('نوع العنصر')}: {tr('رابط')}"]
                 if description and description != link.url:
                     details.append(f"{tr('الوصف')}: {description}")
                 if link.url:
+                    hostname = urllib.parse.urlsplit(link.url).hostname or ""
+                    if hostname:
+                        details.append(f"{tr('النطاق')}: {hostname}")
                     details.append(f"{tr('عنوان الرابط')}: {link.url}")
                 labels.append(
                     tr(f"رابط {link_index}: {'، '.join(details) or link.label}")
