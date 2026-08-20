@@ -17,6 +17,7 @@ from accessible_mail.account_dialog import (
 )
 from accessible_mail.address_book_dialog import AddressBookDialog
 from accessible_mail.dialogs import SettingsDialog, SpokenNotificationsDialog
+from accessible_mail.email_service import MailError
 from accessible_mail.app import (
     AccountDialog,
     BULK_ACTION_DELETE,
@@ -173,6 +174,7 @@ class AppBehaviorTests(unittest.TestCase):
             selected_summary=lambda: summary,
             viewer=SimpleNamespace(GetValue=lambda: "Original message"),
             take_translation_return_control=Mock(return_value=None),
+            translatable_item_descriptions=Mock(return_value=["Website"]),
             show_translated_content=Mock(),
             restore_context_focus=Mock(),
         )
@@ -192,8 +194,13 @@ class AppBehaviorTests(unittest.TestCase):
 
         MainFrame.on_translate_current_message(frame)
 
-        translate.assert_called_once_with("Original message", target_language=LANGUAGE_ENGLISH)
-        page.show_translated_content.assert_called_once_with("Translated message")
+        self.assertEqual(translate.call_count, 2)
+        translate.assert_any_call("Original message", target_language=LANGUAGE_ENGLISH)
+        translate.assert_any_call("Website", target_language=LANGUAGE_ENGLISH)
+        page.show_translated_content.assert_called_once_with(
+            "Translated message",
+            {"Website": "Translated message"},
+        )
         frame.SetStatusText.assert_any_call(
             "تمت ترجمة الرسالة ومزامنة الروابط والمرفقات في مستعرض العناصر."
         )
@@ -218,6 +225,7 @@ class AppBehaviorTests(unittest.TestCase):
             selected_summary=Mock(side_effect=[original_summary, current_summary]),
             viewer=SimpleNamespace(GetValue=lambda: "Original message"),
             take_translation_return_control=Mock(return_value=None),
+            translatable_item_descriptions=Mock(return_value=[]),
             show_translated_content=Mock(),
             restore_context_focus=Mock(),
         )
@@ -245,6 +253,55 @@ class AppBehaviorTests(unittest.TestCase):
             "اكتملت ترجمة الرسالة السابقة دون تغيير الرسالة الحالية."
         )
 
+    @patch("accessible_mail.app.wx.CallAfter", side_effect=lambda function, *args: function(*args))
+    @patch("accessible_mail.app.wx.Window.FindFocus", return_value=None)
+    @patch("accessible_mail.main_frame.translate_text_with_google")
+    def test_description_failure_does_not_discard_translated_message(
+        self,
+        translate: Mock,
+        _find_focus: Mock,
+        _call_after: Mock,
+    ) -> None:
+        def translate_value(value: str, *, target_language: str) -> str:
+            self.assertEqual(target_language, LANGUAGE_ENGLISH)
+            if value == "Website":
+                raise MailError("description failed")
+            return "Translated message"
+
+        translate.side_effect = translate_value
+        summary = SimpleNamespace(uid="message-1")
+        page = SimpleNamespace(
+            selected_summary=lambda: summary,
+            viewer=SimpleNamespace(GetValue=lambda: "Original message"),
+            take_translation_return_control=Mock(return_value=None),
+            translatable_item_descriptions=Mock(return_value=["Website"]),
+            show_translated_content=Mock(),
+            restore_context_focus=Mock(),
+        )
+        frame = SimpleNamespace(
+            current_page=lambda: page,
+            can_translate_current_message=Mock(return_value=True),
+            confirm_translation_data_transfer=Mock(return_value=True),
+            current_content=SimpleNamespace(summary=summary, text="Original message"),
+            settings=ProgramSettings(
+                language=LANGUAGE_ENGLISH,
+                translation_mode=TRANSLATION_INLINE,
+            ),
+            run_worker=lambda _message, work, done, _failed: done(work()),
+            SetStatusText=Mock(),
+            show_translation_dialog=Mock(),
+        )
+
+        MainFrame.on_translate_current_message(frame)
+
+        page.show_translated_content.assert_called_once_with(
+            "Translated message",
+            {"Website": "Website"},
+        )
+        frame.SetStatusText.assert_any_call(
+            "تمت ترجمة الرسالة، لكن تعذر ترجمة بعض أوصاف العناصر."
+        )
+
     def test_inline_translation_refreshes_items_and_preserves_attachments(self) -> None:
         link = LinkItem("Website", "https://example.com")
         attachment = LinkItem(
@@ -260,18 +317,53 @@ class AppBehaviorTests(unittest.TestCase):
             set_viewer_text=Mock(),
         )
 
-        MailPage.show_translated_content(page, "Translated message")
+        def update_links(items: list[LinkItem], *, message_text: str) -> None:
+            self.assertEqual(message_text, "Translated message")
+            page.links = items
 
-        page.set_links.assert_called_once_with(
-            [link, attachment],
-            message_text="Translated message",
+        page.set_links.side_effect = update_links
+
+        MailPage.show_translated_content(
+            page,
+            "Translated message",
+            {"Website": "Translated website"},
         )
+
+        translated_items = page.set_links.call_args.args[0]
+        self.assertEqual(translated_items[0].text, "Translated website")
+        self.assertEqual(translated_items[0].url, "https://example.com")
+        self.assertEqual(translated_items[1].filename, "manual.pdf")
         page.set_viewer_action_ranges.assert_called_once_with(
             "Translated message",
-            [link, attachment],
+            translated_items,
         )
         page.set_viewer_text.assert_called_once_with("Translated message")
         self.assertEqual(page.links[1].attachment_bytes(), b"\x00")
+
+    def test_only_human_item_descriptions_are_sent_for_translation(self) -> None:
+        page = SimpleNamespace(
+            links=[
+                LinkItem(
+                    "Project website",
+                    "https://example.com",
+                    activation_text="Open website",
+                ),
+                LinkItem("https://example.net", "https://example.net"),
+                LinkItem(
+                    "manual.pdf",
+                    kind="attachment",
+                    filename="manual.pdf",
+                ),
+                LinkItem("Company logo", "cid:logo", kind="image"),
+            ]
+        )
+
+        descriptions = MailPage.translatable_item_descriptions(page)
+
+        self.assertEqual(
+            descriptions,
+            ["Project website", "Open website", "Company logo"],
+        )
 
     @patch("accessible_mail.main_frame.save_settings")
     @patch("accessible_mail.main_frame.wx.MessageDialog")
@@ -294,6 +386,9 @@ class AppBehaviorTests(unittest.TestCase):
             "إلغاء",
         )
         dialog_style = dialog_class.call_args.args[3]
+        consent_text = dialog_class.call_args.args[1]
+        self.assertIn("أوصاف الروابط والأزرار والصور", consent_text)
+        self.assertIn("لن تُرسل محتويات المرفقات", consent_text)
         self.assertFalse(dialog_style & wx.NO_DEFAULT)
         dialog.Destroy.assert_called_once_with()
         save.assert_called_once_with(settings)

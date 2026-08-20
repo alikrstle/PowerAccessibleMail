@@ -2081,21 +2081,52 @@ class MainFrame(wx.Frame):
         if not self.confirm_translation_data_transfer():
             return
         source_uid = summary.uid if summary else ""
+        item_descriptions = (
+            page.translatable_item_descriptions()
+            if page and self.settings.translation_mode == TRANSLATION_INLINE
+            else []
+        )
         return_control = page.take_translation_return_control() if isinstance(_event, MailPage) else wx.Window.FindFocus()
 
-        def work() -> str:
-            return translate_text_with_google(text, target_language=self.settings.language)
+        def work() -> tuple[str, dict[str, str], bool]:
+            translated_message = translate_text_with_google(
+                text,
+                target_language=self.settings.language,
+            )
+            translated_descriptions: dict[str, str] = {}
+            description_translation_failed = False
+            for description in item_descriptions:
+                try:
+                    translated_descriptions[description] = translate_text_with_google(
+                        description,
+                        target_language=self.settings.language,
+                    )
+                except MailError:
+                    description_translation_failed = True
+                    translated_descriptions[description] = description
+            return (
+                translated_message,
+                translated_descriptions,
+                description_translation_failed,
+            )
 
-        def done(translated: str) -> None:
+        def done(result: tuple[str, dict[str, str], bool]) -> None:
+            translated, translated_descriptions, description_translation_failed = result
             if self.settings.translation_mode == TRANSLATION_INLINE and page:
                 current_summary = page.selected_summary()
                 if not current_summary or current_summary.uid != source_uid:
                     self.SetStatusText("اكتملت ترجمة الرسالة السابقة دون تغيير الرسالة الحالية.")
                     return
-                page.show_translated_content(normalize_message_text(translated))
-                self.SetStatusText(
-                    "تمت ترجمة الرسالة ومزامنة الروابط والمرفقات في مستعرض العناصر."
+                page.show_translated_content(
+                    normalize_message_text(translated),
+                    translated_descriptions,
                 )
+                status = (
+                    "تمت ترجمة الرسالة، لكن تعذر ترجمة بعض أوصاف العناصر."
+                    if description_translation_failed
+                    else "تمت ترجمة الرسالة ومزامنة الروابط والمرفقات في مستعرض العناصر."
+                )
+                self.SetStatusText(tr(status))
                 call_after_if_open(self, page.restore_context_focus, return_control)
                 return
             self.show_translation_dialog(translated)
@@ -2117,8 +2148,10 @@ class MainFrame(wx.Frame):
         dialog = wx.MessageDialog(
             self,
             tr(
-                "لترجمة الرسالة، سيرسل Power Accessible Mail نص الرسالة المحددة إلى "
-                "خدمة Google Translate الرسمية. لن تُرسل المرفقات أو رموز تسجيل الدخول. "
+                "لترجمة الرسالة، سيرسل Power Accessible Mail نص الرسالة وأوصاف "
+                "الروابط والأزرار والصور إلى خدمة Google Translate الرسمية. قد يتضمن "
+                "نص الرسالة عناوين روابط ظاهرة، لكن لن تُرسل محتويات المرفقات أو رموز "
+                "تسجيل الدخول. "
                 "هل تسمح بمتابعة الترجمة؟"
             ),
             tr("خصوصية ترجمة الرسائل"),
@@ -2234,7 +2267,7 @@ Write and act without leaving the keyboard
 Compose email opens a complete message window. Reply, Star, Translate, Pin to top, and move to the provider's Trash are available from the message context menu. Inside the item viewer, the context menu or the Item actions button displays link, attachment, and image commands directly without a submenu.
 
 Translation when you need it
-Ctrl+T translates the current message into the application language. In Settings, choose whether the translation replaces the content inside the HTML or easy viewer, or opens in a separate window. Translation becomes available only while you are inside the message viewer. It requires an internet connection and sends the selected message text to the official Google Translate service only when you request it. Before the first translation, the app explains this transfer and provides Allow and Cancel choices. After you choose Allow, the choice is saved and the notice is not shown again.
+Ctrl+T translates the current message into the application language. In Settings, choose whether the translation replaces the content inside the HTML or easy viewer, or opens in a separate window. Translation becomes available only while you are inside the message viewer. It requires an internet connection and sends the selected message text and human-readable link, button, and image descriptions to the official Google Translate service only when you request it. The message text can contain visible web addresses, but attachment contents and sign-in tokens are not sent. Before the first translation, the app explains this transfer and provides Allow and Cancel choices. After you choose Allow, the choice is saved and the notice is not shown again.
 
 Make the application yours
 Settings lets you choose Arabic, English, or French, the HTML or easy message viewer, translation inside the page or in a separate window, and light or dark appearance. Your choices are saved for the next launch.
@@ -2294,7 +2327,7 @@ Power Accessible Mail برنامج صمم ليجعل قراءة البريد و�
 إنشاء بريد إلكتروني يفتح نافذة كاملة لكتابة رسالتك. تتوفر أوامر الرد والتمييز بنجمة والترجمة والتثبيت في الأعلى والنقل إلى سلة مزود البريد من قائمة سياق الرسالة. داخل مستعرض العناصر تعرض قائمة السياق أو زر إجراءات العنصر أوامر الروابط والمرفقات والصور مباشرة من دون قائمة فرعية.
 
 ترجمة في مكانها أو في نافذة مستقلة
-يترجم Ctrl+T الرسالة الحالية إلى لغة البرنامج. ومن الإعدادات تستطيع اختيار عرض الترجمة مباشرة داخل مستعرض HTML أو المستعرض السهل، أو فتحها في نافذة مستقلة. لا تتفعل الترجمة إلا وأنت داخل مستعرض الرسالة. تحتاج الميزة إلى الإنترنت ولا يرسل النص إلى خدمة Google Translate الرسمية إلا عندما تطلب الترجمة. عند أول ترجمة يعرض البرنامج تنبيها يشرح نقل النص مع خياري السماح وإلغاء. بعد اختيار السماح تُحفظ الموافقة ولا يظهر التنبيه مرة أخرى.
+يترجم Ctrl+T الرسالة الحالية إلى لغة البرنامج. ومن الإعدادات تستطيع اختيار عرض الترجمة مباشرة داخل مستعرض HTML أو المستعرض السهل، أو فتحها في نافذة مستقلة. لا تتفعل الترجمة إلا وأنت داخل مستعرض الرسالة. تحتاج الميزة إلى الإنترنت، وترسل نص الرسالة وأوصاف الروابط والأزرار والصور إلى خدمة Google Translate الرسمية فقط عندما تطلب الترجمة. قد يتضمن نص الرسالة عناوين روابط ظاهرة، لكن لا تُرسل محتويات المرفقات أو رموز تسجيل الدخول. عند أول ترجمة يعرض البرنامج تنبيها يشرح نقل النص مع خياري السماح وإلغاء. بعد اختيار السماح تُحفظ الموافقة ولا يظهر التنبيه مرة أخرى.
 
 اجعل البرنامج أقرب إلى طريقتك
 تتيح الإعدادات اختيار العربية أو الإنجليزية أو الفرنسية، ومستعرض HTML أو المستعرض السهل، والترجمة داخل الصفحة أو في نافذة مستقلة، والوضع الفاتح أو المظلم. يحفظ البرنامج اختياراتك ليستخدمها عند التشغيل التالي.

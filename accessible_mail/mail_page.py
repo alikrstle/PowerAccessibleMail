@@ -9,6 +9,7 @@ import urllib.parse
 import urllib.request
 import webbrowser
 from collections.abc import Callable
+from dataclasses import replace
 from pathlib import Path
 
 import wx
@@ -953,10 +954,42 @@ class MailPage(wx.Panel):
         else:
             self.show_plain_viewer()
 
-    def show_translated_content(self, translated_text: str) -> None:
+    def translatable_item_descriptions(self) -> list[str]:
+        descriptions: list[str] = []
+        seen: set[str] = set()
+        for item in self.links:
+            for candidate in (item.text, item.activation_text):
+                description = " ".join(candidate.split()).strip()
+                if (
+                    not description
+                    or description == item.url
+                    or description == item.filename
+                    or safe_external_url(description)
+                    or description in seen
+                ):
+                    continue
+                seen.add(description)
+                descriptions.append(description)
+        return descriptions
+
+    def show_translated_content(
+        self,
+        translated_text: str,
+        description_translations: dict[str, str],
+    ) -> None:
         """Synchronize an inline translation with both message and item viewers."""
-        original_items = list(self.links)
-        self.set_links(original_items, message_text=translated_text)
+        translated_items = [
+            replace(
+                item,
+                text=description_translations.get(item.text, item.text),
+                activation_text=description_translations.get(
+                    item.activation_text,
+                    item.activation_text,
+                ),
+            )
+            for item in self.links
+        ]
+        self.set_links(translated_items, message_text=translated_text)
         self.set_viewer_action_ranges(translated_text, self.links)
         self.set_viewer_text(translated_text)
 
