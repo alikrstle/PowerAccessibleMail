@@ -173,8 +173,7 @@ class AppBehaviorTests(unittest.TestCase):
             selected_summary=lambda: summary,
             viewer=SimpleNamespace(GetValue=lambda: "Original message"),
             take_translation_return_control=Mock(return_value=None),
-            set_viewer_action_ranges=Mock(),
-            set_viewer_text=Mock(),
+            show_translated_content=Mock(),
             restore_context_focus=Mock(),
         )
         frame = SimpleNamespace(
@@ -194,8 +193,10 @@ class AppBehaviorTests(unittest.TestCase):
         MainFrame.on_translate_current_message(frame)
 
         translate.assert_called_once_with("Original message", target_language=LANGUAGE_ENGLISH)
-        page.set_viewer_action_ranges.assert_called_once_with("Translated message", [])
-        page.set_viewer_text.assert_called_once_with("Translated message")
+        page.show_translated_content.assert_called_once_with("Translated message")
+        frame.SetStatusText.assert_any_call(
+            "تمت ترجمة الرسالة ومزامنة الروابط والمرفقات في مستعرض العناصر."
+        )
         self.assertEqual(page.restore_context_focus.call_count, 2)
         frame.show_translation_dialog.assert_not_called()
 
@@ -217,8 +218,7 @@ class AppBehaviorTests(unittest.TestCase):
             selected_summary=Mock(side_effect=[original_summary, current_summary]),
             viewer=SimpleNamespace(GetValue=lambda: "Original message"),
             take_translation_return_control=Mock(return_value=None),
-            set_viewer_action_ranges=Mock(),
-            set_viewer_text=Mock(),
+            show_translated_content=Mock(),
             restore_context_focus=Mock(),
         )
         frame = SimpleNamespace(
@@ -240,11 +240,38 @@ class AppBehaviorTests(unittest.TestCase):
 
         MainFrame.on_translate_current_message(frame)
 
-        page.set_viewer_action_ranges.assert_not_called()
-        page.set_viewer_text.assert_not_called()
+        page.show_translated_content.assert_not_called()
         frame.SetStatusText.assert_any_call(
             "اكتملت ترجمة الرسالة السابقة دون تغيير الرسالة الحالية."
         )
+
+    def test_inline_translation_refreshes_items_and_preserves_attachments(self) -> None:
+        link = LinkItem("Website", "https://example.com")
+        attachment = LinkItem(
+            "manual.pdf",
+            kind="attachment",
+            filename="manual.pdf",
+            data="AA==",
+        )
+        page = SimpleNamespace(
+            links=[link, attachment],
+            set_links=Mock(),
+            set_viewer_action_ranges=Mock(),
+            set_viewer_text=Mock(),
+        )
+
+        MailPage.show_translated_content(page, "Translated message")
+
+        page.set_links.assert_called_once_with(
+            [link, attachment],
+            message_text="Translated message",
+        )
+        page.set_viewer_action_ranges.assert_called_once_with(
+            "Translated message",
+            [link, attachment],
+        )
+        page.set_viewer_text.assert_called_once_with("Translated message")
+        self.assertEqual(page.links[1].attachment_bytes(), b"\x00")
 
     @patch("accessible_mail.main_frame.save_settings")
     @patch("accessible_mail.main_frame.wx.MessageDialog")
@@ -1193,12 +1220,23 @@ class AppBehaviorTests(unittest.TestCase):
                 LinkItem("Website", "https://example.com"),
                 LinkItem("Logo", "cid:logo", kind="image"),
                 LinkItem("Banner", "https://example.com/banner.png", kind="image"),
-                LinkItem("Manual", kind="attachment", filename="manual.pdf"),
+                LinkItem(
+                    "Manual",
+                    kind="attachment",
+                    filename="manual.pdf",
+                    content_type="application/pdf",
+                    size=2048,
+                ),
             ],
         )
 
+        self.assertIn("الوصف: Website", labels[0])
+        self.assertIn("عنوان الرابط: https://example.com", labels[0])
         self.assertIn("صورة 1: Logo", labels[1])
         self.assertIn("صورة 2: Banner", labels[2])
+        self.assertIn("اسم الملف: manual.pdf", labels[3])
+        self.assertIn("نوع الملف: application/pdf", labels[3])
+        self.assertIn("الحجم: 2.0 KB", labels[3])
 
     @patch("accessible_mail.mail_page.validate_and_scan_image", return_value=("image/png", ".png"))
     @patch("accessible_mail.mail_page.validate_public_http_url", side_effect=lambda value: value)

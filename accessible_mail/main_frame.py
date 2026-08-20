@@ -2092,9 +2092,10 @@ class MainFrame(wx.Frame):
                 if not current_summary or current_summary.uid != source_uid:
                     self.SetStatusText("اكتملت ترجمة الرسالة السابقة دون تغيير الرسالة الحالية.")
                     return
-                page.set_viewer_action_ranges(translated, [])
-                page.set_viewer_text(normalize_message_text(translated))
-                self.SetStatusText("تمت ترجمة الرسالة داخل المستعرض.")
+                page.show_translated_content(normalize_message_text(translated))
+                self.SetStatusText(
+                    "تمت ترجمة الرسالة ومزامنة الروابط والمرفقات في مستعرض العناصر."
+                )
                 call_after_if_open(self, page.restore_context_focus, return_control)
                 return
             self.show_translation_dialog(translated)
@@ -2222,7 +2223,7 @@ Inside each section, the filter lets you show all messages, starred messages, un
 Read each message in the viewer you prefer
 The HTML viewer keeps links and buttons in their natural positions as real page elements. Use Tab or your screen reader's browsing commands to reach them, then press Enter or Space to activate them. Press Ctrl+Enter to move between the message viewer and the item viewer. Press Escape to return directly to the message list.
 
-The easy viewer removes repeated blank lines and presents a clean text version. Its item viewer collects links, buttons, images, and attachments under clear names. In Settings, choose whether messages are marked as read manually with Space or the context menu, or automatically only after entering the message viewer and displaying the full message. Merely moving across messages in the list never marks them as read.
+The easy viewer removes repeated blank lines and presents a clean text version. Its item viewer collects links, buttons, images, and attachments under clear names. Link entries state their description and address, while attachment entries state the file name, type, and size when available. An inline translation also refreshes the item viewer without losing attachment data. In Settings, choose whether messages are marked as read manually with Space or the context menu, or automatically only after entering the message viewer and displaying the full message. Merely moving across messages in the list never marks them as read.
 
 Work with several messages at once
 In normal mode, messages are list items without check boxes. Press Ctrl+Shift+Space to enter multiple-selection mode, where every message becomes a check box. Move with the arrow keys and press Space to check or uncheck a message, or use the mouse.
@@ -2230,7 +2231,7 @@ In normal mode, messages are list items without check boxes. Press Ctrl+Shift+Sp
 The application announces entry into or exit from this mode after 150 milliseconds. Press Control by itself to hear the selected count after the same delay. Press Escape or Ctrl+Shift+Space again to leave the mode. Trying to move above the first item or below the last item announces the boundary. The context menu provides suitable bulk read, star, pin, and Trash commands. Delete asks for confirmation and states the number of affected messages.
 
 Write and act without leaving the keyboard
-Compose email opens a complete message window. Reply, Star, Translate, Pin to top, and move to the provider's Trash are available from the message context menu. The item viewer list has no context menu, while the Item actions button displays attachment, image, and link commands directly without a submenu.
+Compose email opens a complete message window. Reply, Star, Translate, Pin to top, and move to the provider's Trash are available from the message context menu. Inside the item viewer, the context menu or the Item actions button displays link, attachment, and image commands directly without a submenu.
 
 Translation when you need it
 Ctrl+T translates the current message into the application language. In Settings, choose whether the translation replaces the content inside the HTML or easy viewer, or opens in a separate window. Translation becomes available only while you are inside the message viewer. It requires an internet connection and sends the selected message text to the official Google Translate service only when you request it. Before the first translation, the app explains this transfer and provides Allow and Cancel choices. After you choose Allow, the choice is saved and the notice is not shown again.
@@ -2282,7 +2283,7 @@ Power Accessible Mail برنامج صمم ليجعل قراءة البريد و�
 اقرأ الرسالة بالمستعرض الذي يناسبك
 مستعرض HTML يبقي الروابط والأزرار في مواضعها الطبيعية كعناصر حقيقية. استخدم Tab أو أوامر التصفح في قارئ الشاشة للوصول إليها ثم Enter أو Space لتفعيلها. ينقلك Ctrl+Enter بين مستعرض الرسالة ومستعرض العناصر، ويعيدك Escape مباشرة إلى قائمة الرسائل.
 
-المستعرض السهل ينظف تكرار الأسطر الخالية ويعرض نصا مرتبا. ويجمع مستعرض العناصر الروابط والأزرار والصور والمرفقات تحت أسماء واضحة. من الإعدادات تستطيع اختيار تعليم الرسائل كمقروءة يدويا عبر Space أو قائمة السياق، أو تلقائيا فقط عند الدخول إلى مستعرض الرسالة وظهور محتواها الكامل. مجرد التنقل بين الرسائل في القائمة لا يجعلها مقروءة في أي من الوضعين.
+المستعرض السهل ينظف تكرار الأسطر الخالية ويعرض نصا مرتبا. ويجمع مستعرض العناصر الروابط والأزرار والصور والمرفقات تحت أسماء واضحة. يذكر عنصر الرابط وصفه وعنوانه، ويذكر عنصر المرفق اسم الملف ونوعه وحجمه عند توفرها. كما تصل الترجمة المعروضة داخل الرسالة إلى مستعرض العناصر من دون فقدان بيانات المرفقات. من الإعدادات تستطيع اختيار تعليم الرسائل كمقروءة يدويا عبر Space أو قائمة السياق، أو تلقائيا فقط عند الدخول إلى مستعرض الرسالة وظهور محتواها الكامل. مجرد التنقل بين الرسائل في القائمة لا يجعلها مقروءة في أي من الوضعين.
 
 تعامل مع عدة رسائل في خطوة واحدة
 في الوضع العادي تظهر الرسائل كعناصر قائمة من دون مربعات اختيار. اضغط Ctrl+Shift+Space للدخول إلى وضع التحديد المتعدد، وعندها تتحول الرسائل إلى مربعات اختيار. تنقل بالأسهم واضغط Space لتحديد الرسالة أو إلغاء تحديدها، أو استخدم الفأرة.
@@ -2290,7 +2291,7 @@ Power Accessible Mail برنامج صمم ليجعل قراءة البريد و�
 ينطق البرنامج الدخول إلى هذا الوضع أو الخروج منه بعد 150 مللي ثانية. اضغط Control وحده لسماع عدد الرسائل المحددة بعد المهلة نفسها. اخرج بالضغط على Escape أو Ctrl+Shift+Space مرة أخرى. وعند محاولة تجاوز أول عنصر أو آخر عنصر ينطق البرنامج بداية القائمة أو نهايتها. تعرض قائمة السياق أوامر القراءة والنجمة والتثبيت والحذف المناسبة للمجموعة، ويطلب Delete تأكيدا يذكر عدد الرسائل.
 
 اكتب ونفذ الأوامر من لوحة المفاتيح
-إنشاء بريد إلكتروني يفتح نافذة كاملة لكتابة رسالتك. تتوفر أوامر الرد والتمييز بنجمة والترجمة والتثبيت في الأعلى والنقل إلى سلة مزود البريد من قائمة سياق الرسالة. لا توجد قائمة سياق داخل قائمة مستعرض العناصر، بينما يعرض زر إجراءات العنصر أوامر المرفقات والصور والروابط مباشرة من دون قائمة فرعية.
+إنشاء بريد إلكتروني يفتح نافذة كاملة لكتابة رسالتك. تتوفر أوامر الرد والتمييز بنجمة والترجمة والتثبيت في الأعلى والنقل إلى سلة مزود البريد من قائمة سياق الرسالة. داخل مستعرض العناصر تعرض قائمة السياق أو زر إجراءات العنصر أوامر الروابط والمرفقات والصور مباشرة من دون قائمة فرعية.
 
 ترجمة في مكانها أو في نافذة مستقلة
 يترجم Ctrl+T الرسالة الحالية إلى لغة البرنامج. ومن الإعدادات تستطيع اختيار عرض الترجمة مباشرة داخل مستعرض HTML أو المستعرض السهل، أو فتحها في نافذة مستقلة. لا تتفعل الترجمة إلا وأنت داخل مستعرض الرسالة. تحتاج الميزة إلى الإنترنت ولا يرسل النص إلى خدمة Google Translate الرسمية إلا عندما تطلب الترجمة. عند أول ترجمة يعرض البرنامج تنبيها يشرح نقل النص مع خياري السماح وإلغاء. بعد اختيار السماح تُحفظ الموافقة ولا يظهر التنبيه مرة أخرى.

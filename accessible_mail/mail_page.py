@@ -261,7 +261,10 @@ class MailPage(wx.Panel):
         set_accessible(
             self.link_list,
             f"مستعرض العناصر {self.title}",
-            "اضغط Enter أو Space لفتح الرابط أو الزر أو الصورة أو المرفق المحدد",
+            (
+                "يعرض وصف الرابط وعنوانه، واسم المرفق ونوعه وحجمه عند توفرها. "
+                "اضغط Enter أو Space لفتح العنصر المحدد، أو زر التطبيقات لعرض إجراءاته."
+            ),
         )
         self.link_list.Bind(wx.EVT_LISTBOX_DCLICK, self.on_open_link)
         self.link_list.Bind(wx.EVT_CHAR_HOOK, self.on_link_key)
@@ -949,6 +952,13 @@ class MailPage(wx.Panel):
             self.schedule_html_refresh(focus_start=True)
         else:
             self.show_plain_viewer()
+
+    def show_translated_content(self, translated_text: str) -> None:
+        """Synchronize an inline translation with both message and item viewers."""
+        original_items = list(self.links)
+        self.set_links(original_items, message_text=translated_text)
+        self.set_viewer_action_ranges(translated_text, self.links)
+        self.set_viewer_text(translated_text)
 
     def schedule_html_refresh(self, *, focus_start: bool) -> None:
         self._html_focus_after_load = self._html_focus_after_load or focus_start
@@ -2019,7 +2029,15 @@ window.addEventListener("keydown", function (event) {{
         for link in links:
             if link.is_attachment:
                 attachment_index += 1
-                labels.append(tr(f"مرفق {attachment_index}: {link.label}"))
+                filename = link.filename.strip() or link.text.strip() or tr("مرفق بدون اسم")
+                details = [f"{tr('اسم الملف')}: {filename}"]
+                if link.content_type:
+                    details.append(f"{tr('نوع الملف')}: {link.content_type}")
+                if link.size:
+                    details.append(f"{tr('الحجم')}: {LinkItem.format_size(link.size)}")
+                labels.append(
+                    tr(f"مرفق {attachment_index}: {'، '.join(details)}")
+                )
             elif link.is_button:
                 button_index += 1
                 labels.append(tr(f"زر {button_index}: {link.label}"))
@@ -2028,7 +2046,15 @@ window.addEventListener("keydown", function (event) {{
                 labels.append(tr(f"صورة {image_index}: {tr(link.label)}"))
             else:
                 link_index += 1
-                labels.append(tr(f"رابط {link_index}: {link.label}"))
+                description = link.text.strip()
+                details = []
+                if description and description != link.url:
+                    details.append(f"{tr('الوصف')}: {description}")
+                if link.url:
+                    details.append(f"{tr('عنوان الرابط')}: {link.url}")
+                labels.append(
+                    tr(f"رابط {link_index}: {'، '.join(details) or link.label}")
+                )
         return labels
 
     def open_attachment(self, item: LinkItem) -> None:
