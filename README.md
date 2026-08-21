@@ -220,8 +220,8 @@ run.bat
 عند نشر إصدار جديد:
 
 1. أثناء مرحلة الاختبار، أنشئ GitHub Release من نوع `Pre-release` واكتب بوضوح أن الملفات غير موقعة ومخصصة للمختبرين. حوّله إلى إصدار مستقر فقط بعد توفر توقيع صالح واكتمال متطلبات النشر.
-2. استخدم وسم إصدار مثل `v1.2.15`.
-3. للاختبار المحدود، ارفع `PowerAccessibleMailSetup-1.2.15-win-x64-UNSIGNED.exe` إلى الـPre-release فقط. للإصدار المستقر، تحقق أن النسخة غير الموسومة بـ`UNSIGNED` موقعة توقيعا صالحا.
+2. استخدم وسم إصدار مثل `v1.3.0`.
+3. للاختبار المحدود، ارفع `PowerAccessibleMailSetup-1.3.0-win-x64-UNSIGNED.exe` إلى الـPre-release فقط. للإصدار المستقر، تحقق أن النسخة غير الموسومة بـ`UNSIGNED` موقعة توقيعا صالحا.
 4. طبّق القاعدة نفسها على نسخة x86.
 5. ارفع ملفات ZIP وملفات بصمة SHA-256 للمعماريتين إلى الإصدار نفسه.
 6. لا تجعل أي أصل يحمل `UNSIGNED` جزءا من إصدار مستقر. إذا صنّف Defender الملف خطأ، أرسله إلى Microsoft كـSoftware developer وسجل رقم الطلب.
@@ -234,10 +234,10 @@ run.bat
 
 ```json
 {
-  "version": "1.2.15",
+  "version": "1.3.0",
   "downloads": {
-    "x64": "https://example.com/PowerAccessibleMailSetup-1.2.15-win-x64.exe",
-    "x86": "https://example.com/PowerAccessibleMailSetup-1.2.15-win-x86.exe"
+    "x64": "https://example.com/PowerAccessibleMailSetup-1.3.0-win-x64.exe",
+    "x86": "https://example.com/PowerAccessibleMailSetup-1.3.0-win-x86.exe"
   },
   "notes": "تحسينات في استلام الرسائل ودعم المرفقات."
 }
