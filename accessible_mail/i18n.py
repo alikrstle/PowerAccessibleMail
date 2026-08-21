@@ -608,6 +608,7 @@ ENGLISH_TRANSLATIONS: dict[str, str] = {
     "رفض البرنامج مصدر تحديثات غير آمن.": "The application refused an insecure update source.",
     "أعاد خادم التحديثات التوجيه إلى اتصال غير آمن.": "The update server redirected to an insecure connection.",
     "استجابة التحديثات أكبر من الحجم المسموح.": "The update response exceeds the allowed size.",
+    "تعذر التحقق من شهادة الاتصال الآمن. تأكد من صحة تاريخ ووقت Windows، ثم ثبّت تحديثات Windows وحدّث برنامج الحماية. لا يعطّل البرنامج التحقق من الشهادات لحماية تنزيل التحديث. يمكنك تنزيل أحدث إصدار يدويا من https://soljan-alsharq.com/downloads. رمز الخطأ: TLS-CERTIFICATE-VERIFY.": "The secure connection certificate could not be verified. Check the Windows date and time, then install Windows updates and update your security software. The application does not disable certificate verification, which protects update downloads. You can download the latest release manually from https://soljan-alsharq.com/downloads. Error code: TLS-CERTIFICATE-VERIFY.",
     "اسم مثبت التحديث لا يطابق رقم الإصدار المتاح.": "The update installer name does not match the available version.",
     "معمارية مثبت التحديث لا تطابق معمارية البرنامج الحالي.": "The update installer architecture does not match the running application.",
     "رفض البرنامج تنزيل التحديث من اتصال غير آمن.": "The application refused to download the update over an insecure connection.",

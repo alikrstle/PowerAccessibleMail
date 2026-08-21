@@ -256,8 +256,10 @@ class OAuthClientConfigTests(unittest.TestCase):
         self.assertIn('@(".exe", ".dll", ".pyd")', release_build)
         self.assertIn("PE signature verification failed", release_build)
         self.assertIn("Portable PE signature verification failed", release_build)
+        self.assertIn("Push-Location $ProjectRoot", release_build)
+        self.assertIn("[System.IO.Path]::IsPathRooted($PythonPath)", release_build)
         self.assertIn("Pre-release", readme)
-        self.assertIn("PowerAccessibleMailSetup-1.3.0-win-x64-UNSIGNED.exe", readme)
+        self.assertIn("PowerAccessibleMailSetup-1.3.1-win-x64-UNSIGNED.exe", readme)
 
     def test_release_pipeline_avoids_opaque_update_behavior(self) -> None:
         project_root = Path(__file__).resolve().parents[1]

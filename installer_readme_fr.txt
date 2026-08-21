@@ -1,11 +1,13 @@
 ﻿Power Accessible Mail
-Version 1.3.0
+Version 1.3.1
 Développé par Soljan.AlSharq.
 Soljan.AlSharq. appartient à Ali Al-Amir
 
 Bienvenue dans votre messagerie
 
 Power Accessible Mail est conçu pour rendre la lecture l'écriture l'organisation et l'actualisation des courriels confortables au clavier
+
+La version 1.3.1 améliore la fiabilité des mises à jour en utilisant le magasin de certificats natif de Windows et fournit un message clair en cas de problème lié à l'heure de l'appareil aux mises à jour de Windows ou au logiciel de sécurité sans désactiver la vérification sécurisée
 
 Les listes et les champs Windows natifs offrent aux lecteurs d'écran des commandes prévisibles tandis que les messages sont disposés verticalement pour rendre la navigation directe et familière
 

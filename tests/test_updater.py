@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 import hashlib
+import ssl
 import tempfile
 import threading
 import unittest
+import urllib.error
 from pathlib import Path
 from unittest.mock import patch
 
@@ -147,6 +149,30 @@ class InternalUpdaterTests(unittest.TestCase):
             root = Path(directory)
             with self.assertRaises(UpdateInstallError):
                 download_update_installer(result, target_root=root)
+            self.assertEqual(list(root.iterdir()), [])
+
+    @patch("accessible_mail.updater.urllib.request.urlopen")
+    def test_certificate_failure_is_localized_and_removes_partial_file(
+        self,
+        urlopen,
+    ) -> None:
+        urlopen.side_effect = urllib.error.URLError(
+            ssl.SSLCertVerificationError(
+                1,
+                "certificate verify failed: certificate has expired",
+            )
+        )
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            with self.assertRaisesRegex(
+                UpdateInstallError,
+                "TLS-CERTIFICATE-VERIFY",
+            ):
+                download_update_installer(
+                    self.update_result(b"MZinstaller"),
+                    target_root=root,
+                )
             self.assertEqual(list(root.iterdir()), [])
 
     @patch("accessible_mail.updater.urllib.request.urlopen")

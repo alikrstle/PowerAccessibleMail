@@ -21,7 +21,7 @@ from .notification_preferences import (
 
 APP_NAME = os.environ.get("POWER_ACCESSIBLE_MAIL_APP_NAME", "PowerAccessibleMail")
 APP_TITLE = os.environ.get("POWER_ACCESSIBLE_MAIL_APP_TITLE", "Power Accessible Mail")
-APP_VERSION = "1.3.0"
+APP_VERSION = "1.3.1"
 PASSWORD_PREFIX = "dpapi:"
 LEGACY_PROFILE_NAMES = ("PowerAccessibleMailGmailApiLimited",)
 LANGUAGE_ARABIC = "ar"
