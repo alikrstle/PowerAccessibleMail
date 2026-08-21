@@ -20,6 +20,10 @@ from accessible_mail.notification_preferences import (
     EVENT_SEND,
     EVENT_SYNC,
     EVENT_TRANSLATION,
+    EVENT_TRANSLATION_BACKGROUND,
+    EVENT_TRANSLATION_CANCELED,
+    EVENT_TRANSLATION_ERRORS,
+    EVENT_TRANSLATION_STARTED,
     NOTIFICATION_LEVEL_ALL,
     NOTIFICATION_LEVEL_MOST,
     NOTIFICATION_LEVEL_NONE,
@@ -28,6 +32,7 @@ from accessible_mail.notification_preferences import (
     configure_spoken_notifications,
     event_is_enabled,
     notification_event_for_message,
+    normalize_event_ids,
     preset_event_ids,
 )
 
@@ -83,16 +88,48 @@ class NotificationPreferenceTests(unittest.TestCase):
             "تم إرسال الرسالة.": EVENT_SEND,
             "تم تحديث الرسائل. الوارد 5.": EVENT_SYNC,
             "رابط: الموقع الرسمي": EVENT_ITEM_DETAILS,
-            "جار ترجمة الرسالة...": EVENT_TRANSLATION,
+            "جار ترجمة الرسالة...": EVENT_TRANSLATION_STARTED,
             "تمت ترجمة الرسالة داخل المستعرض.": EVENT_TRANSLATION,
-            "ألغيت ترجمة الرسالة قبل إرسال النص.": EVENT_TRANSLATION,
-            "تعذر الحصول على ترجمة من Google.": EVENT_TRANSLATION,
-            "اكتملت ترجمة أوصاف العناصر في الخلفية، وتعذر ترجمة بعضها.": EVENT_TRANSLATION,
+            "ألغيت ترجمة الرسالة قبل إرسال النص.": EVENT_TRANSLATION_CANCELED,
+            "تعذر الحصول على ترجمة من Google.": EVENT_TRANSLATION_ERRORS,
+            "اكتملت ترجمة أوصاف العناصر في الخلفية، وتعذر ترجمة بعضها.": EVENT_TRANSLATION_BACKGROUND,
         }
 
         for message, event_id in expected.items():
             with self.subTest(message=message):
                 self.assertEqual(notification_event_for_message(message), event_id)
+
+    def test_translation_has_its_own_category_and_individual_options(self) -> None:
+        translation_group = next(
+            group
+            for group in SPOKEN_NOTIFICATION_GROUPS
+            if group.label == "ترجمة الرسائل"
+        )
+
+        self.assertEqual(
+            set(translation_group.event_ids),
+            {
+                EVENT_TRANSLATION_STARTED,
+                EVENT_TRANSLATION,
+                EVENT_TRANSLATION_BACKGROUND,
+                EVENT_TRANSLATION_CANCELED,
+                EVENT_TRANSLATION_ERRORS,
+            },
+        )
+
+    def test_legacy_translation_choice_enables_all_new_translation_options(self) -> None:
+        normalized = set(normalize_event_ids(["translation"]) or [])
+
+        self.assertEqual(
+            normalized,
+            {
+                EVENT_TRANSLATION_STARTED,
+                EVENT_TRANSLATION,
+                EVENT_TRANSLATION_BACKGROUND,
+                EVENT_TRANSLATION_CANCELED,
+                EVENT_TRANSLATION_ERRORS,
+            },
+        )
 
     @patch("accessible_mail.accessibility.interrupt_and_speak", return_value=True)
     def test_none_level_stops_nvda_library_announcements(self, speak: Mock) -> None:

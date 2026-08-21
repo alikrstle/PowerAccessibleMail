@@ -2199,7 +2199,7 @@ window.addEventListener("keydown", function (event) {{
                     details.append(f"{tr('الحجم')}: {LinkItem.format_size(link.size)}")
                 context = link.context_text or MailPage.item_context_description(message_text, link)
                 if context:
-                    details.append(f"{tr('سياق من الرسالة')}: {context}")
+                    details.append(f"{tr('جزء من الرسالة')}: {context}")
                 labels.append(
                     tr(f"مرفق {attachment_index}: {'، '.join(details)}")
                 )
@@ -2208,7 +2208,7 @@ window.addEventListener("keydown", function (event) {{
                 details = [f"{tr('الوصف')}: {link.text.strip() or tr('زر بدون عنوان')}"]
                 context = link.context_text or MailPage.item_context_description(message_text, link)
                 if context:
-                    details.append(f"{tr('سياق من الرسالة')}: {context}")
+                    details.append(f"{tr('جزء من الرسالة')}: {context}")
                 if link.url:
                     details.append(f"{tr('عنوان الرابط')}: {link.url}")
                 labels.append(tr(f"زر {button_index}: {'، '.join(details)}"))
@@ -2218,7 +2218,7 @@ window.addEventListener("keydown", function (event) {{
                 details = [f"{tr('الوصف')}: {description}"]
                 context = link.context_text or MailPage.item_context_description(message_text, link)
                 if context:
-                    details.append(f"{tr('سياق من الرسالة')}: {context}")
+                    details.append(f"{tr('جزء من الرسالة')}: {context}")
                 labels.append(tr(f"صورة {image_index}: {'، '.join(details)}"))
             else:
                 link_index += 1
@@ -2228,7 +2228,7 @@ window.addEventListener("keydown", function (event) {{
                     details.append(f"{tr('الوصف')}: {description}")
                 context = link.context_text or MailPage.item_context_description(message_text, link)
                 if context and context not in {description, link.url}:
-                    details.append(f"{tr('سياق من الرسالة')}: {context}")
+                    details.append(f"{tr('جزء من الرسالة')}: {context}")
                 if link.url:
                     details.append(f"{tr('عنوان الرابط')}: {link.url}")
                 labels.append(

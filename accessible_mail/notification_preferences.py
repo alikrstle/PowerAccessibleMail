@@ -36,7 +36,12 @@ EVENT_SEND = "send"
 EVENT_LINKS = "links"
 EVENT_RECEIVED_ATTACHMENTS = "received_attachments"
 EVENT_IMAGES = "images"
-EVENT_TRANSLATION = "translation"
+_LEGACY_EVENT_TRANSLATION = "translation"
+EVENT_TRANSLATION = "translation_completed"
+EVENT_TRANSLATION_STARTED = "translation_started"
+EVENT_TRANSLATION_BACKGROUND = "translation_background"
+EVENT_TRANSLATION_CANCELED = "translation_canceled"
+EVENT_TRANSLATION_ERRORS = "translation_errors"
 EVENT_UPDATES = "updates"
 EVENT_ERRORS_SECURITY = "errors_security"
 EVENT_READY = "ready"
@@ -78,7 +83,11 @@ SPOKEN_NOTIFICATION_EVENTS: Final = (
     SpokenNotificationEvent(EVENT_LINKS, "فتح الروابط ونسخها ومنع الروابط غير الآمنة"),
     SpokenNotificationEvent(EVENT_RECEIVED_ATTACHMENTS, "فتح المرفقات المستلمة وحفظها"),
     SpokenNotificationEvent(EVENT_IMAGES, "فتح الصور وحفظها وفحصها"),
-    SpokenNotificationEvent(EVENT_TRANSLATION, "الإعلان عن ترجمة الرسالة وجميع إشعارات الترجمة"),
+    SpokenNotificationEvent(EVENT_TRANSLATION, "نجاح ترجمة نص الرسالة وظهورها"),
+    SpokenNotificationEvent(EVENT_TRANSLATION_STARTED, "بدء ترجمة نص الرسالة"),
+    SpokenNotificationEvent(EVENT_TRANSLATION_BACKGROUND, "ترجمة أوصاف العناصر في الخلفية"),
+    SpokenNotificationEvent(EVENT_TRANSLATION_CANCELED, "إلغاء الترجمة واختيار الخصوصية"),
+    SpokenNotificationEvent(EVENT_TRANSLATION_ERRORS, "أخطاء ترجمة الرسائل"),
     SpokenNotificationEvent(EVENT_UPDATES, "فحص تحديثات البرنامج وتنزيلها وتثبيتها"),
     SpokenNotificationEvent(EVENT_ERRORS_SECURITY, "الأخطاء والتحذيرات الأمنية"),
     SpokenNotificationEvent(EVENT_READY, "حالة جاهز"),
@@ -142,7 +151,16 @@ SPOKEN_NOTIFICATION_GROUPS: Final = (
             EVENT_LINKS,
             EVENT_RECEIVED_ATTACHMENTS,
             EVENT_IMAGES,
+        ),
+    ),
+    SpokenNotificationGroup(
+        "ترجمة الرسائل",
+        (
+            EVENT_TRANSLATION_STARTED,
             EVENT_TRANSLATION,
+            EVENT_TRANSLATION_BACKGROUND,
+            EVENT_TRANSLATION_CANCELED,
+            EVENT_TRANSLATION_ERRORS,
         ),
     ),
 )
@@ -184,7 +202,18 @@ def normalize_event_ids(event_ids: object) -> list[str] | None:
         return None
     if not isinstance(event_ids, (list, tuple, set, frozenset)):
         return None
-    selected = {str(event_id) for event_id in event_ids} & set(ALL_EVENT_IDS)
+    requested = {str(event_id) for event_id in event_ids}
+    selected = requested & set(ALL_EVENT_IDS)
+    if _LEGACY_EVENT_TRANSLATION in requested:
+        selected.update(
+            {
+                EVENT_TRANSLATION_STARTED,
+                EVENT_TRANSLATION,
+                EVENT_TRANSLATION_BACKGROUND,
+                EVENT_TRANSLATION_CANCELED,
+                EVENT_TRANSLATION_ERRORS,
+            }
+        )
     return [event.event_id for event in SPOKEN_NOTIFICATION_EVENTS if event.event_id in selected]
 
 
@@ -220,6 +249,14 @@ def notification_event_for_message(message: str) -> str:
         return EVENT_FOCUS_NAVIGATION
 
     if "ترجم" in text or "الترجمة" in text:
+        if "ألغيت" in text or "إلغاء" in text:
+            return EVENT_TRANSLATION_CANCELED
+        if "أوصاف العناصر" in text:
+            return EVENT_TRANSLATION_BACKGROUND
+        if any(word in text for word in ("خطأ", "تعذر", "فشل", "رفض")):
+            return EVENT_TRANSLATION_ERRORS
+        if text.startswith("جار "):
+            return EVENT_TRANSLATION_STARTED
         return EVENT_TRANSLATION
     if any(word in text for word in ("خطأ", "تعذر", "فشل", "تحذير", "غير آمن", "ضار", "رفض")):
         return EVENT_ERRORS_SECURITY
