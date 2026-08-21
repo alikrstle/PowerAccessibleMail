@@ -540,16 +540,36 @@ a:hover {
   margin-block-start: 0;
 }
 
+.download-group {
+  margin-block-start: 1.5rem;
+  padding-block-start: 1.25rem;
+  border-top: 2px solid var(--border);
+}
+
+.download-group > h3 {
+  margin: 0;
+  color: var(--brand-blue-dark);
+}
+
+.download-group > p {
+  margin: 0.4rem 0 1rem;
+  color: var(--muted);
+}
+
+.download-options-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1rem;
+}
+
 .download-option {
-  padding-block: 1.25rem;
-  border-top: 1px solid var(--border);
+  padding: 1rem;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface-alt);
 }
 
-.download-option:first-of-type {
-  border-top: 0;
-}
-
-.download-option h3 {
+.download-option h4 {
   margin: 0;
 }
 
@@ -704,6 +724,7 @@ a:hover {
   .feature-grid,
   .split-content,
   .download-layout,
+  .download-options-grid,
   .footer-inner {
     grid-template-columns: 1fr;
   }
