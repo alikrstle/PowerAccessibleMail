@@ -7,7 +7,7 @@
     <meta name="theme-color" content="#1756a9">
     <title>تنزيل Power Accessible Mail</title>
     <link rel="icon" href="favicon.ico">
-    <link rel="stylesheet" href="assets/styles.css">
+    <link rel="stylesheet" href="assets/styles.css?v=1.3.0-download-layout">
     <script src="assets/site.js" defer></script>
     <script src="assets/downloads.js?v=1.3.0-testers" defer></script>
   </head>
@@ -68,34 +68,84 @@
               <div class="notice"><strong>Warning:</strong> This is a pre-release for testing and its files are not digitally signed. Windows may display an “Unknown publisher” warning.</div>
             </div>
 
-            <div class="download-option" data-lang-content="ar">
-              <h3>Windows إصدار 64 بت</h3>
-              <p>هذا هو الخيار المناسب لمعظم أجهزة Windows الحديثة، خصوصاً الأجهزة التي تعمل بنظام Windows 10 أو Windows 11 بإصدار 64 بت.</p>
-              <a class="button button-primary" data-download-x64-installer href="https://github.com/alikrstle/PowerAccessibleMail/releases/download/v1.3.0/PowerAccessibleMailSetup-1.3.0-win-x64-UNSIGNED.exe">تنزيل مثبت 64 بت</a>
-              <a class="button" data-download-x64-portable href="https://github.com/alikrstle/PowerAccessibleMail/releases/download/v1.3.0/PowerAccessibleMail-1.3.0-win-x64-UNSIGNED.zip">تنزيل النسخة المحمولة 64 بت</a>
-              <p class="release-meta"><a data-hash-x64 href="https://github.com/alikrstle/PowerAccessibleMail/releases/download/v1.3.0/SHA256SUMS-X64-UNSIGNED.txt">عرض بصمات SHA-256 لنسخة 64 بت</a></p>
-            </div>
-            <div class="download-option" data-lang-content="en" lang="en" hidden>
-              <h3>Windows 64-bit</h3>
-              <p>The right choice for most modern Windows computers.</p>
-              <a class="button button-primary" data-download-x64-installer href="https://github.com/alikrstle/PowerAccessibleMail/releases/download/v1.3.0/PowerAccessibleMailSetup-1.3.0-win-x64-UNSIGNED.exe">Download the 64-bit installer</a>
-              <a class="button" data-download-x64-portable href="https://github.com/alikrstle/PowerAccessibleMail/releases/download/v1.3.0/PowerAccessibleMail-1.3.0-win-x64-UNSIGNED.zip">Download the 64-bit portable edition</a>
-              <p class="release-meta"><a data-hash-x64 href="https://github.com/alikrstle/PowerAccessibleMail/releases/download/v1.3.0/SHA256SUMS-X64-UNSIGNED.txt">View 64-bit SHA-256 fingerprints</a></p>
+            <div data-lang-content="ar">
+              <section class="download-group" aria-labelledby="installer-downloads-ar">
+                <h3 id="installer-downloads-ar">النسخ المثبتة</h3>
+                <p>الخيار الأنسب للاستخدام اليومي؛ يثبت البرنامج ويضيف اختصاراته إلى Windows.</p>
+                <div class="download-options-grid">
+                  <div class="download-option">
+                    <h4>مثبت 64 بت</h4>
+                    <p>لمعظم الأجهزة الحديثة التي تعمل بنظام Windows 10 أو Windows 11 بإصدار 64 بت.</p>
+                    <a class="button button-primary" data-download-x64-installer href="https://github.com/alikrstle/PowerAccessibleMail/releases/download/v1.3.0/PowerAccessibleMailSetup-1.3.0-win-x64-UNSIGNED.exe">تنزيل المثبت 64 بت</a>
+                    <p class="release-meta"><a data-hash-x64 href="https://github.com/alikrstle/PowerAccessibleMail/releases/download/v1.3.0/SHA256SUMS-X64-UNSIGNED.txt">عرض بصمة المثبت 64 بت</a></p>
+                  </div>
+                  <div class="download-option">
+                    <h4>مثبت 32 بت</h4>
+                    <p>للأجهزة التي تعمل بنسخة Windows ذات معمارية 32 بت.</p>
+                    <a class="button button-primary" data-download-x86-installer href="https://github.com/alikrstle/PowerAccessibleMail/releases/download/v1.3.0/PowerAccessibleMailSetup-1.3.0-win-x86-UNSIGNED.exe">تنزيل المثبت 32 بت</a>
+                    <p class="release-meta"><a data-hash-x86 href="https://github.com/alikrstle/PowerAccessibleMail/releases/download/v1.3.0/SHA256SUMS-X86-UNSIGNED.txt">عرض بصمة المثبت 32 بت</a></p>
+                  </div>
+                </div>
+              </section>
+
+              <section class="download-group" aria-labelledby="portable-downloads-ar">
+                <h3 id="portable-downloads-ar">النسخ المحمولة</h3>
+                <p>تعمل دون تثبيت، ويمكن تشغيلها من مجلد أو وحدة تخزين محمولة.</p>
+                <div class="download-options-grid">
+                  <div class="download-option">
+                    <h4>نسخة محمولة 64 بت</h4>
+                    <p>للأجهزة الحديثة التي تعمل بنظام Windows بإصدار 64 بت.</p>
+                    <a class="button button-primary" data-download-x64-portable href="https://github.com/alikrstle/PowerAccessibleMail/releases/download/v1.3.0/PowerAccessibleMail-1.3.0-win-x64-UNSIGNED.zip">تنزيل النسخة المحمولة 64 بت</a>
+                    <p class="release-meta"><a data-hash-x64 href="https://github.com/alikrstle/PowerAccessibleMail/releases/download/v1.3.0/SHA256SUMS-X64-UNSIGNED.txt">عرض بصمة النسخة المحمولة 64 بت</a></p>
+                  </div>
+                  <div class="download-option">
+                    <h4>نسخة محمولة 32 بت</h4>
+                    <p>للأجهزة التي تعمل بنسخة Windows ذات معمارية 32 بت.</p>
+                    <a class="button button-primary" data-download-x86-portable href="https://github.com/alikrstle/PowerAccessibleMail/releases/download/v1.3.0/PowerAccessibleMail-1.3.0-win-x86-UNSIGNED.zip">تنزيل النسخة المحمولة 32 بت</a>
+                    <p class="release-meta"><a data-hash-x86 href="https://github.com/alikrstle/PowerAccessibleMail/releases/download/v1.3.0/SHA256SUMS-X86-UNSIGNED.txt">عرض بصمة النسخة المحمولة 32 بت</a></p>
+                  </div>
+                </div>
+              </section>
             </div>
 
-            <div class="download-option" data-lang-content="ar">
-              <h3>Windows إصدار 32 بت</h3>
-              <p>للأجهزة التي تعمل بنسخة Windows ذات معمارية 32 بت.</p>
-              <a class="button button-primary" data-download-x86-installer href="https://github.com/alikrstle/PowerAccessibleMail/releases/download/v1.3.0/PowerAccessibleMailSetup-1.3.0-win-x86-UNSIGNED.exe">تنزيل مثبت 32 بت</a>
-              <a class="button" data-download-x86-portable href="https://github.com/alikrstle/PowerAccessibleMail/releases/download/v1.3.0/PowerAccessibleMail-1.3.0-win-x86-UNSIGNED.zip">تنزيل النسخة المحمولة 32 بت</a>
-              <p class="release-meta"><a data-hash-x86 href="https://github.com/alikrstle/PowerAccessibleMail/releases/download/v1.3.0/SHA256SUMS-X86-UNSIGNED.txt">عرض بصمات SHA-256 لنسخة 32 بت</a></p>
-            </div>
-            <div class="download-option" data-lang-content="en" lang="en" hidden>
-              <h3>Windows 32-bit</h3>
-              <p>For computers running the 32-bit edition of Windows.</p>
-              <a class="button button-primary" data-download-x86-installer href="https://github.com/alikrstle/PowerAccessibleMail/releases/download/v1.3.0/PowerAccessibleMailSetup-1.3.0-win-x86-UNSIGNED.exe">Download the 32-bit installer</a>
-              <a class="button" data-download-x86-portable href="https://github.com/alikrstle/PowerAccessibleMail/releases/download/v1.3.0/PowerAccessibleMail-1.3.0-win-x86-UNSIGNED.zip">Download the 32-bit portable edition</a>
-              <p class="release-meta"><a data-hash-x86 href="https://github.com/alikrstle/PowerAccessibleMail/releases/download/v1.3.0/SHA256SUMS-X86-UNSIGNED.txt">View 32-bit SHA-256 fingerprints</a></p>
+            <div data-lang-content="en" lang="en" hidden>
+              <section class="download-group" aria-labelledby="installer-downloads-en">
+                <h3 id="installer-downloads-en">Installer editions</h3>
+                <p>Recommended for daily use; installs the program and adds its Windows shortcuts.</p>
+                <div class="download-options-grid">
+                  <div class="download-option">
+                    <h4>64-bit installer</h4>
+                    <p>For most modern computers running 64-bit Windows 10 or Windows 11.</p>
+                    <a class="button button-primary" data-download-x64-installer href="https://github.com/alikrstle/PowerAccessibleMail/releases/download/v1.3.0/PowerAccessibleMailSetup-1.3.0-win-x64-UNSIGNED.exe">Download the 64-bit installer</a>
+                    <p class="release-meta"><a data-hash-x64 href="https://github.com/alikrstle/PowerAccessibleMail/releases/download/v1.3.0/SHA256SUMS-X64-UNSIGNED.txt">View the 64-bit installer fingerprint</a></p>
+                  </div>
+                  <div class="download-option">
+                    <h4>32-bit installer</h4>
+                    <p>For computers running the 32-bit edition of Windows.</p>
+                    <a class="button button-primary" data-download-x86-installer href="https://github.com/alikrstle/PowerAccessibleMail/releases/download/v1.3.0/PowerAccessibleMailSetup-1.3.0-win-x86-UNSIGNED.exe">Download the 32-bit installer</a>
+                    <p class="release-meta"><a data-hash-x86 href="https://github.com/alikrstle/PowerAccessibleMail/releases/download/v1.3.0/SHA256SUMS-X86-UNSIGNED.txt">View the 32-bit installer fingerprint</a></p>
+                  </div>
+                </div>
+              </section>
+
+              <section class="download-group" aria-labelledby="portable-downloads-en">
+                <h3 id="portable-downloads-en">Portable editions</h3>
+                <p>Run without installation from a folder or portable storage device.</p>
+                <div class="download-options-grid">
+                  <div class="download-option">
+                    <h4>64-bit portable edition</h4>
+                    <p>For modern computers running a 64-bit edition of Windows.</p>
+                    <a class="button button-primary" data-download-x64-portable href="https://github.com/alikrstle/PowerAccessibleMail/releases/download/v1.3.0/PowerAccessibleMail-1.3.0-win-x64-UNSIGNED.zip">Download the 64-bit portable edition</a>
+                    <p class="release-meta"><a data-hash-x64 href="https://github.com/alikrstle/PowerAccessibleMail/releases/download/v1.3.0/SHA256SUMS-X64-UNSIGNED.txt">View the 64-bit portable fingerprint</a></p>
+                  </div>
+                  <div class="download-option">
+                    <h4>32-bit portable edition</h4>
+                    <p>For computers running the 32-bit edition of Windows.</p>
+                    <a class="button button-primary" data-download-x86-portable href="https://github.com/alikrstle/PowerAccessibleMail/releases/download/v1.3.0/PowerAccessibleMail-1.3.0-win-x86-UNSIGNED.zip">Download the 32-bit portable edition</a>
+                    <p class="release-meta"><a data-hash-x86 href="https://github.com/alikrstle/PowerAccessibleMail/releases/download/v1.3.0/SHA256SUMS-X86-UNSIGNED.txt">View the 32-bit portable fingerprint</a></p>
+                  </div>
+                </div>
+              </section>
             </div>
           </div>
 
