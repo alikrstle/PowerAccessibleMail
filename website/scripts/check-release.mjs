@@ -1,7 +1,7 @@
 import { readFile } from "node:fs/promises";
 
 const repository = "alikrstle/PowerAccessibleMail";
-const releaseTag = "v1.3.0";
+const releaseTag = "v1.3.1";
 const apiUrl = `https://api.github.com/repos/${repository}/releases/tags/${releaseTag}`;
 const downloadsPage = await readFile(new URL("../public/downloads.html", import.meta.url), "utf8");
 
@@ -42,7 +42,8 @@ const x86Checksums = checksumAsset("x86");
 
 if (
   release.tag_name !== releaseTag ||
-  !release.prerelease ||
+  release.draft ||
+  release.prerelease ||
   !version ||
   !x64Installer ||
   !x64Portable ||
@@ -51,7 +52,7 @@ if (
   !x64Checksums ||
   !x86Checksums
 ) {
-  throw new Error("The tester pre-release must provide x64 and x86 installers, portable ZIP files, and SHA-256 files.");
+  throw new Error("The stable release must provide x64 and x86 installers, portable ZIP files, and SHA-256 files.");
 }
 
 for (const expected of [

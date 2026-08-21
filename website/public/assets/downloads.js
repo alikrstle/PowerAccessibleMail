@@ -1,4 +1,4 @@
-const releaseTag = "v1.3.0";
+const releaseTag = "v1.3.1";
 const releaseApi =
   `https://api.github.com/repos/alikrstle/PowerAccessibleMail/releases/tags/${releaseTag}`;
 
@@ -61,8 +61,8 @@ async function refreshRelease() {
     const x86Installer = releaseAsset(release.assets, "x86", ".exe");
     const x86Portable = releaseAsset(release.assets, "x86", ".zip");
     const x86Hash = releaseHashAsset(release.assets, "x86");
-    if (!release.prerelease || !x64Installer || !x64Portable || !x86Installer || !x86Portable || !x64Hash || !x86Hash) {
-      throw new Error("The tester pre-release assets are incomplete.");
+    if (release.draft || release.prerelease || !x64Installer || !x64Portable || !x86Installer || !x86Portable || !x64Hash || !x86Hash) {
+      throw new Error("The stable release assets are incomplete.");
     }
 
     const version = release.tag_name.replace(/^v/, "");
