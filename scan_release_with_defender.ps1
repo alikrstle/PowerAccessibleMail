@@ -1,7 +1,7 @@
 param(
     [ValidateSet("x64", "x86")]
     [string]$Architecture = "x64",
-    [string]$Version = "1.3.0",
+    [string]$Version = "1.3.1",
     [ValidateSet("SIGNED", "UNSIGNED")]
     [string]$BuildKind = "UNSIGNED",
     [string]$ReleaseRoot = (Join-Path $PSScriptRoot "release"),

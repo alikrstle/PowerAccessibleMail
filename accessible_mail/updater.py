@@ -11,7 +11,7 @@ from collections.abc import Callable
 from pathlib import Path
 
 from .update_checker import UpdateCheckResult, current_architecture, normalize_sha256
-from .network_security import trusted_https_context
+from .network_security import friendly_https_error, trusted_https_context
 
 
 MAX_INSTALLER_BYTES = 250 * 1024 * 1024
@@ -174,8 +174,11 @@ def download_update_installer(
             raise UpdateInstallError("ملف التحديث ليس ملف Windows صالحا.")
         os.replace(partial, destination)
         return destination
-    except Exception:
+    except Exception as exc:
         partial.unlink(missing_ok=True)
+        friendly_error = friendly_https_error(exc)
+        if friendly_error:
+            raise UpdateInstallError(friendly_error) from exc
         raise
 
 

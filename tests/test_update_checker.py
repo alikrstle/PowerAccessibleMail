@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import ssl
 import unittest
 import urllib.error
 from unittest.mock import patch
@@ -274,6 +275,34 @@ class UpdateCheckerTests(unittest.TestCase):
 
         self.assertFalse(result.available)
         self.assertIn("لا يوجد إصدار منشور", result.message)
+
+    @patch("accessible_mail.update_checker.load_update_manifest_url", return_value="")
+    @patch(
+        "accessible_mail.update_checker.load_github_repository",
+        return_value="alikrstle/PowerAccessibleMail",
+    )
+    @patch("accessible_mail.update_checker._check_github_latest_page", return_value=None)
+    @patch("accessible_mail.update_checker.urllib.request.urlopen")
+    def test_certificate_failure_has_safe_actionable_message(
+        self,
+        urlopen,
+        _fallback,
+        _repository,
+        _manifest,
+    ) -> None:
+        urlopen.side_effect = urllib.error.URLError(
+            ssl.SSLCertVerificationError(
+                1,
+                "certificate verify failed: certificate has expired",
+            )
+        )
+
+        result = check_for_updates("1.2.15")
+
+        self.assertFalse(result.available)
+        self.assertIn("تاريخ ووقت Windows", result.message)
+        self.assertIn("soljan-alsharq.com/downloads", result.message)
+        self.assertIn("TLS-CERTIFICATE-VERIFY", result.message)
 
     @patch(
         "accessible_mail.update_checker.load_update_manifest_url",

@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import ssl
 import unittest
+import urllib.error
 from unittest.mock import Mock, patch
 
 from accessible_mail.content_security import (
@@ -10,7 +12,10 @@ from accessible_mail.content_security import (
     validate_and_scan_image,
 )
 from accessible_mail.network_security import (
+    TLS_CERTIFICATE_ERROR_MESSAGE,
     UnsafeRemoteUrl,
+    certificate_verification_failed,
+    friendly_https_error,
     trusted_https_context,
     validate_public_http_url,
 )
@@ -20,6 +25,20 @@ class NetworkSecurityTests(unittest.TestCase):
     def tearDown(self) -> None:
         trusted_https_context.cache_clear()
 
+    @patch("accessible_mail.network_security.truststore")
+    def test_https_context_prefers_native_system_trust_store(
+        self,
+        native_truststore: Mock,
+    ) -> None:
+        context = native_truststore.SSLContext.return_value
+
+        result = trusted_https_context()
+
+        self.assertIs(result, context)
+        native_truststore.SSLContext.assert_called_once()
+        self.assertEqual(context.minimum_version, ssl.TLSVersion.TLSv1_2)
+
+    @patch("accessible_mail.network_security.truststore", None)
     @patch("accessible_mail.network_security.sys.platform", "win32")
     @patch("accessible_mail.network_security.ssl.enum_certificates")
     @patch("accessible_mail.network_security.ssl.create_default_context")
@@ -42,6 +61,22 @@ class NetworkSecurityTests(unittest.TestCase):
         context.load_verify_locations.assert_called_once_with(
             cadata=b"root-certificate"
         )
+
+    def test_certificate_verification_error_is_detected_through_url_error(self) -> None:
+        certificate_error = ssl.SSLCertVerificationError(
+            1,
+            "certificate verify failed: certificate has expired",
+        )
+        error = urllib.error.URLError(certificate_error)
+
+        self.assertTrue(certificate_verification_failed(error))
+        self.assertEqual(friendly_https_error(error), TLS_CERTIFICATE_ERROR_MESSAGE)
+
+    def test_unrelated_network_error_is_not_mislabeled_as_certificate_failure(self) -> None:
+        error = OSError("connection timed out")
+
+        self.assertFalse(certificate_verification_failed(error))
+        self.assertEqual(friendly_https_error(error), "")
 
     @patch("accessible_mail.network_security.socket.getaddrinfo")
     def test_public_http_image_url_remains_supported(self, getaddrinfo: Mock) -> None:

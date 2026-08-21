@@ -1068,6 +1068,7 @@ FRENCH_TRANSLATIONS: dict[str, str] = {'العربية': 'Arabe',
  'أعاد خادم التحديثات التوجيه إلى اتصال غير آمن.': 'Le serveur de mise à jour a été redirigé vers une connexion non '
                                                    'sécurisée.',
  'استجابة التحديثات أكبر من الحجم المسموح.': 'La réponse de mise à jour dépasse la taille autorisée.',
+ 'تعذر التحقق من شهادة الاتصال الآمن. تأكد من صحة تاريخ ووقت Windows، ثم ثبّت تحديثات Windows وحدّث برنامج الحماية. لا يعطّل البرنامج التحقق من الشهادات لحماية تنزيل التحديث. يمكنك تنزيل أحدث إصدار يدويا من https://soljan-alsharq.com/downloads. رمز الخطأ: TLS-CERTIFICATE-VERIFY.': "Le certificat de la connexion sécurisée n’a pas pu être vérifié. Vérifiez la date et l’heure de Windows, puis installez les mises à jour de Windows et actualisez votre logiciel de sécurité. L’application ne désactive pas la vérification des certificats, qui protège le téléchargement des mises à jour. Vous pouvez télécharger manuellement la dernière version depuis https://soljan-alsharq.com/downloads. Code d’erreur : TLS-CERTIFICATE-VERIFY.",
  'اسم مثبت التحديث لا يطابق رقم الإصدار المتاح.': "Le nom du programme d'installation de la mise à jour ne correspond "
                                                   'pas à la version disponible.',
  'معمارية مثبت التحديث لا تطابق معمارية البرنامج الحالي.': "L'architecture du programme d'installation de la mise à "
