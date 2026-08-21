@@ -19,8 +19,8 @@ Open `http://localhost:4173`.
 
 The project validates the HTML, creates a production copy in `dist`, and runs
 automated accessibility checks in desktop and mobile viewports. The release
-check confirms that the saved x64 and x86 download fallbacks match the pinned
-tester pre-release in `alikrstle/PowerAccessibleMail`.
+check confirms that the saved x64 and x86 installer and portable download
+fallbacks match the pinned tester pre-release in `alikrstle/PowerAccessibleMail`.
 
 ## Publishing
 
