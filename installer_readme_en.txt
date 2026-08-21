@@ -1,11 +1,13 @@
 Power Accessible Mail
-Version 1.3.0
+Version 1.3.1
 Developed by Soljan.AlSharq.
 Soljan.AlSharq. is owned by Ali Al-Amir
 
 Welcome to your email
 
 Power Accessible Mail is built to make reading writing organizing and updating email comfortable from the keyboard
+
+Version 1.3.1 improves update reliability by using the native Windows certificate store and provides a clear message for device time Windows update or security software certificate problems without disabling secure verification
 
 Native Windows lists and fields give screen readers predictable controls while messages are arranged vertically so moving through your mail feels direct and familiar
 

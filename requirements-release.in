@@ -6,4 +6,5 @@ pyinstaller-hooks-contrib==2026.5
 pywin32-ctypes==0.2.3
 rsa==4.9.1
 setuptools==84.0.0
+truststore==0.10.4
 wxPython==4.2.5

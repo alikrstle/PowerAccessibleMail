@@ -23,10 +23,13 @@ param(
 
 $ErrorActionPreference = "Stop"
 $ProjectRoot = $PSScriptRoot
-$Version = "1.3.0"
+$Version = "1.3.1"
 $AppName = "Power Accessible Mail"
 $ProductName = "Power Accessible Mail"
 $LockFile = Join-Path $ProjectRoot "requirements-release.lock"
+if (-not [System.IO.Path]::IsPathRooted($PythonPath)) {
+    $PythonPath = Join-Path $ProjectRoot $PythonPath
+}
 
 function Get-CompatibleRelativePath {
     param(
@@ -147,9 +150,15 @@ if ($packageDifference) {
 if ($LASTEXITCODE -ne 0) {
     throw "Python compilation failed."
 }
-& $PythonPath -m unittest discover -s (Join-Path $ProjectRoot "tests") -q
-if ($LASTEXITCODE -ne 0) {
-    throw "Tests failed."
+Push-Location $ProjectRoot
+try {
+    & $PythonPath -m unittest discover -s "tests" -q
+    if ($LASTEXITCODE -ne 0) {
+        throw "Tests failed."
+    }
+}
+finally {
+    Pop-Location
 }
 
 & $BuildScript -Architecture $Architecture -PythonPath $PythonPath

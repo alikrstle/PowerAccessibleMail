@@ -12,7 +12,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from .config import APP_VERSION, app_dir, data_dir
-from .network_security import trusted_https_context
+from .network_security import friendly_https_error, trusted_https_context
 
 
 DEFAULT_GITHUB_REPOSITORY = "alikrstle/PowerAccessibleMail"
@@ -159,11 +159,12 @@ def _check_manifest(
             message="ملف التحديثات غير صالح. يجب أن يكون بصيغة JSON.",
         )
     except (OSError, urllib.error.URLError, ValueError) as exc:
+        connection_error = friendly_https_error(exc)
         return UpdateCheckResult(
             configured=True,
             available=False,
             current_version=current_version,
-            message=f"تعذر الاتصال بخادم التحديثات: {exc}",
+            message=connection_error or f"تعذر الاتصال بخادم التحديثات: {exc}",
         )
 
     if not isinstance(manifest, dict):
@@ -278,7 +279,7 @@ def _check_github_release(
         )
         if fallback is not None:
             return fallback
-        return _github_connection_error(current_version, str(exc))
+        return _github_connection_error(current_version, exc)
 
     if not isinstance(release, dict):
         return UpdateCheckResult(
@@ -514,12 +515,20 @@ def _no_github_release(current_version: str) -> UpdateCheckResult:
     )
 
 
-def _github_connection_error(current_version: str, details: str) -> UpdateCheckResult:
+def _github_connection_error(
+    current_version: str,
+    details: object,
+) -> UpdateCheckResult:
+    error = details if isinstance(details, BaseException) else None
+    certificate_error = friendly_https_error(error) if error is not None else ""
     return UpdateCheckResult(
         configured=True,
         available=False,
         current_version=current_version,
-        message=f"تعذر الاتصال بـ GitHub Releases: {details}",
+        message=(
+            certificate_error
+            or f"تعذر الاتصال بـ GitHub Releases: {details}"
+        ),
     )
 
 

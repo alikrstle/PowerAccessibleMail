@@ -9,6 +9,19 @@ import urllib.error
 import urllib.parse
 import urllib.request
 
+try:
+    import truststore
+except ImportError:  # pragma: no cover - retained for source-only recovery environments
+    truststore = None
+
+
+TLS_CERTIFICATE_ERROR_MESSAGE = (
+    "تعذر التحقق من شهادة الاتصال الآمن. تأكد من صحة تاريخ ووقت Windows، "
+    "ثم ثبّت تحديثات Windows وحدّث برنامج الحماية. لا يعطّل البرنامج التحقق "
+    "من الشهادات لحماية تنزيل التحديث. يمكنك تنزيل أحدث إصدار يدويا من "
+    "https://soljan-alsharq.com/downloads. رمز الخطأ: TLS-CERTIFICATE-VERIFY."
+)
+
 
 class UnsafeRemoteUrl(ValueError):
     pass
@@ -16,8 +29,18 @@ class UnsafeRemoteUrl(ValueError):
 
 @functools.lru_cache(maxsize=1)
 def trusted_https_context() -> ssl.SSLContext:
-    """Build a verified TLS context that also trusts the Windows certificate store."""
+    """Build a verified TLS context backed by the native Windows trust engine."""
+    if truststore is not None:
+        context = truststore.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+        context.minimum_version = ssl.TLSVersion.TLSv1_2
+        return context
+
+    # Keep a verified recovery path for development/source environments where
+    # dependencies have not been installed yet. Release builds include
+    # ``truststore`` and therefore use Windows CryptoAPI, including automatic
+    # intermediate-certificate retrieval and revocation checks.
     context = ssl.create_default_context()
+    context.minimum_version = ssl.TLSVersion.TLSv1_2
     enum_certificates = getattr(ssl, "enum_certificates", None)
     if sys.platform != "win32" or enum_certificates is None:
         return context
@@ -34,6 +57,35 @@ def trusted_https_context() -> ssl.SSLContext:
             except (ValueError, ssl.SSLError):
                 continue
     return context
+
+
+def certificate_verification_failed(error: BaseException) -> bool:
+    """Return True when an exception chain represents a TLS certificate failure."""
+    pending: list[object] = [error]
+    visited: set[int] = set()
+    while pending:
+        current = pending.pop()
+        if id(current) in visited:
+            continue
+        visited.add(id(current))
+        if isinstance(current, ssl.SSLCertVerificationError):
+            return True
+        message = str(current).upper()
+        if "CERTIFICATE_VERIFY_FAILED" in message or "CERT_HAS_EXPIRED" in message:
+            return True
+        if isinstance(current, urllib.error.URLError):
+            pending.append(current.reason)
+        if isinstance(current, BaseException):
+            if current.__cause__ is not None:
+                pending.append(current.__cause__)
+            if current.__context__ is not None:
+                pending.append(current.__context__)
+    return False
+
+
+def friendly_https_error(error: BaseException) -> str:
+    """Translate certificate failures without ever disabling TLS verification."""
+    return TLS_CERTIFICATE_ERROR_MESSAGE if certificate_verification_failed(error) else ""
 
 
 def validate_public_http_url(value: object) -> str:
