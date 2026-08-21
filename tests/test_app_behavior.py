@@ -629,13 +629,20 @@ class AppBehaviorTests(unittest.TestCase):
 
     def test_message_text_urls_are_discovered_for_html_keyboard_navigation(self) -> None:
         link_list = Mock()
+        link_list.GetSelection.return_value = wx.NOT_FOUND
         page = SimpleNamespace(
             links=[],
+            visible_links=[],
             link_list=link_list,
+            item_filter_choice=Mock(GetSelection=Mock(return_value=0)),
+            actions_button=Mock(),
             viewer_action_ranges=[],
             current_viewer_action_range=None,
             resource_labels=lambda links: [item.label for item in links],
         )
+        page.selected_link = lambda: MailPage.selected_link(page)
+        page.selected_item_filter_index = lambda: MailPage.selected_item_filter_index(page)
+        page.apply_item_filter = lambda: MailPage.apply_item_filter(page)
 
         MailPage.set_links(
             page,
@@ -1358,6 +1365,51 @@ class AppBehaviorTests(unittest.TestCase):
 
         self.assertIn('label="إجراءات العنصر"', source)
         self.assertNotIn('label="إجراءات الرسالة"', source)
+        self.assertIn("self.item_filter_choice", source)
+        self.assertLess(
+            source.index("self.actions_button ="),
+            source.index("self.item_filter_choice ="),
+        )
+
+    def test_item_viewer_filter_keeps_actions_bound_to_visible_items(self) -> None:
+        link = LinkItem("Website", "https://example.com")
+        button = LinkItem("Continue", "https://example.com/continue", kind="button")
+        attachment = LinkItem("manual.pdf", kind="attachment", filename="manual.pdf")
+        image = LinkItem("Logo", "cid:logo", kind="image")
+        choice = Mock()
+        link_list = Mock()
+        link_list.GetSelection.return_value = wx.NOT_FOUND
+        page = SimpleNamespace(
+            links=[link, button, attachment, image],
+            visible_links=[],
+            item_filter_choice=choice,
+            link_list=link_list,
+            actions_button=Mock(),
+            resource_labels=lambda items: [item.text for item in items],
+        )
+        page.selected_link = lambda: MailPage.selected_link(page)
+        page.selected_item_filter_index = lambda: MailPage.selected_item_filter_index(page)
+
+        expected = (
+            [link, button, attachment, image],
+            [link, button],
+            [attachment],
+            [image],
+        )
+        for filter_index, visible_items in enumerate(expected):
+            with self.subTest(filter_index=filter_index):
+                choice.GetSelection.return_value = filter_index
+                MailPage.apply_item_filter(page)
+                self.assertEqual(page.visible_links, visible_items)
+                self.assertEqual(
+                    link_list.Set.call_args.args[0],
+                    [item.text for item in visible_items],
+                )
+
+        choice.GetSelection.return_value = 2
+        MailPage.apply_item_filter(page)
+        link_list.GetSelection.return_value = 0
+        self.assertIs(MailPage.selected_link(page), attachment)
 
     def test_item_viewer_numbers_images_independently(self) -> None:
         message_text = (

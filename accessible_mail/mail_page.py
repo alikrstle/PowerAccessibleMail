@@ -48,6 +48,7 @@ from .ui_constants import (
     BULK_ACTION_UNPIN,
     BULK_ACTION_UNSTAR,
     FILTER_CHOICES,
+    ITEM_FILTER_CHOICES,
     INLINE_GENERIC_LINK_TEXTS,
     MULTI_SELECTION_ANNOUNCEMENT_DELAY_MS,
 )
@@ -125,6 +126,7 @@ class MailPage(wx.Panel):
         self.trash_mailbox = ""
         self.visible_messages: list[MessageSummary] = []
         self.links: list[LinkItem] = []
+        self.visible_links: list[LinkItem] = []
         self.viewer_text = ""
         self.viewer_mode = VIEWER_HTML
         self.message_read_mode = MESSAGE_READ_MANUAL
@@ -281,6 +283,24 @@ class MailPage(wx.Panel):
         self.actions_button.Bind(wx.EVT_BUTTON, self.on_actions_button)
         self.actions_button.Bind(wx.EVT_CHAR_HOOK, self.on_actions_key)
         link_row.Add(self.actions_button, 0, wx.ALL, 6)
+        link_row.Add(
+            wx.StaticText(self.link_panel, label="فلتر العناصر:"),
+            0,
+            wx.ALIGN_CENTER_VERTICAL | wx.ALL,
+            6,
+        )
+        self.item_filter_choice = wx.Choice(
+            self.link_panel,
+            choices=[tr(label) for label in ITEM_FILTER_CHOICES],
+        )
+        self.item_filter_choice.SetSelection(0)
+        set_accessible(
+            self.item_filter_choice,
+            "فلتر عناصر مستعرض العناصر",
+            "اختر عرض كل العناصر أو الروابط فقط أو المرفقات فقط أو الصور فقط.",
+        )
+        self.item_filter_choice.Bind(wx.EVT_CHOICE, self.on_item_filter)
+        link_row.Add(self.item_filter_choice, 0, wx.EXPAND | wx.ALL, 6)
         self.link_panel.SetSizer(link_row)
         root.Add(self.link_panel, 1, wx.EXPAND)
 
@@ -291,6 +311,7 @@ class MailPage(wx.Panel):
         self.title = tr(self.title)
         localize_window(self)
         set_localized_items(self.filter_choice, FILTER_CHOICES)
+        set_localized_items(self.item_filter_choice, ITEM_FILTER_CHOICES)
         for index, label in enumerate(("الحالة", "المرسل", "الموضوع", "التاريخ")):
             column = self.list.GetColumn(index)
             column.SetText(tr(label))
@@ -1209,7 +1230,13 @@ class MailPage(wx.Panel):
             return
         self._last_items_toggle_at = now
         focus = wx.Window.FindFocus()
-        if focus in {self.link_panel, self.link_list, self.actions_button}:
+        item_filter_choice = getattr(self, "item_filter_choice", None)
+        if focus in {
+            self.link_panel,
+            self.link_list,
+            self.actions_button,
+            item_filter_choice,
+        }:
             self.focus_message_viewer()
             return
         self.focus_link_panel()
@@ -1775,12 +1802,41 @@ window.addEventListener("keydown", function (event) {{
             for item in organized_links
         ]
         self._resource_message_text = message_text
-        self.link_list.Set(self.resource_labels(self.links))
-        if self.links:
-            self.link_list.SetSelection(0)
-        else:
+        self.apply_item_filter()
+        if not self.links:
             self.viewer_action_ranges = []
             self.current_viewer_action_range = None
+
+    def selected_item_filter_index(self) -> int:
+        selection = self.item_filter_choice.GetSelection()
+        return selection if 0 <= selection < len(ITEM_FILTER_CHOICES) else 0
+
+    def on_item_filter(self, _event: wx.CommandEvent | None = None) -> None:
+        self.apply_item_filter()
+
+    def apply_item_filter(self) -> None:
+        selected_item = self.selected_link()
+        filter_index = self.selected_item_filter_index()
+        if filter_index == 1:
+            visible_links = [
+                item
+                for item in self.links
+                if not item.is_attachment and not item.is_image
+            ]
+        elif filter_index == 2:
+            visible_links = [item for item in self.links if item.is_attachment]
+        elif filter_index == 3:
+            visible_links = [item for item in self.links if item.is_image]
+        else:
+            visible_links = list(self.links)
+
+        self.visible_links = visible_links
+        self.link_list.Set(self.resource_labels(self.visible_links))
+        if selected_item in self.visible_links:
+            self.link_list.SetSelection(self.visible_links.index(selected_item))
+        elif self.visible_links:
+            self.link_list.SetSelection(0)
+        self.actions_button.Enable(bool(self.visible_links))
 
     def update_message_flags(self, summary: MessageSummary) -> None:
         key = self.message_key(summary)
@@ -2844,8 +2900,9 @@ window.addEventListener("keydown", function (event) {{
 
     def selected_link(self) -> LinkItem | None:
         index = self.link_list.GetSelection()
-        if 0 <= index < len(self.links):
-            return self.links[index]
+        visible_links = getattr(self, "visible_links", self.links)
+        if 0 <= index < len(visible_links):
+            return visible_links[index]
         return None
 
     def attachment_items(self) -> list[LinkItem]:
