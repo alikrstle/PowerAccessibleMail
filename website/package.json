@@ -11,12 +11,13 @@
     "build": "node scripts/build.mjs",
     "check": "npm test && npm run check:release",
     "check:release": "node scripts/check-release.mjs",
+    "check:seo": "node scripts/check-seo.mjs",
     "serve": "serve public --listen 4173 --no-clipboard",
     "preview": "serve dist --listen 4173 --no-clipboard",
     "validate": "html-validate \"public/**/*.html\"",
     "test:a11y": "node tests/accessibility.mjs",
     "test:visual": "node tests/visual.mjs",
-    "test": "npm run validate && npm run build && node scripts/test.mjs"
+    "test": "npm run validate && npm run check:seo && npm run build && node scripts/test.mjs"
   },
   "devDependencies": {
     "axe-core": "^4.10.3",
