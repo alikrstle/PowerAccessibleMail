@@ -137,6 +137,7 @@ class LinkItem:
     activation_end: int = -1
     activation_marker: str = ""
     content_id: str = ""
+    context_text: str = ""
 
     @property
     def label(self) -> str:

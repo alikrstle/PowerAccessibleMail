@@ -300,7 +300,11 @@ class AppBehaviorTests(unittest.TestCase):
         )
 
     def test_inline_translation_refreshes_items_and_preserves_attachments(self) -> None:
-        link = LinkItem("Website", "https://example.com")
+        link = LinkItem(
+            "Website",
+            "https://example.com",
+            context_text="Visit the website to read all release details.",
+        )
         attachment = LinkItem(
             "manual.pdf",
             kind="attachment",
@@ -324,13 +328,17 @@ class AppBehaviorTests(unittest.TestCase):
         generation = MailPage.show_translated_content(
             page,
             "Translated message",
-            {"Website": "Translated website"},
+            {
+                "Website": "Translated website",
+                "Visit the website to read all release details.": "Translated context.",
+            },
         )
 
         self.assertEqual(generation, 1)
 
         translated_items = page.set_links.call_args.args[0]
         self.assertEqual(translated_items[0].text, "Translated website")
+        self.assertEqual(translated_items[0].context_text, "Translated context.")
         self.assertEqual(translated_items[0].url, "https://example.com")
         self.assertEqual(translated_items[1].filename, "manual.pdf")
         page.set_viewer_action_ranges.assert_called_once_with(
@@ -387,6 +395,11 @@ class AppBehaviorTests(unittest.TestCase):
                     filename="manual.pdf",
                 ),
                 LinkItem("Company logo", "cid:logo", kind="image"),
+                LinkItem(
+                    "Release notes",
+                    "https://example.org/release",
+                    context_text="Read the complete release notes before updating.",
+                ),
             ]
         )
 
@@ -394,7 +407,13 @@ class AppBehaviorTests(unittest.TestCase):
 
         self.assertEqual(
             descriptions,
-            ["Project website", "Open website", "Company logo"],
+            [
+                "Project website",
+                "Open website",
+                "Company logo",
+                "Release notes",
+                "Read the complete release notes before updating.",
+            ],
         )
 
     @patch("accessible_mail.main_frame.save_settings")
@@ -1341,6 +1360,12 @@ class AppBehaviorTests(unittest.TestCase):
         self.assertNotIn('label="إجراءات الرسالة"', source)
 
     def test_item_viewer_numbers_images_independently(self) -> None:
+        message_text = (
+            "Visit Website to read the full accessibility release notes and learn what changed. "
+            "The Logo identifies the project in messages and on its official pages. "
+            "The Banner explains that the new accessible version is now available. "
+            "Please review manual.pdf for complete setup and keyboard instructions."
+        )
         labels = MailPage.resource_labels(
             SimpleNamespace(),
             [
@@ -1355,21 +1380,22 @@ class AppBehaviorTests(unittest.TestCase):
                     size=2048,
                 ),
             ],
+            message_text=message_text,
         )
 
         self.assertIn("الوصف: Website", labels[0])
-        self.assertIn("نوع العنصر: رابط", labels[0])
-        self.assertIn("النطاق: example.com", labels[0])
+        self.assertIn("سياق من الرسالة: Visit Website to read the full accessibility", labels[0])
         self.assertIn("عنوان الرابط: https://example.com", labels[0])
+        self.assertNotIn("نوع العنصر", labels[0])
+        self.assertNotIn("النطاق", labels[0])
         self.assertIn("صورة 1:", labels[1])
         self.assertIn("الوصف: Logo", labels[1])
-        self.assertIn("مصدر الصورة: صورة مضمنة", labels[1])
+        self.assertIn("سياق من الرسالة: The Logo identifies the project", labels[1])
         self.assertIn("صورة 2:", labels[2])
         self.assertIn("الوصف: Banner", labels[2])
-        self.assertIn("مصدر الصورة: رابط خارجي", labels[2])
-        self.assertIn("نوع العنصر: مرفق", labels[3])
+        self.assertIn("سياق من الرسالة: The Banner explains", labels[2])
         self.assertIn("اسم الملف: manual.pdf", labels[3])
-        self.assertIn("امتداد الملف: PDF", labels[3])
+        self.assertIn("سياق من الرسالة: Please review manual.pdf", labels[3])
         self.assertIn("نوع الملف: application/pdf", labels[3])
         self.assertIn("الحجم: 2.0 KB", labels[3])
 

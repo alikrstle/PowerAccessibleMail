@@ -959,7 +959,7 @@ class MailPage(wx.Panel):
         descriptions: list[str] = []
         seen: set[str] = set()
         for item in self.links:
-            for candidate in (item.text, item.activation_text):
+            for candidate in (item.text, item.activation_text, item.context_text):
                 description = " ".join(candidate.split()).strip()
                 if (
                     not description
@@ -989,6 +989,10 @@ class MailPage(wx.Panel):
                     item.activation_text,
                     item.activation_text,
                 ),
+                context_text=description_translations.get(
+                    item.context_text,
+                    item.context_text,
+                ),
             )
             for item in self.links
         ]
@@ -1012,6 +1016,10 @@ class MailPage(wx.Panel):
                 activation_text=description_translations.get(
                     item.activation_text,
                     item.activation_text,
+                ),
+                context_text=description_translations.get(
+                    item.context_text,
+                    item.context_text,
                 ),
             )
             for item in self.links
@@ -1751,11 +1759,22 @@ window.addEventListener("keydown", function (event) {{
         return float(message.is_pinned), message.sort_timestamp, uid_value, message.date
 
     def set_links(self, links: list[LinkItem], *, message_text: str = "") -> None:
-        self.links = organize_message_items(
+        organized_links = organize_message_items(
             message_text,
             links,
             discover_text_links=True,
         )
+        self.links = [
+            replace(
+                item,
+                context_text=(
+                    item.context_text
+                    or MailPage.item_context_description(message_text, item)
+                ),
+            )
+            for item in organized_links
+        ]
+        self._resource_message_text = message_text
         self.link_list.Set(self.resource_labels(self.links))
         if self.links:
             self.link_list.SetSelection(0)
@@ -2079,7 +2098,91 @@ window.addEventListener("keydown", function (event) {{
             return
         event.Skip()
 
-    def resource_labels(self, links: list[LinkItem]) -> list[str]:
+    @staticmethod
+    def item_context_description(message_text: str, item: LinkItem) -> str:
+        """Return a readable excerpt that explains an item from its message context."""
+        text = str(message_text or "")
+        if not text.strip():
+            return ""
+
+        start = item.activation_start
+        end = item.activation_end
+        if not 0 <= start < end <= len(text):
+            folded_text = text.casefold()
+            start = -1
+            for candidate in (
+                item.activation_text,
+                item.filename,
+                item.text,
+                item.url,
+            ):
+                candidate = candidate.strip()
+                if not candidate:
+                    continue
+                start = folded_text.find(candidate.casefold())
+                if start >= 0:
+                    end = start + len(candidate)
+                    break
+
+        if start < 0:
+            # Attachment names and inline-image labels do not always occur in the
+            # body. Prefer a sentence that discusses an attachment or image, then
+            # fall back to a substantial opening excerpt.
+            folded_text = text.casefold()
+            for cue in (
+                "مرفق",
+                "أرفقت",
+                "الصورة",
+                "attached",
+                "attachment",
+                "image",
+                "pièce jointe",
+            ):
+                start = folded_text.find(cue.casefold())
+                if start >= 0:
+                    end = start + len(cue)
+                    break
+            else:
+                start = 0
+                end = min(len(text), 1)
+
+        window_start = max(0, start - 180)
+        window_end = min(len(text), end + 220)
+        excerpt = text[window_start:window_end]
+        relative_start = start - window_start
+        relative_end = end - window_start
+        before = excerpt[:relative_start]
+        previous_boundary = max(
+            before.rfind(mark) for mark in ("\n", ".", "!", "?", "؟")
+        )
+        if previous_boundary >= 0:
+            excerpt = excerpt[previous_boundary + 1 :]
+            relative_end -= previous_boundary + 1
+        following_boundaries = [
+            position
+            for mark in ("\n", ".", "!", "?", "؟")
+            if (position := excerpt.find(mark, max(0, relative_end))) >= 0
+        ]
+        if following_boundaries:
+            excerpt = excerpt[: min(following_boundaries) + 1]
+
+        excerpt = " ".join(excerpt.split()).strip(" -–—،,:;")
+        if len(excerpt) < 45:
+            expanded = " ".join(text[window_start:window_end].split()).strip()
+            if len(expanded) > len(excerpt):
+                excerpt = expanded
+        if len(excerpt) > 280:
+            excerpt = excerpt[:277].rsplit(" ", 1)[0].rstrip(" ،,;:") + "..."
+        return excerpt
+
+    def resource_labels(
+        self,
+        links: list[LinkItem],
+        *,
+        message_text: str = "",
+    ) -> list[str]:
+        if not message_text:
+            message_text = getattr(self, "_resource_message_text", "")
         link_index = 0
         button_index = 0
         image_index = 0
@@ -2089,59 +2192,44 @@ window.addEventListener("keydown", function (event) {{
             if link.is_attachment:
                 attachment_index += 1
                 filename = link.filename.strip() or link.text.strip() or tr("مرفق بدون اسم")
-                details = [
-                    f"{tr('نوع العنصر')}: {tr('مرفق')}",
-                    f"{tr('اسم الملف')}: {filename}",
-                ]
-                extension = Path(filename).suffix.lstrip(".").upper()
-                if extension:
-                    details.append(f"{tr('امتداد الملف')}: {extension}")
+                details = [f"{tr('اسم الملف')}: {filename}"]
                 if link.content_type:
                     details.append(f"{tr('نوع الملف')}: {link.content_type}")
                 if link.size:
                     details.append(f"{tr('الحجم')}: {LinkItem.format_size(link.size)}")
+                context = link.context_text or MailPage.item_context_description(message_text, link)
+                if context:
+                    details.append(f"{tr('سياق من الرسالة')}: {context}")
                 labels.append(
                     tr(f"مرفق {attachment_index}: {'، '.join(details)}")
                 )
             elif link.is_button:
                 button_index += 1
-                details = [
-                    f"{tr('نوع العنصر')}: {tr('زر')}",
-                    f"{tr('الوصف')}: {link.text.strip() or tr('زر بدون عنوان')}",
-                ]
+                details = [f"{tr('الوصف')}: {link.text.strip() or tr('زر بدون عنوان')}"]
+                context = link.context_text or MailPage.item_context_description(message_text, link)
+                if context:
+                    details.append(f"{tr('سياق من الرسالة')}: {context}")
                 if link.url:
                     details.append(f"{tr('عنوان الرابط')}: {link.url}")
                 labels.append(tr(f"زر {button_index}: {'، '.join(details)}"))
             elif link.is_image:
                 image_index += 1
                 description = link.text.strip() or link.filename.strip() or tr("صورة بدون وصف")
-                image_source = (
-                    tr("رابط خارجي")
-                    if link.url.casefold().startswith(("http://", "https://"))
-                    else tr("صورة مضمنة")
-                )
-                details = [
-                    f"{tr('نوع العنصر')}: {tr('صورة')}",
-                    f"{tr('الوصف')}: {description}",
-                    f"{tr('مصدر الصورة')}: {image_source}",
-                ]
-                if link.filename:
-                    details.append(f"{tr('اسم الملف')}: {link.filename}")
-                if link.content_type:
-                    details.append(f"{tr('نوع الملف')}: {link.content_type}")
-                if link.size:
-                    details.append(f"{tr('الحجم')}: {LinkItem.format_size(link.size)}")
+                details = [f"{tr('الوصف')}: {description}"]
+                context = link.context_text or MailPage.item_context_description(message_text, link)
+                if context:
+                    details.append(f"{tr('سياق من الرسالة')}: {context}")
                 labels.append(tr(f"صورة {image_index}: {'، '.join(details)}"))
             else:
                 link_index += 1
                 description = link.text.strip()
-                details = [f"{tr('نوع العنصر')}: {tr('رابط')}"]
+                details = []
                 if description and description != link.url:
                     details.append(f"{tr('الوصف')}: {description}")
+                context = link.context_text or MailPage.item_context_description(message_text, link)
+                if context and context not in {description, link.url}:
+                    details.append(f"{tr('سياق من الرسالة')}: {context}")
                 if link.url:
-                    hostname = urllib.parse.urlsplit(link.url).hostname or ""
-                    if hostname:
-                        details.append(f"{tr('النطاق')}: {hostname}")
                     details.append(f"{tr('عنوان الرابط')}: {link.url}")
                 labels.append(
                     tr(f"رابط {link_index}: {'، '.join(details) or link.label}")

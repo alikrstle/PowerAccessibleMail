@@ -19,6 +19,7 @@ from accessible_mail.notification_preferences import (
     EVENT_READY,
     EVENT_SEND,
     EVENT_SYNC,
+    EVENT_TRANSLATION,
     NOTIFICATION_LEVEL_ALL,
     NOTIFICATION_LEVEL_MOST,
     NOTIFICATION_LEVEL_NONE,
@@ -82,6 +83,11 @@ class NotificationPreferenceTests(unittest.TestCase):
             "تم إرسال الرسالة.": EVENT_SEND,
             "تم تحديث الرسائل. الوارد 5.": EVENT_SYNC,
             "رابط: الموقع الرسمي": EVENT_ITEM_DETAILS,
+            "جار ترجمة الرسالة...": EVENT_TRANSLATION,
+            "تمت ترجمة الرسالة داخل المستعرض.": EVENT_TRANSLATION,
+            "ألغيت ترجمة الرسالة قبل إرسال النص.": EVENT_TRANSLATION,
+            "تعذر الحصول على ترجمة من Google.": EVENT_TRANSLATION,
+            "اكتملت ترجمة أوصاف العناصر في الخلفية، وتعذر ترجمة بعضها.": EVENT_TRANSLATION,
         }
 
         for message, event_id in expected.items():

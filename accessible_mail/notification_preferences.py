@@ -78,7 +78,7 @@ SPOKEN_NOTIFICATION_EVENTS: Final = (
     SpokenNotificationEvent(EVENT_LINKS, "فتح الروابط ونسخها ومنع الروابط غير الآمنة"),
     SpokenNotificationEvent(EVENT_RECEIVED_ATTACHMENTS, "فتح المرفقات المستلمة وحفظها"),
     SpokenNotificationEvent(EVENT_IMAGES, "فتح الصور وحفظها وفحصها"),
-    SpokenNotificationEvent(EVENT_TRANSLATION, "ترجمة الرسائل ونتيجة الترجمة"),
+    SpokenNotificationEvent(EVENT_TRANSLATION, "الإعلان عن ترجمة الرسالة وجميع إشعارات الترجمة"),
     SpokenNotificationEvent(EVENT_UPDATES, "فحص تحديثات البرنامج وتنزيلها وتثبيتها"),
     SpokenNotificationEvent(EVENT_ERRORS_SECURITY, "الأخطاء والتحذيرات الأمنية"),
     SpokenNotificationEvent(EVENT_READY, "حالة جاهز"),
@@ -219,12 +219,12 @@ def notification_event_for_message(message: str) -> str:
     if text in {"مستعرض العناصر.", "مستعرض الرسالة.", "قائمة الرسائل."}:
         return EVENT_FOCUS_NAVIGATION
 
+    if "ترجم" in text or "الترجمة" in text:
+        return EVENT_TRANSLATION
     if any(word in text for word in ("خطأ", "تعذر", "فشل", "تحذير", "غير آمن", "ضار", "رفض")):
         return EVENT_ERRORS_SECURITY
     if any(word in text for word in ("تحديث البرنامج", "التحديث داخل البرنامج", "تنزيل التحديث", "تثبيت التحديث", "فحص التحديثات")):
         return EVENT_UPDATES
-    if "ترجم" in text or "الترجمة" in text:
-        return EVENT_TRANSLATION
     if (
         "عنوان البريد الإلكتروني" in text
         or "البريد الإلكتروني" in text
