@@ -1,7 +1,7 @@
 import { readFile } from "node:fs/promises";
 
 const repository = "alikrstle/PowerAccessibleMail";
-const releaseTag = "v1.3.1";
+const releaseTag = "v1.4.0";
 const apiUrl = `https://api.github.com/repos/${repository}/releases/tags/${releaseTag}`;
 const downloadsPage = await readFile(new URL("../public/downloads.html", import.meta.url), "utf8");
 
