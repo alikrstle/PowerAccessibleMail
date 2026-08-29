@@ -3,6 +3,8 @@ from __future__ import annotations
 import base64
 import json
 import mimetypes
+import os
+import quopri
 import threading
 import time
 import urllib.error
@@ -21,12 +23,15 @@ from .email_utils import (
     header_to_text,
     html_to_text_and_links,
     is_plain_text_placeholder,
+    looks_like_wrapped_tracking_url_dump,
     looks_like_visual_markup_dump,
     organize_message_items,
+    should_prefer_html_alternative,
 )
 from .message_builder import build_outgoing_message
 from .models import Account, LinkItem, MessageContent, MessageSummary
 from .oauth import OAuthError, OAuthReauthenticationRequired, ensure_access_token
+from .network_security import friendly_https_error, trusted_https_context
 from .secure_store import MessageCache
 
 
@@ -35,6 +40,8 @@ GMAIL_METADATA_HEADERS = ("From", "To", "Subject", "Date", "Message-ID", "Refere
 GMAIL_READ_RETRY_DELAYS = (0.35, 0.9)
 GMAIL_TRANSIENT_HTTP_CODES = {429, 500, 502, 503, 504}
 GMAIL_CACHED_METADATA_REFRESH_COUNT = 8
+MAX_GMAIL_API_RESPONSE_BYTES = 512 * 1024 * 1024
+MAX_GMAIL_ERROR_RESPONSE_BYTES = 1024 * 1024
 GMAIL_LABELS = {
     "ALL": "ALL",
     "INBOX": "INBOX",
@@ -115,6 +122,7 @@ class GmailApiService:
             cached
             and not self._cached_content_needs_attachment_refresh(summary, cached)
             and not looks_like_visual_markup_dump(cached.text)
+            and not looks_like_wrapped_tracking_url_dump(cached.text)
             and not is_plain_text_placeholder(cached.text)
         ):
             if mark_read and not cached.summary.is_read:
@@ -434,20 +442,19 @@ class GmailApiService:
         attachments: list[LinkItem] = []
         self._collect_payload_parts(account, summary.uid, message.get("payload", {}), text_parts, html_parts, attachments)
         raw_plain_text = "\n".join(part.strip() for part in text_parts if part.strip())
-        plain_text_has_visual_noise = looks_like_visual_markup_dump(raw_plain_text)
         plain_text = clean_message_text_for_display(raw_plain_text)
         text = plain_text
         html_links: list[LinkItem] = []
         html_text = ""
         if html_parts:
             html_text, html_links = html_to_text_and_links("\n".join(html_parts))
-        if html_parts and (
-            not plain_text
-            or plain_text_has_visual_noise
-            or is_plain_text_placeholder(raw_plain_text)
-        ):
+        if should_prefer_html_alternative(raw_plain_text, plain_text, html_text):
             if html_text:
                 text = html_text
+        if not text:
+            text = clean_message_text_for_display(
+                str(message.get("snippet", "") or "")
+            )
         if not text:
             text = "لا يوجد نص قابل للعرض داخل هذه الرسالة."
         links = organize_message_items(text, html_links + attachments)
@@ -507,8 +514,6 @@ class GmailApiService:
 
         if is_attachment:
             attachment_bytes = self._payload_bytes(data)
-            if not attachment_bytes and attachment_id:
-                attachment_bytes = self._attachment_bytes(account, message_id, attachment_id)
             attachments.append(
                 LinkItem(
                     text=filename or "مرفق بدون اسم",
@@ -517,6 +522,8 @@ class GmailApiService:
                     content_type=mime_type,
                     size=size or len(attachment_bytes),
                     data=base64.b64encode(attachment_bytes).decode("ascii") if attachment_bytes else "",
+                    remote_source="gmail" if attachment_id else "",
+                    remote_id=attachment_id,
                 )
             )
             return
@@ -539,13 +546,68 @@ class GmailApiService:
         elif mime_type == "text/html":
             html_parts.append(content)
 
-    def _attachment_bytes(self, account: Account, message_id: str, attachment_id: str) -> bytes:
+    def _attachment_bytes(
+        self,
+        account: Account,
+        message_id: str,
+        attachment_id: str,
+        on_progress: Callable[[int, int], None] | None = None,
+    ) -> bytes:
         payload = self._request_json(
             account,
             "GET",
             f"{GMAIL_API_BASE}/messages/{message_id}/attachments/{attachment_id}",
+            on_progress=on_progress,
         )
-        return self._payload_bytes(str(payload.get("data", "") or ""))
+        data = self._payload_bytes(str(payload.get("data", "") or ""))
+        if on_progress and data:
+            on_progress(len(data), len(data))
+        return data
+
+    def download_attachment(
+        self,
+        account: Account,
+        summary: MessageSummary,
+        item: LinkItem,
+        destination: Path,
+        on_progress: Callable[[int, int], None] | None = None,
+    ) -> Path:
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        temporary = destination.with_name(f".{destination.name}.{os.getpid()}.part")
+        try:
+            data = item.attachment_bytes()
+            progress_reported = False
+
+            def report(current: int, total: int) -> None:
+                nonlocal progress_reported
+                progress_reported = True
+                if on_progress:
+                    on_progress(current, total)
+
+            if not data and item.remote_source == "gmail" and item.remote_id:
+                data = self._attachment_bytes(
+                    account,
+                    summary.uid,
+                    item.remote_id,
+                    report,
+                )
+            if not data:
+                raise MailError("لا تتوفر بيانات أو مرجع تنزيل صالح لهذا المرفق.")
+            total = len(data)
+            with temporary.open("wb") as output:
+                chunk_size = 1024 * 1024
+                for offset in range(0, total, chunk_size):
+                    output.write(data[offset : offset + chunk_size])
+                    if on_progress and (item.data or not progress_reported):
+                        on_progress(min(total, offset + chunk_size), total)
+            os.replace(temporary, destination)
+            return destination
+        except Exception:
+            try:
+                temporary.unlink(missing_ok=True)
+            except OSError:
+                pass
+            raise
 
     def _modify_message_labels(
         self,
@@ -570,6 +632,8 @@ class GmailApiService:
         method: str,
         url: str,
         body: dict[str, Any] | None = None,
+        *,
+        on_progress: Callable[[int, int], None] | None = None,
     ) -> dict[str, Any]:
         token = self._oauth_token(account)
         data = None
@@ -585,11 +649,45 @@ class GmailApiService:
         for attempt in range(attempts):
             request = urllib.request.Request(url, data=data, headers=headers, method=method)
             try:
-                with urllib.request.urlopen(request, timeout=30) as response:
-                    raw = response.read()
+                with urllib.request.urlopen(
+                    request,
+                    timeout=30,
+                    context=trusted_https_context(),
+                ) as response:
+                    content_length = response.headers.get("Content-Length", "")
+                    try:
+                        announced_size = max(0, int(content_length))
+                    except (TypeError, ValueError):
+                        announced_size = 0
+                    if announced_size > MAX_GMAIL_API_RESPONSE_BYTES:
+                        raise MailError(
+                            "حجم استجابة Gmail يتجاوز الحد المدعوم وهو 512 ميغابايت."
+                        )
+                    chunks: list[bytes] = []
+                    received = 0
+                    while True:
+                        chunk = response.read(1024 * 1024)
+                        if not chunk:
+                            break
+                        received += len(chunk)
+                        if received > MAX_GMAIL_API_RESPONSE_BYTES:
+                            raise MailError(
+                                "حجم استجابة Gmail يتجاوز الحد المدعوم وهو 512 ميغابايت."
+                            )
+                        chunks.append(chunk)
+                        if on_progress:
+                            on_progress(received, announced_size)
+                    raw = b"".join(chunks)
+                if len(raw) > MAX_GMAIL_API_RESPONSE_BYTES:
+                    raise MailError(
+                        "حجم استجابة Gmail يتجاوز الحد المدعوم وهو 512 ميغابايت."
+                    )
                 break
             except urllib.error.HTTPError as exc:
-                detail = exc.read().decode("utf-8", errors="replace")
+                detail = exc.read(MAX_GMAIL_ERROR_RESPONSE_BYTES + 1).decode(
+                    "utf-8",
+                    errors="replace",
+                )
                 lowered_detail = detail.lower()
                 rate_limited = exc.code == 403 and any(
                     marker in lowered_detail
@@ -638,7 +736,10 @@ class GmailApiService:
                 if attempt + 1 < attempts:
                     time.sleep(GMAIL_READ_RETRY_DELAYS[attempt])
                     continue
-                raise MailError(f"تعذر الاتصال بـ Gmail API: {exc}") from exc
+                friendly_error = friendly_https_error(exc)
+                raise MailError(
+                    friendly_error or f"تعذر الاتصال بـ Gmail API: {exc}"
+                ) from exc
         if not raw:
             return {}
         try:
@@ -717,6 +818,14 @@ class GmailApiService:
 
     def _decode_payload_text(self, data: bytes, headers: dict[str, str]) -> str:
         content_type = headers.get("content-type", "")
+        transfer_encoding = headers.get("content-transfer-encoding", "").casefold().strip()
+        if transfer_encoding == "quoted-printable":
+            data = quopri.decodestring(data)
+        elif transfer_encoding == "base64":
+            try:
+                data = base64.b64decode(data, validate=False)
+            except (ValueError, TypeError):
+                pass
         message = Message()
         if content_type:
             message["Content-Type"] = content_type

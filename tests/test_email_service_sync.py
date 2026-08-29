@@ -502,6 +502,32 @@ class EmailServiceSyncTests(unittest.TestCase):
             "7",
         )
 
+    def test_failed_uid_expunge_restores_original_and_keeps_cache(self) -> None:
+        service = FakeSyncService(message_count=1)
+        service.resolve_trash_mailbox = lambda _account, _conn: "Trash"
+        service.cache.delete_message = Mock()
+        original_uid = service.connection.uid
+
+        def uid(command: str, *args: object) -> tuple[str, list[bytes]]:
+            if command == "expunge":
+                service.connection.uid_operations.append((command, *args))
+                return "NO", [b"UID EXPUNGE unsupported"]
+            return original_uid(command, *args)
+
+        service.connection.uid = uid
+
+        with self.assertRaisesRegex(MailError, "لم يؤكد إزالة الأصل"):
+            service.move_message_to_trash(
+                self.account,
+                MessageSummary(uid="7", mailbox="INBOX"),
+            )
+
+        self.assertEqual(
+            service.connection.uid_operations[-1],
+            ("store", "7", "-FLAGS", "(\\Deleted)"),
+        )
+        service.cache.delete_message.assert_not_called()
+
     def test_deleted_imap_summaries_are_not_returned(self) -> None:
         connection = Mock()
         connection.fetch.return_value = (

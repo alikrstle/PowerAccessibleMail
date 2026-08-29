@@ -21,13 +21,23 @@ from .notification_preferences import (
 
 APP_NAME = os.environ.get("POWER_ACCESSIBLE_MAIL_APP_NAME", "PowerAccessibleMail")
 APP_TITLE = os.environ.get("POWER_ACCESSIBLE_MAIL_APP_TITLE", "Power Accessible Mail")
-APP_VERSION = "1.3.1"
+APP_VERSION = "1.4.0"
 PASSWORD_PREFIX = "dpapi:"
 LEGACY_PROFILE_NAMES = ("PowerAccessibleMailGmailApiLimited",)
 LANGUAGE_ARABIC = "ar"
 LANGUAGE_ENGLISH = "en"
 LANGUAGE_FRENCH = "fr"
-SUPPORTED_LANGUAGES = {LANGUAGE_ARABIC, LANGUAGE_ENGLISH, LANGUAGE_FRENCH}
+LANGUAGE_SPANISH = "es"
+LANGUAGE_TURKISH = "tr"
+LANGUAGE_HINDI = "hi"
+SUPPORTED_LANGUAGES = {
+    LANGUAGE_ARABIC,
+    LANGUAGE_ENGLISH,
+    LANGUAGE_FRENCH,
+    LANGUAGE_SPANISH,
+    LANGUAGE_TURKISH,
+    LANGUAGE_HINDI,
+}
 VIEWER_HTML = "html"
 VIEWER_SIMPLE = "simple"
 MESSAGE_READ_MANUAL = "manual"
@@ -46,11 +56,12 @@ class ProgramSettings:
     language: str = LANGUAGE_ARABIC
     message_viewer: str = VIEWER_HTML
     message_read_mode: str = MESSAGE_READ_MANUAL
-    theme: str = THEME_LIGHT
-    translation_mode: str = TRANSLATION_DIALOG
+    theme: str = THEME_DARK
+    translation_mode: str = TRANSLATION_INLINE
     translation_data_notice_accepted: bool = False
     spoken_notification_level: str = NOTIFICATION_LEVEL_MOST
     spoken_notification_events: list[str] | None = None
+    last_selected_account_id: str = ""
 
 
 def system_language(locale_names: list[str] | tuple[str, ...] | None = None) -> str:
@@ -346,8 +357,8 @@ def load_settings() -> ProgramSettings:
             message_read_mode=str(
                 payload.get("message_read_mode", MESSAGE_READ_MANUAL)
             ),
-            theme=str(payload.get("theme", THEME_LIGHT)),
-            translation_mode=str(payload.get("translation_mode", TRANSLATION_DIALOG)),
+            theme=str(payload.get("theme", THEME_DARK)),
+            translation_mode=str(payload.get("translation_mode", TRANSLATION_INLINE)),
             translation_data_notice_accepted=(
                 payload.get("translation_data_notice_accepted", False)
                 if isinstance(
@@ -363,6 +374,9 @@ def load_settings() -> ProgramSettings:
                 payload.get("spoken_notification_events")
                 if isinstance(payload.get("spoken_notification_events"), list)
                 else None
+            ),
+            last_selected_account_id=str(
+                payload.get("last_selected_account_id", "") or ""
             ),
         )
     )
@@ -416,9 +430,9 @@ def normalize_settings(settings: ProgramSettings) -> ProgramSettings:
     }:
         settings.message_read_mode = MESSAGE_READ_MANUAL
     if settings.theme not in {THEME_LIGHT, THEME_DARK}:
-        settings.theme = THEME_LIGHT
+        settings.theme = THEME_DARK
     if settings.translation_mode not in {TRANSLATION_INLINE, TRANSLATION_DIALOG}:
-        settings.translation_mode = TRANSLATION_DIALOG
+        settings.translation_mode = TRANSLATION_INLINE
     if settings.spoken_notification_level not in NOTIFICATION_LEVELS:
         settings.spoken_notification_level = NOTIFICATION_LEVEL_MOST
     settings.spoken_notification_events = normalize_event_ids(

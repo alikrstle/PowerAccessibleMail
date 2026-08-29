@@ -1,5 +1,5 @@
 ﻿Power Accessible Mail
-Version 1.3.1
+Version 1.4.0
 Développé par Soljan.AlSharq.
 Soljan.AlSharq. appartient à Ali Al-Amir
 
@@ -7,7 +7,7 @@ Bienvenue dans votre messagerie
 
 Power Accessible Mail est conçu pour rendre la lecture l'écriture l'organisation et l'actualisation des courriels confortables au clavier
 
-La version 1.3.1 améliore la fiabilité des mises à jour en utilisant le magasin de certificats natif de Windows et fournit un message clair en cas de problème lié à l'heure de l'appareil aux mises à jour de Windows ou au logiciel de sécurité sans désactiver la vérification sécurisée
+La version 1.4.0 améliore la fiabilité des mises à jour en utilisant le magasin de certificats natif de Windows et fournit un message clair en cas de problème lié à l'heure de l'appareil aux mises à jour de Windows ou au logiciel de sécurité sans désactiver la vérification sécurisée
 
 Les listes et les champs Windows natifs offrent aux lecteurs d'écran des commandes prévisibles tandis que les messages sont disposés verticalement pour rendre la navigation directe et familière
 
@@ -111,7 +111,7 @@ Elle nécessite une connexion Internet et envoie le texte du message sélectionn
 
 Adaptez l'application à vos préférences
 
-Paramètres permet de choisir l'arabe l'anglais ou le français la visionneuse HTML ou simple la traduction dans la page ou dans une fenêtre séparée ainsi que l'apparence claire ou sombre
+Paramètres permet de choisir l'arabe l'anglais le français l'espagnol le turc ou l'hindi la visionneuse HTML ou simple la traduction dans la page ou dans une fenêtre séparée ainsi que l'apparence claire ou sombre
 
 Vous pouvez également contrôler le nombre d'actions annoncées par la bibliothèque NVDA avec quatre niveaux : aucune certaines la plupart ou toutes. Le bouton Personnaliser et gérer l'annonce des actions à côté du niveau ouvre des catégories contenant de véritables cases à cocher Windows. Utilisez Tab pour passer de l'une à l'autre entendre son état et Espace pour le modifier puis enregistrez. Le niveau par défaut n'annonce pas les changements d'état lu ou non lu ni leur enregistrement sur le serveur sauf si l'utilisateur active cette catégorie dans la personnalisation. Les paramètres contiennent aussi Choisir PowerAccessibleMail comme application de messagerie par défaut qui ouvre la page de l'application dans les paramètres Windows ; appuyez sur Espace sur MAILTO pour ouvrir le sélecteur si Entrée ne répond pas
 
@@ -123,7 +123,7 @@ L'application vérifie GitHub Releases après le démarrage et vous pouvez lance
 
 Lorsqu'une version est disponible Mettre à jour maintenant ouvre une fenêtre interne qui indique sa version sa date de publication une barre de progression et le pourcentage
 
-Le programme d'installation approprié est téléchargé dans le dossier de mises à jour de Power Accessible Mail du profil utilisateur son empreinte SHA-256 est vérifiée puis le programme d'installation apparaît dans une fenêtre visible avant la fermeture de l'application pour terminer la mise à jour et redémarrer
+Le programme d'installation approprié est téléchargé dans le dossier de mises à jour de Power Accessible Mail du profil utilisateur et son empreinte SHA-256 est vérifiée. L'application se ferme ensuite, installe automatiquement la nouvelle version sans page de langue ni étapes habituelles du programme d'installation, puis redémarre. Les demandes UAC et les avertissements de sécurité Windows restent visibles lorsque Windows les exige
 
 Guide détaillé de la fenêtre principale
 

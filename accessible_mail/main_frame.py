@@ -17,6 +17,7 @@ import wx.html2
 from .attachment_storage import (
     cleanup_opened_attachment_session,
     cleanup_stale_opened_attachments,
+    opened_attachment_session_dir,
 )
 from .accessibility import (
     announce_context_menu,
@@ -32,12 +33,18 @@ from .account_dialog import (
     sign_in_error_details,
     sign_in_success_details,
 )
-from .address_book_dialog import AddressBookDialog, AddressMessageMatch, AddressMessagesDialog
+from .address_book import load_address_book
+from .address_book_dialog import (
+    AddressBookDialog,
+    AddressMessageMatch,
+    AddressMessagesDialog,
+    ForwardMessageDialog,
+)
 from .bulk_operations import run_bulk_operations
 from .config import (
     APP_TITLE,
     APP_VERSION,
-    LANGUAGE_ENGLISH,
+    LANGUAGE_ARABIC,
     LANGUAGE_FRENCH,
     THEME_DARK,
     TRANSLATION_INLINE,
@@ -60,7 +67,7 @@ from .guide import load_program_guide
 from .i18n import set_language, tr
 from .mail_page import MailPage
 from .mail_service_router import MailServiceRouter
-from .models import Account, MessageContent, MessageSummary
+from .models import Account, LinkItem, MessageContent, MessageSummary
 from .notification_preferences import (
     configure_spoken_notifications,
     notification_event_for_message,
@@ -108,7 +115,8 @@ OFFICIAL_WEBSITE_URL = "https://soljan-alsharq.com/"
 PRIVACY_POLICY_URL = "https://soljan-alsharq.com/privacy"
 TERMS_OF_USE_URL = "https://soljan-alsharq.com/terms"
 DEVELOPER_EMAIL = "support@soljan-alsharq.com"
-TELEGRAM_CHANNEL_URL = "https://t.me/SoljanAlSharq"
+TELEGRAM_INTERNATIONAL_CHANNEL_URL = "https://t.me/SoljanAlSharq2"
+TELEGRAM_ARABIC_CHANNEL_URL = "https://t.me/SoljanAlSharq"
 DEVELOPER_TELEGRAM_URL = "https://t.me/AliIrass"
 def call_after_if_open(
     owner: object,
@@ -147,6 +155,8 @@ class MainFrame(wx.Frame):
         self.current_content: MessageContent | None = None
         self.displayed_account_id: str | None = None
         self._syncing_page_keys: set[str] = set()
+        self._loading_older_keys: set[tuple[str, str]] = set()
+        self._older_messages_exhausted: set[tuple[str, str]] = set()
         self._known_inbox_uids: dict[str, set[str]] = {}
         self._all_mailboxes_by_account: dict[str, str] = {}
         self._trash_mailboxes_by_account: dict[str, str] = {}
@@ -154,6 +164,7 @@ class MainFrame(wx.Frame):
         self._message_load_generation = 0
         self._message_load_call: wx.CallLater | None = None
         self._notification_timer: wx.CallLater | None = None
+        self._account_switch_target_id: str | None = None
         self._startup_update_call: wx.CallLater | None = None
         self._startup_update_check_started = False
         self._update_dialog_open = False
@@ -162,14 +173,23 @@ class MainFrame(wx.Frame):
         self._update_cancel_event: threading.Event | None = None
         self._startup_login_shown = False
         self._reauthentication_active = False
+        self._viewer_expanded = False
+        self._html_escape_hotkey_id = wx.NewIdRef()
+        self._html_escape_hotkey_registered = False
         self._active_worker_count = 0
         self._closing = False
         self.pages: dict[str, MailPage] = {}
         cleanup_stale_opened_attachments()
         self.Bind(wx.EVT_CLOSE, self.on_close)
+        self.Bind(
+            wx.EVT_HOTKEY,
+            self.on_html_escape_hotkey,
+            id=int(self._html_escape_hotkey_id),
+        )
+        self.Bind(wx.EVT_ACTIVATE, self.on_frame_activation_for_html_hotkey)
         self._build()
         self.apply_settings()
-        self._load_accounts_to_choice()
+        self._load_accounts_to_choice(self.settings.last_selected_account_id)
         self._start_new_mail_timer()
         self._startup_update_call = wx.CallLater(2500, self.start_startup_update_check)
         self.Centre()
@@ -181,6 +201,9 @@ class MainFrame(wx.Frame):
             event.Skip()
             return
         self._closing = True
+        unregister_hotkey = getattr(self, "unregister_html_escape_hotkey", None)
+        if unregister_hotkey:
+            unregister_hotkey()
         for call in (
             self._message_load_call,
             self._notification_timer,
@@ -235,7 +258,7 @@ class MainFrame(wx.Frame):
         )
         command_column.Add(self.command_list, 1, wx.EXPAND | wx.ALL, 6)
         top_row.Add(command_column, 0, wx.EXPAND | wx.ALL, 6)
-        root.Add(top_row, 0, wx.EXPAND)
+        self.top_row_sizer_item = root.Add(top_row, 0, wx.EXPAND)
 
         self.notebook = wx.Notebook(panel)
         inbox_page = MailPage(
@@ -251,6 +274,11 @@ class MainFrame(wx.Frame):
             self.on_bulk_message_action,
             self.on_mail_page_filter_changed,
             on_viewer_enter=self.on_message_viewer_enter,
+            on_end_reached=self.on_message_list_end_reached,
+            on_attachment_transfer=self.on_attachment_transfer,
+            on_forward=self.on_forward_message,
+            on_toggle_expanded=self.on_toggle_expanded_viewer,
+            on_html_focus_state=self.on_html_focus_state_changed,
         )
         spam_page = MailPage(
             self.notebook,
@@ -265,6 +293,11 @@ class MainFrame(wx.Frame):
             self.on_bulk_message_action,
             self.on_mail_page_filter_changed,
             on_viewer_enter=self.on_message_viewer_enter,
+            on_end_reached=self.on_message_list_end_reached,
+            on_attachment_transfer=self.on_attachment_transfer,
+            on_forward=self.on_forward_message,
+            on_toggle_expanded=self.on_toggle_expanded_viewer,
+            on_html_focus_state=self.on_html_focus_state_changed,
         )
         sent_page = MailPage(
             self.notebook,
@@ -279,6 +312,11 @@ class MainFrame(wx.Frame):
             self.on_bulk_message_action,
             self.on_mail_page_filter_changed,
             on_viewer_enter=self.on_message_viewer_enter,
+            on_end_reached=self.on_message_list_end_reached,
+            on_attachment_transfer=self.on_attachment_transfer,
+            on_forward=self.on_forward_message,
+            on_toggle_expanded=self.on_toggle_expanded_viewer,
+            on_html_focus_state=self.on_html_focus_state_changed,
         )
         all_mail_page = MailPage(
             self.notebook,
@@ -293,6 +331,11 @@ class MainFrame(wx.Frame):
             self.on_bulk_message_action,
             self.on_mail_page_filter_changed,
             on_viewer_enter=self.on_message_viewer_enter,
+            on_end_reached=self.on_message_list_end_reached,
+            on_attachment_transfer=self.on_attachment_transfer,
+            on_forward=self.on_forward_message,
+            on_toggle_expanded=self.on_toggle_expanded_viewer,
+            on_html_focus_state=self.on_html_focus_state_changed,
         )
         self.pages["inbox"] = inbox_page
         self.pages["spam"] = spam_page
@@ -315,7 +358,12 @@ class MainFrame(wx.Frame):
             "تعرض نسبة تقدم جلب الرسائل من خادم البريد",
         )
         progress_row.Add(self.transfer_progress, 1, wx.EXPAND | wx.ALL, 6)
-        root.Add(progress_row, 0, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM, 8)
+        self.transfer_progress_sizer_item = root.Add(
+            progress_row,
+            0,
+            wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM,
+            8,
+        )
 
         panel.SetSizer(root)
         self.CreateStatusBar()
@@ -324,6 +372,10 @@ class MainFrame(wx.Frame):
         self.command_list.Bind(wx.EVT_LISTBOX_DCLICK, self.on_command_activated)
         self.command_list.Bind(wx.EVT_CHAR_HOOK, self.on_command_key)
         self.account_choice.Bind(wx.EVT_CHOICE, self.on_account_changed)
+        # WebView2 may consume Escape before the accelerator table sees it.
+        # A frame-level character hook provides a native fallback while focus is
+        # inside either message viewer or the item viewer.
+        self.Bind(wx.EVT_CHAR_HOOK, self.on_frame_char_hook)
 
         self._create_menu()
         self._create_accelerators()
@@ -345,13 +397,19 @@ class MainFrame(wx.Frame):
     def SetStatusText(self, text: str, number: int = 0) -> None:
         localized = tr(text)
         super().SetStatusText(localized, number)
-        if should_announce_status(text):
+        if self.should_announce_status_text(text):
             status_control = self.GetStatusBar() or self
             announce_to_screen_reader(
                 status_control,
                 text,
                 notification_event_for_message(text),
             )
+
+    def should_announce_status_text(self, text: str) -> bool:
+        return not MainFrame.account_switch_in_progress(self) and should_announce_status(text)
+
+    def account_switch_in_progress(self) -> bool:
+        return bool(getattr(self, "_account_switch_target_id", None))
 
     def _create_menu(self) -> None:
         menu_bar = wx.MenuBar()
@@ -376,8 +434,17 @@ class MainFrame(wx.Frame):
             wx.ID_ANY,
             "إرسال رسالة إلى المطور عبر PowerAccessibleMail",
         )
-        telegram_channel_item = contact_menu.Append(
+        telegram_channels_menu = wx.Menu()
+        international_telegram_channel_item = telegram_channels_menu.Append(
             wx.ID_ANY,
+            "القناة الدولية",
+        )
+        arabic_telegram_channel_item = telegram_channels_menu.Append(
+            wx.ID_ANY,
+            "القناة العربية",
+        )
+        contact_menu.AppendSubMenu(
+            telegram_channels_menu,
             "الاشتراك بقناة التليجرام للحصول على آخر المستجدات",
         )
         developer_telegram_item = contact_menu.Append(
@@ -415,8 +482,13 @@ class MainFrame(wx.Frame):
         self.Bind(wx.EVT_MENU, self.on_email_developer, email_developer_item)
         self.Bind(
             wx.EVT_MENU,
-            lambda _event: self.open_contact_url(TELEGRAM_CHANNEL_URL),
-            telegram_channel_item,
+            lambda _event: self.open_contact_url(TELEGRAM_INTERNATIONAL_CHANNEL_URL),
+            international_telegram_channel_item,
+        )
+        self.Bind(
+            wx.EVT_MENU,
+            lambda _event: self.open_contact_url(TELEGRAM_ARABIC_CHANNEL_URL),
+            arabic_telegram_channel_item,
         )
         self.Bind(
             wx.EVT_MENU,
@@ -434,6 +506,8 @@ class MainFrame(wx.Frame):
         self.accel_guide = wx.NewIdRef()
         self.accel_focus_items = wx.NewIdRef()
         self.accel_context_menu = wx.NewIdRef()
+        self.accel_escape_message_viewer = wx.NewIdRef()
+        self.accel_expand_message_viewer = wx.NewIdRef()
         entries = [
             wx.AcceleratorEntry(wx.ACCEL_CTRL, ord("A"), self.accel_add),
             wx.AcceleratorEntry(wx.ACCEL_CTRL, ord("N"), self.accel_compose),
@@ -443,6 +517,16 @@ class MainFrame(wx.Frame):
             wx.AcceleratorEntry(wx.ACCEL_ALT, wx.WXK_F4, self.accel_close),
             wx.AcceleratorEntry(wx.ACCEL_NORMAL, wx.WXK_F1, self.accel_guide),
             wx.AcceleratorEntry(wx.ACCEL_CTRL, wx.WXK_RETURN, self.accel_focus_items),
+            wx.AcceleratorEntry(
+                wx.ACCEL_ALT,
+                wx.WXK_RETURN,
+                self.accel_expand_message_viewer,
+            ),
+            wx.AcceleratorEntry(
+                wx.ACCEL_NORMAL,
+                wx.WXK_ESCAPE,
+                self.accel_escape_message_viewer,
+            ),
             wx.AcceleratorEntry(wx.ACCEL_SHIFT, wx.WXK_F10, self.accel_context_menu),
             wx.AcceleratorEntry(wx.ACCEL_NORMAL, wx.WXK_MENU, self.accel_context_menu),
             wx.AcceleratorEntry(
@@ -460,13 +544,146 @@ class MainFrame(wx.Frame):
         self.Bind(wx.EVT_MENU, lambda _event: self.Close(), id=self.accel_close)
         self.Bind(wx.EVT_MENU, self.on_show_guide, id=self.accel_guide)
         self.Bind(wx.EVT_MENU, self.on_focus_items_accelerator, id=self.accel_focus_items)
+        self.Bind(
+            wx.EVT_MENU,
+            self.on_toggle_expanded_viewer,
+            id=self.accel_expand_message_viewer,
+        )
         self.Bind(wx.EVT_MENU, self.on_context_menu_accelerator, id=self.accel_context_menu)
+        self.Bind(
+            wx.EVT_MENU,
+            self.on_escape_message_viewer,
+            id=self.accel_escape_message_viewer,
+        )
 
     def on_focus_items_accelerator(self, _event: wx.Event | None = None) -> None:
         page = self.current_page()
         if not page:
             return
         call_after_if_open(self, page.toggle_message_and_link_viewers)
+
+    def on_frame_char_hook(self, event: wx.KeyEvent) -> None:
+        if (
+            event.GetKeyCode() == wx.WXK_ESCAPE
+            and not event.ControlDown()
+            and not event.ShiftDown()
+            and not event.AltDown()
+            and not event.CmdDown()
+        ):
+            page = self.current_page()
+            if page:
+                focus = wx.Window.FindFocus()
+                viewer_controls = {
+                    page.viewer,
+                    page.html_viewer,
+                    page.link_list,
+                    page.actions_button,
+                    page.item_filter_choice,
+                }
+                if getattr(page, "_html_viewer_active", False) or focus in viewer_controls:
+                    self.on_escape_message_viewer()
+                    return
+        event.Skip()
+
+    def on_html_focus_state_changed(self, page: MailPage, active: bool) -> None:
+        if active and page is self.current_page() and self.IsActive():
+            self.register_html_escape_hotkey()
+            return
+        self.unregister_html_escape_hotkey()
+
+    def register_html_escape_hotkey(self) -> None:
+        if self._html_escape_hotkey_registered:
+            return
+        try:
+            registered = self.RegisterHotKey(
+                int(self._html_escape_hotkey_id),
+                wx.MOD_NONE,
+                wx.WXK_ESCAPE,
+            )
+        except (RuntimeError, wx.PyAssertionError):
+            registered = False
+        self._html_escape_hotkey_registered = registered is not False
+
+    def unregister_html_escape_hotkey(self) -> None:
+        if not self._html_escape_hotkey_registered:
+            return
+        try:
+            self.UnregisterHotKey(int(self._html_escape_hotkey_id))
+        except (RuntimeError, wx.PyAssertionError):
+            pass
+        self._html_escape_hotkey_registered = False
+
+    def on_html_escape_hotkey(self, _event: wx.Event | None = None) -> None:
+        page = self.current_page()
+        if page and getattr(page, "_html_viewer_active", False):
+            page.focus_message_list()
+            return
+        self.unregister_html_escape_hotkey()
+
+    def on_frame_activation_for_html_hotkey(self, event: wx.ActivateEvent) -> None:
+        page = self.current_page()
+        if event.GetActive() and page and getattr(page, "_html_viewer_active", False):
+            self.register_html_escape_hotkey()
+        else:
+            self.unregister_html_escape_hotkey()
+        event.Skip()
+
+    def on_escape_message_viewer(self, _event: wx.Event | None = None) -> None:
+        page = self.current_page()
+        if not page:
+            return
+        if getattr(self, "_viewer_expanded", False):
+            self.on_toggle_expanded_viewer(page)
+            call_after_if_open(self, page.focus_message_list)
+            return
+        focus = wx.Window.FindFocus()
+        if focus is page.list:
+            if page.multi_select_mode:
+                page.exit_multi_selection_mode()
+            return
+        item_controls = {
+            page.viewer,
+            page.html_viewer,
+            page.link_list,
+            page.actions_button,
+            page.item_filter_choice,
+        }
+        if getattr(page, "_html_viewer_active", False) or focus in item_controls:
+            call_after_if_open(self, page.focus_message_list)
+
+    def on_toggle_expanded_viewer(
+        self,
+        page_or_event: MailPage | wx.Event | None = None,
+    ) -> None:
+        page = page_or_event if isinstance(page_or_event, MailPage) else self.current_page()
+        if page is None:
+            return
+        if not self._viewer_expanded and not page.viewer_text.strip():
+            self.SetStatusText("اختر رسالة وانتظر تحميل نصها أولا.")
+            return
+        expanded = not self._viewer_expanded
+        self._viewer_expanded = expanded
+        if expanded:
+            self._notification_was_shown_before_expanded = self.notification_bar.IsShown()
+        self.top_row_sizer_item.Show(not expanded)
+        self.transfer_progress_sizer_item.Show(not expanded)
+        if expanded:
+            self.notification_bar.Hide()
+        elif getattr(self, "_notification_was_shown_before_expanded", False):
+            self.notification_bar.Show()
+        page.set_expanded_viewer(expanded)
+        try:
+            self.ShowFullScreen(expanded, wx.FULLSCREEN_ALL)
+        except (RuntimeError, wx.PyAssertionError):
+            pass
+        self.main_panel.Layout()
+        self.Layout()
+        page.focus_message_viewer()
+        self.SetStatusText(
+            "تم تكبير مستعرض الرسالة إلى ملء الشاشة."
+            if expanded
+            else "تمت العودة إلى العرض العادي."
+        )
 
     def on_context_menu_accelerator(self, _event: wx.Event | None = None) -> None:
         page = self.current_page()
@@ -507,6 +724,7 @@ class MainFrame(wx.Frame):
                 0,
             )
             self.account_choice.SetSelection(selection)
+            self.remember_selected_account(self.accounts[selection])
             restore_control_focus(focus_owner)
             call_after_if_open(self, self.refresh_all)
         else:
@@ -533,6 +751,12 @@ class MainFrame(wx.Frame):
         if 0 <= index < len(self.accounts):
             return self.accounts[index]
         return None
+
+    def remember_selected_account(self, account: Account) -> None:
+        if self.settings.last_selected_account_id == account.id:
+            return
+        self.settings.last_selected_account_id = account.id
+        save_settings(self.settings)
 
     def page_key_for_page(self, page: MailPage) -> str:
         if page is self.pages["spam"]:
@@ -778,6 +1002,9 @@ class MainFrame(wx.Frame):
         page = self.current_page()
         if page:
             self.settings.message_viewer = page.viewer_mode
+        selected_account = self.selected_account()
+        if selected_account:
+            self.settings.last_selected_account_id = selected_account.id
         dialog = SettingsDialog(self, self.settings)
         try:
             if dialog.ShowModal() != wx.ID_OK:
@@ -865,6 +1092,9 @@ class MainFrame(wx.Frame):
             else:
                 self.accounts.append(new_account)
             save_accounts(self.accounts)
+            pending_sign_in_result = getattr(dialog, "pending_sign_in_result", None)
+            if pending_sign_in_result:
+                show_sign_in_result_dialog(self, *pending_sign_in_result)
             self._load_accounts_to_choice(new_account.id)
             message = "تمت إضافة الحساب بنجاح." if account_added else "تم تحديث الحساب بنجاح."
             self.show_notification(message)
@@ -877,6 +1107,8 @@ class MainFrame(wx.Frame):
         show_sign_in_result_dialog(self, title, details)
 
     def show_notification(self, message: str, timeout_ms: int = 8000) -> None:
+        if MainFrame.account_switch_in_progress(self):
+            return
         focus_owner = focused_control()
         if self._notification_timer and self._notification_timer.IsRunning():
             self._notification_timer.Stop()
@@ -1048,15 +1280,44 @@ class MainFrame(wx.Frame):
         self.refresh_all()
 
     def on_account_changed(self, _event: wx.Event | None = None) -> None:
+        account = self.selected_account()
+        if account:
+            self.remember_selected_account(account)
+            self.begin_account_switch(account)
         self.refresh_all()
         self.account_choice.SetFocus()
+
+    def begin_account_switch(self, account: Account) -> None:
+        self._account_switch_target_id = account.id
+        if self._notification_timer and self._notification_timer.IsRunning():
+            self._notification_timer.Stop()
+        self._notification_timer = None
+        if self.notification_bar.IsShown():
+            self.notification_bar.Dismiss()
+            self.main_panel.Layout()
+
+    def finish_account_switch(
+        self,
+        account: Account,
+        error: Exception | None = None,
+    ) -> None:
+        if self._account_switch_target_id != account.id:
+            return
+        self._account_switch_target_id = None
+        if error is None:
+            self.SetStatusText(f"تم الانتقال إلى حساب {account.label}.")
+            return
+        self.SetStatusText(f"تعذر الانتقال إلى حساب {account.label}: {error}")
 
     def refresh_all(self) -> None:
         account = self.selected_account()
         if not account:
+            self._account_switch_target_id = None
             wx.MessageBox("أضف حساب بريد أولا.", "لا يوجد حساب", wx.OK | wx.ICON_INFORMATION, self)
             return
         if not self.ensure_password(account):
+            if self._account_switch_target_id == account.id:
+                self._account_switch_target_id = None
             return
         account_changed = self.displayed_account_id != account.id
         if account_changed:
@@ -1265,24 +1526,55 @@ class MainFrame(wx.Frame):
                 self._all_mailboxes_by_account[account.id] = all_mailbox
                 details.append(f"كل البريد: {all_mailbox}")
             detail = "، " + "، ".join(details) if details else ""
-            self.SetStatusText(f"تم تحديث الرسائل. الوارد {inbox_count}، غير المرغوب {spam_count}، المرسلة {sent_count}، كل الرسائل {all_count}{detail}.")
+            if self._account_switch_target_id == account.id:
+                self.finish_account_switch(account)
+            else:
+                self.SetStatusText(f"تم تحديث الرسائل. الوارد {inbox_count}، غير المرغوب {spam_count}، المرسلة {sent_count}، كل الرسائل {all_count}{detail}.")
             if new_inbox_count:
                 self.notify_new_mail(new_inbox_count)
 
-        self.run_worker("جار تحديث الرسائل...", work, done)
+        def failed(exc: Exception) -> bool:
+            if self._account_switch_target_id != account.id:
+                return False
+            self.finish_account_switch(account, exc)
+            wx.MessageBox(str(exc), "خطأ", wx.OK | wx.ICON_ERROR, self)
+            return True
+
+        self.run_worker("جار تحديث الرسائل...", work, done, failed)
+
+    def on_message_list_end_reached(self, page: MailPage) -> None:
+        if page is not self.current_page() or page.selected_filter_key() == "trash":
+            return
+        self.load_older_messages(automatic=True)
 
     def on_load_older(self, _event: wx.Event | None = None) -> None:
+        self.load_older_messages(automatic=False)
+
+    def load_older_messages(self, *, automatic: bool) -> None:
         account = self.selected_account()
         page = self.current_page()
         if not account or not page:
-            wx.MessageBox("اختر حسابا وقسم رسائل أولا.", "لا يوجد قسم", wx.OK | wx.ICON_INFORMATION, self)
+            if not automatic:
+                wx.MessageBox("اختر حسابا وقسم رسائل أولا.", "لا يوجد قسم", wx.OK | wx.ICON_INFORMATION, self)
+            return
+        if page.selected_filter_key() == "trash":
             return
         if not self.ensure_password(account):
             return
 
         page_key = self.page_key_for_page(page)
+        load_key = (account.id, page_key)
+        if load_key in self._loading_older_keys:
+            return
+        if automatic and load_key in self._older_messages_exhausted:
+            return
+        self._loading_older_keys.add(load_key)
         mailbox = self.mailbox_for_page_key(account, page_key)
-        self.set_transfer_progress(0, "بدء تحميل رسائل أقدم")
+        if automatic:
+            self.SetStatusText("جاري تحميل المزيد من الرسائل...")
+            self.set_transfer_progress(0, "بدء تحميل المزيد من الرسائل")
+        else:
+            self.set_transfer_progress(0, "بدء تحميل رسائل أقدم")
 
         def work() -> tuple[str, list[MessageSummary], str]:
             resolved_mailbox = mailbox or self.resolve_mailbox_for_page_key(account, page_key)
@@ -1304,6 +1596,7 @@ class MainFrame(wx.Frame):
             return page_key, messages, resolved_mailbox
 
         def done(result: tuple[str, list[MessageSummary], str]) -> None:
+            self._loading_older_keys.discard(load_key)
             if self.displayed_account_id != account.id:
                 return
             result_page_key, messages, resolved_mailbox = result
@@ -1313,16 +1606,28 @@ class MainFrame(wx.Frame):
             after_count = len(target_page.messages)
             added_count = max(0, after_count - before_count)
             if not resolved_mailbox:
+                self._older_messages_exhausted.add(load_key)
                 self.reset_transfer_progress()
                 self.SetStatusText("لا يوجد مجلد مناسب لتحميل رسائل أقدم.")
             elif added_count:
+                self._older_messages_exhausted.discard(load_key)
                 self.set_transfer_progress(100, "اكتمل تحميل رسائل أقدم")
                 self.SetStatusText(f"تم تحميل {added_count} رسالة أقدم. العدد المعروض الآن {after_count}.")
             else:
+                self._older_messages_exhausted.add(load_key)
                 self.set_transfer_progress(100, "اكتمل تحميل رسائل أقدم")
                 self.SetStatusText("لا توجد رسائل أقدم جديدة في هذا القسم.")
 
-        self.run_worker("جار تحميل رسائل أقدم...", work, done)
+        def failed(_exc: Exception) -> bool:
+            self._loading_older_keys.discard(load_key)
+            return False
+
+        worker_message = (
+            "جاري تحميل المزيد من الرسائل..."
+            if automatic
+            else "جار تحميل رسائل أقدم..."
+        )
+        self.run_worker(worker_message, work, done, failed)
 
     def on_sync_all_messages(self, _event: wx.Event | None = None) -> None:
         account = self.selected_account()
@@ -1443,6 +1748,29 @@ class MainFrame(wx.Frame):
             summary,
             cache_key,
             generation,
+        )
+
+    def on_attachment_transfer(
+        self,
+        page: MailPage,
+        summary: MessageSummary,
+        item: LinkItem,
+        destination: Path,
+        on_progress: Callable[[int, int], None],
+    ) -> Path:
+        account = self.selected_account()
+        if account is None:
+            raise MailError("لا يوجد حساب بريد محدد لتنزيل المرفق.")
+        if page.selected_summary() is not summary:
+            current = page.selected_summary()
+            if current is None or (current.mailbox, current.uid) != (summary.mailbox, summary.uid):
+                raise MailError("تغيرت الرسالة المحددة قبل بدء تنزيل المرفق.")
+        return self.service.download_attachment(
+            account,
+            summary,
+            item,
+            destination,
+            on_progress,
         )
 
     def start_message_load(
@@ -1941,6 +2269,8 @@ class MainFrame(wx.Frame):
         to_address: str = "",
         subject: str = "",
         body: str = "",
+        title: str = "إنشاء بريد إلكتروني",
+        attachment_paths: list[Path] | None = None,
     ) -> None:
         account = self.selected_account()
         if not account:
@@ -1948,12 +2278,16 @@ class MainFrame(wx.Frame):
             return
         if not self.ensure_password(account):
             return
-        dialog = ComposeDialog(
-            self,
-            to_address=to_address,
-            subject=subject,
-            body=body,
-        )
+        dialog_arguments = {
+            "to_address": to_address,
+            "subject": subject,
+            "body": body,
+        }
+        if title != "إنشاء بريد إلكتروني":
+            dialog_arguments["title"] = title
+        if attachment_paths:
+            dialog_arguments["attachment_paths"] = attachment_paths
+        dialog = ComposeDialog(self, **dialog_arguments)
         if dialog.ShowModal() == wx.ID_OK:
             to_address, subject, body, attachments = dialog.values()
             self.send_message(
@@ -2033,6 +2367,181 @@ class MainFrame(wx.Frame):
                 attachments,
             )
         dialog.Destroy()
+
+    def received_messages_for_forwarding(self) -> list[MessageSummary]:
+        account = self.selected_account()
+        if account is None:
+            return []
+        messages: list[MessageSummary] = []
+        seen: set[tuple[str, ...]] = set()
+        for page_key in ("inbox", "spam", "all"):
+            page = self.pages.get(page_key)
+            if page is None:
+                continue
+            for summary in page.messages:
+                if summary.sender_email.casefold() == account.email_address.casefold():
+                    continue
+                key = (
+                    (summary.uid,)
+                    if account.oauth_provider == "google_gmail_api"
+                    else (summary.mailbox, summary.uid)
+                )
+                if key in seen:
+                    continue
+                seen.add(key)
+                messages.append(summary)
+        return sorted(messages, key=lambda summary: summary.sort_timestamp, reverse=True)
+
+    def on_forward_message(self, source_page: MailPage | None = None) -> None:
+        account = self.selected_account()
+        if account is None:
+            wx.MessageBox(
+                tr("أضف حساب بريد أولا."),
+                tr("لا يوجد حساب"),
+                wx.OK | wx.ICON_INFORMATION,
+                self,
+            )
+            return
+        messages = self.received_messages_for_forwarding()
+        if not messages:
+            wx.MessageBox(
+                tr("لا توجد رسائل مستلمة متاحة لإعادة توجيهها."),
+                tr("لا توجد رسالة"),
+                wx.OK | wx.ICON_INFORMATION,
+                self,
+            )
+            return
+        page = source_page if isinstance(source_page, MailPage) else self.current_page()
+        initial_message = page.selected_summary() if page else None
+        if initial_message is not None:
+            initial_message = next(
+                (
+                    candidate
+                    for candidate in messages
+                    if (
+                        candidate.uid == initial_message.uid
+                        if account.oauth_provider == "google_gmail_api"
+                        else (candidate.mailbox, candidate.uid)
+                        == (initial_message.mailbox, initial_message.uid)
+                    )
+                ),
+                initial_message,
+            )
+        dialog = ForwardMessageDialog(
+            self,
+            load_address_book(),
+            messages,
+            initial_message,
+        )
+        recipient = ""
+        selected_message: MessageSummary | None = None
+        try:
+            if dialog.ShowModal() == wx.ID_OK:
+                recipient = dialog.recipient_email()
+                selected_message = dialog.selected_message()
+        finally:
+            dialog.Destroy()
+        if recipient and selected_message:
+            self.prepare_forward_message(account, recipient, selected_message)
+
+    def prepare_forward_message(
+        self,
+        account: Account,
+        recipient: str,
+        summary: MessageSummary,
+    ) -> None:
+        cache_key = (account.id, summary.mailbox, summary.uid)
+        cached = self.content_cache.get(cache_key)
+
+        def work() -> tuple[MessageContent, list[Path]]:
+            content = cached or self.service.fetch_message(
+                account,
+                summary,
+                mark_read=False,
+            )
+            attachments = self.materialize_forward_attachments(account, content)
+            return content, attachments
+
+        def done(result: tuple[MessageContent, list[Path]]) -> None:
+            content, attachments = result
+            self.remember_message_content(cache_key, content)
+            self.open_forward_compose(recipient, content, attachments)
+
+        self.run_worker(
+            "جار تحميل الرسالة لإعادة توجيهها...",
+            work,
+            done,
+        )
+
+    def materialize_forward_attachments(
+        self,
+        account: Account,
+        content: MessageContent,
+    ) -> list[Path]:
+        items = [item for item in content.links if item.is_attachment]
+        if not items:
+            return []
+        folder = opened_attachment_session_dir() / "forwarded"
+        folder.mkdir(parents=True, exist_ok=True)
+        paths: list[Path] = []
+        for index, item in enumerate(items, start=1):
+            raw_name = Path(
+                item.filename or item.text or f"attachment-{index}"
+            ).name
+            invalid_chars = '<>:"/\\|?*'
+            filename = "".join(
+                "_" if character in invalid_chars or ord(character) < 32 else character
+                for character in raw_name
+            ).strip(" .")
+            filename = filename[:180] or f"attachment-{index}"
+            destination = folder / filename
+            duplicate_index = 2
+            while destination.exists():
+                destination = folder / (
+                    f"{Path(filename).stem} ({duplicate_index}){Path(filename).suffix}"
+                )
+                duplicate_index += 1
+            self.service.download_attachment(
+                account,
+                content.summary,
+                item,
+                destination,
+            )
+            paths.append(destination)
+            wx.CallAfter(
+                self.set_transfer_progress,
+                self.progress_percent(index, len(items)),
+                "جار تجهيز مرفقات الرسالة لإعادة توجيهها",
+            )
+        return paths
+
+    def open_forward_compose(
+        self,
+        recipient: str,
+        content: MessageContent,
+        attachments: list[Path] | None = None,
+    ) -> None:
+        summary = content.summary
+        subject = summary.display_subject
+        if not subject.casefold().startswith(("fwd:", "fw:")):
+            subject = f"Fwd: {subject}"
+        recipients = ", ".join(summary.recipient_emails)
+        header_lines = [
+            tr("---------- الرسالة المعاد توجيهها ----------"),
+            f"{tr('المرسل')}: {summary.sender or summary.sender_email}",
+            f"{tr('التاريخ')}: {summary.display_date}",
+            f"{tr('الموضوع')}: {summary.display_subject}",
+        ]
+        if recipients:
+            header_lines.append(f"{tr('إلى')}: {recipients}")
+        body = "\n".join([*header_lines, "", content.text])
+        self.open_compose_dialog(
+            recipient,
+            subject,
+            body,
+            title="إعادة توجيه رسالة",
+            attachment_paths=attachments or [],
+        )
 
     def send_message(
         self,
@@ -2115,7 +2624,7 @@ class MainFrame(wx.Frame):
                     )
                 else:
                     self.SetStatusText(tr("تمت ترجمة الرسالة داخل المستعرض."))
-                call_after_if_open(self, page.restore_context_focus, return_control)
+                page.request_context_focus_after_content_update(return_control)
                 return
             self.show_translation_dialog(translated)
             if page:
@@ -2126,8 +2635,6 @@ class MainFrame(wx.Frame):
                 call_after_if_open(self, page.restore_context_focus, return_control)
 
         self.run_worker("جار ترجمة الرسالة...", work, done, failed)
-        if page:
-            call_after_if_open(self, page.restore_context_focus, return_control)
 
     def start_background_item_description_translation(
         self,
@@ -2264,7 +2771,7 @@ class MainFrame(wx.Frame):
             from .guide_fr import french_program_guide
 
             return french_program_guide(APP_VERSION)
-        if self.settings.language == LANGUAGE_ENGLISH:
+        if self.settings.language != LANGUAGE_ARABIC:
             return f"""Power Accessible Mail
 Version: {APP_VERSION}
 Developed by Soljan.AlSharq.
@@ -2302,7 +2809,7 @@ Translation when you need it
 Ctrl+T translates the current message into the application language. In Settings, choose whether the translation replaces the content inside the HTML or easy viewer, or opens in a separate window. Translation becomes available only while you are inside the message viewer. It requires an internet connection and sends the selected message text and human-readable link, button, and image descriptions to the official Google Translate service only when you request it. The message text can contain visible web addresses, but attachment contents and sign-in tokens are not sent. Before the first translation, the app explains this transfer and provides Allow and Cancel choices. After you choose Allow, the choice is saved and the notice is not shown again.
 
 Make the application yours
-Settings lets you choose Arabic, English, or French, the HTML or easy message viewer, translation inside the page or in a separate window, and light or dark appearance. Your choices are saved for the next launch.
+Settings lets you choose Arabic, English, French, Spanish, Turkish, or Hindi, the HTML or easy message viewer, translation inside the page or in a separate window, and light or dark appearance. Your choices are saved for the next launch.
 
 Updates without opening a browser
 The application checks GitHub Releases after startup, and you can check manually from Help, Check for updates. When a release is available, Update now opens an internal progress window showing its version, release date, progress bar, and percentage. The correct installer is downloaded, its SHA-256 digest is verified, and the direct update starts before the application restarts.
@@ -2362,7 +2869,7 @@ Power Accessible Mail برنامج صمم ليجعل قراءة البريد و�
 يترجم Ctrl+T الرسالة الحالية إلى لغة البرنامج. ومن الإعدادات تستطيع اختيار عرض الترجمة مباشرة داخل مستعرض HTML أو المستعرض السهل، أو فتحها في نافذة مستقلة. لا تتفعل الترجمة إلا وأنت داخل مستعرض الرسالة. تحتاج الميزة إلى الإنترنت، وترسل نص الرسالة وأوصاف الروابط والأزرار والصور إلى خدمة Google Translate الرسمية فقط عندما تطلب الترجمة. قد يتضمن نص الرسالة عناوين روابط ظاهرة، لكن لا تُرسل محتويات المرفقات أو رموز تسجيل الدخول. عند أول ترجمة يعرض البرنامج تنبيها يشرح نقل النص مع خياري السماح وإلغاء. بعد اختيار السماح تُحفظ الموافقة ولا يظهر التنبيه مرة أخرى.
 
 اجعل البرنامج أقرب إلى طريقتك
-تتيح الإعدادات اختيار العربية أو الإنجليزية أو الفرنسية، ومستعرض HTML أو المستعرض السهل، والترجمة داخل الصفحة أو في نافذة مستقلة، والوضع الفاتح أو المظلم. يحفظ البرنامج اختياراتك ليستخدمها عند التشغيل التالي.
+تتيح الإعدادات اختيار العربية أو الإنجليزية أو الفرنسية أو الإسبانية أو التركية أو الهندية، ومستعرض HTML أو المستعرض السهل، والترجمة داخل الصفحة أو في نافذة مستقلة، والوضع الفاتح أو المظلم. يحفظ البرنامج اختياراتك ليستخدمها عند التشغيل التالي.
 
 تحديث من داخل البرنامج
 يفحص البرنامج GitHub Releases بعد التشغيل، ويمكنك الفحص يدويا من قائمة المساعدة ثم تحديث البرنامج. عند توفر إصدار جديد يفتح زر تحديث الآن نافذة تعرض الإصدار وتاريخ إطلاقه وشريط التقدم والنسبة المئوية. ينزل البرنامج المثبت الصحيح ويتحقق من بصمة SHA-256 ثم يبدأ التحديث المباشر ويعيد تشغيل التطبيق من دون فتح المتصفح.
@@ -2528,7 +3035,7 @@ Power Accessible Mail
         if installer is None:
             return
         try:
-            launch_update_installer(installer)
+            launch_update_installer(installer, self.settings.language)
         except Exception as exc:
             wx.MessageBox(
                 tr(str(exc)),
@@ -2538,8 +3045,8 @@ Power Accessible Mail
             )
             return
         self.show_notification(
-            "اكتمل تنزيل التحديث والتحقق منه. سيظهر المثبت بواجهة مرئية "
-            "وسيغلق البرنامج لإكمال التحديث."
+            "اكتمل تنزيل التحديث والتحقق منه. سيُطبّق التحديث مباشرة، "
+            "وسيغلق البرنامج ثم يعمل الإصدار الجديد تلقائيا."
         )
         self.SetStatusText(tr("جار بدء تثبيت التحديث."))
         wx.CallLater(500, self.Close)

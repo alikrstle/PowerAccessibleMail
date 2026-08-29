@@ -138,6 +138,9 @@ class LinkItem:
     activation_marker: str = ""
     content_id: str = ""
     context_text: str = ""
+    remote_source: str = ""
+    remote_id: str = ""
+    transfer_encoding: str = ""
 
     @property
     def label(self) -> str:

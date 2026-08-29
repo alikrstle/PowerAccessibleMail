@@ -21,9 +21,41 @@ from .ui_helpers import apply_layout_direction, localize_window
 AddressMessageMatch = tuple[str, MessageSummary, str]
 
 
+def request_custom_address_name(parent: wx.Window, email: str) -> str:
+    question = wx.MessageDialog(
+        parent,
+        tr("هل تريد وضع اسم مخصص لعنوان {email}؟").format(email=email),
+        tr("اسم مخصص لعنوان البريد الإلكتروني"),
+        wx.YES_NO | wx.NO_DEFAULT | wx.ICON_QUESTION,
+    )
+    if hasattr(question, "SetYesNoLabels"):
+        question.SetYesNoLabels(
+            tr("نعم، أريد"),
+            tr("كلا، الاستمرار بعنوان البريد"),
+        )
+    try:
+        wants_name = question.ShowModal() == wx.ID_YES
+    finally:
+        question.Destroy()
+    if not wants_name:
+        return ""
+    name_dialog = wx.TextEntryDialog(
+        parent,
+        tr("اكتب الاسم المخصص لهذا العنوان:"),
+        tr("اسم مخصص لعنوان البريد الإلكتروني"),
+    )
+    try:
+        if name_dialog.ShowModal() != wx.ID_OK:
+            return ""
+        return " ".join(name_dialog.GetValue().split()).strip()
+    finally:
+        name_dialog.Destroy()
+
+
 class AddressPickerDialog(wx.Dialog):
     def __init__(self, parent: wx.Window, entries: Sequence[AddressEntry]) -> None:
         super().__init__(parent, title=tr("اختيار عنوان بريد إلكتروني"), size=(560, 430))
+        self.entries = list(entries)
         root = wx.BoxSizer(wx.VERTICAL)
         root.Add(
             wx.StaticText(self, label=tr("اختر عنوانًا ثم اضغط Enter.")),
@@ -31,7 +63,10 @@ class AddressPickerDialog(wx.Dialog):
             wx.EXPAND | wx.ALL,
             10,
         )
-        self.address_list = wx.ListBox(self, choices=[entry.email for entry in entries])
+        self.address_list = wx.ListBox(
+            self,
+            choices=[entry.display_label for entry in self.entries],
+        )
         set_accessible(
             self.address_list,
             "عناوين البريد الإلكتروني المحفوظة",
@@ -52,7 +87,7 @@ class AddressPickerDialog(wx.Dialog):
 
     def selected_email(self) -> str:
         selection = self.address_list.GetSelection()
-        return self.address_list.GetString(selection) if selection != wx.NOT_FOUND else ""
+        return self.entries[selection].email if 0 <= selection < len(self.entries) else ""
 
     def on_activate(self, _event: wx.Event) -> None:
         if self.selected_email():
@@ -63,6 +98,169 @@ class AddressPickerDialog(wx.Dialog):
             self.on_activate(event)
             return
         event.Skip()
+
+
+class ForwardMessageDialog(wx.Dialog):
+    def __init__(
+        self,
+        parent: wx.Window,
+        entries: Sequence[AddressEntry],
+        messages: Sequence[MessageSummary],
+        initial_message: MessageSummary | None = None,
+    ) -> None:
+        super().__init__(parent, title=tr("إعادة توجيه رسالة"), size=(780, 620))
+        self.entries = list(entries)
+        self.messages = list(messages)
+        root = wx.BoxSizer(wx.VERTICAL)
+
+        root.Add(
+            wx.StaticText(self, label=tr("اختر المستلم من سجل العناوين أو اكتب بريده الإلكتروني:")),
+            0,
+            wx.EXPAND | wx.ALL,
+            10,
+        )
+        recipient_row = wx.BoxSizer(wx.HORIZONTAL)
+        self.address_list = wx.ListBox(
+            self,
+            choices=[entry.display_label for entry in self.entries],
+        )
+        set_accessible(
+            self.address_list,
+            "سجل العناوين لإعادة التوجيه",
+            "استخدم الأسهم لاختيار عنوان واضغط Enter أو Space لوضعه في حقل المستلم.",
+        )
+        self.address_list.Bind(wx.EVT_LISTBOX, self.on_address_selected)
+        self.address_list.Bind(wx.EVT_LISTBOX_DCLICK, self.on_address_activated)
+        self.address_list.Bind(wx.EVT_CHAR_HOOK, self.on_address_key)
+        recipient_row.Add(self.address_list, 1, wx.EXPAND | wx.ALL, 8)
+
+        email_column = wx.BoxSizer(wx.VERTICAL)
+        email_column.Add(
+            wx.StaticText(self, label=tr("البريد الإلكتروني للمستلم:")),
+            0,
+            wx.EXPAND | wx.LEFT | wx.RIGHT | wx.TOP,
+            8,
+        )
+        self.recipient = wx.TextCtrl(self)
+        set_accessible(
+            self.recipient,
+            "البريد الإلكتروني للمستلم",
+            "اكتب عنوان البريد الإلكتروني الذي ستعاد توجيه الرسالة إليه.",
+        )
+        email_column.Add(self.recipient, 0, wx.EXPAND | wx.ALL, 8)
+        recipient_row.Add(email_column, 1, wx.EXPAND)
+        root.Add(recipient_row, 1, wx.EXPAND | wx.LEFT | wx.RIGHT, 4)
+
+        root.Add(
+            wx.StaticText(
+                self,
+                label=tr("اختر رسالة مستلمة لإعادة توجيهها، مرتبة من الأحدث إلى الأقدم:"),
+            ),
+            0,
+            wx.EXPAND | wx.LEFT | wx.RIGHT | wx.TOP,
+            10,
+        )
+        self.message_list = wx.ListBox(
+            self,
+            choices=[self.message_label(message) for message in self.messages],
+        )
+        set_accessible(
+            self.message_list,
+            "الرسائل المستلمة لإعادة التوجيه",
+            "استخدم الأسهم لاختيار الرسالة ثم اضغط Enter أو انتقل إلى زر إعادة التوجيه.",
+        )
+        self.message_list.Bind(wx.EVT_LISTBOX_DCLICK, self.on_confirm)
+        self.message_list.Bind(wx.EVT_CHAR_HOOK, self.on_message_key)
+        root.Add(self.message_list, 2, wx.EXPAND | wx.ALL, 10)
+
+        buttons = self.CreateSeparatedButtonSizer(wx.OK | wx.CANCEL)
+        if buttons:
+            root.Add(buttons, 0, wx.EXPAND | wx.ALL, 8)
+        self.SetSizer(root)
+        apply_layout_direction(self)
+        localize_window(self)
+        ok_button = self.FindWindowById(wx.ID_OK)
+        if ok_button:
+            ok_button.SetLabel(tr("إعادة التوجيه"))
+            set_accessible(ok_button, "إعادة توجيه الرسالة المحددة")
+            ok_button.Bind(wx.EVT_BUTTON, self.on_confirm)
+
+        if self.entries:
+            self.address_list.SetSelection(0)
+        selected_index = self.message_index(initial_message)
+        if self.messages:
+            self.message_list.SetSelection(selected_index)
+        wx.CallAfter(
+            self.recipient.SetFocus if not self.entries else self.address_list.SetFocus
+        )
+
+    @staticmethod
+    def message_label(message: MessageSummary) -> str:
+        sender = message.sender or message.sender_email or tr("مرسل غير معروف")
+        return f"{sender}; {message.display_subject}; {message.display_date}"
+
+    def message_index(self, message: MessageSummary | None) -> int:
+        if message is None:
+            return 0
+        target = (message.mailbox, message.uid)
+        return next(
+            (
+                index
+                for index, candidate in enumerate(self.messages)
+                if (candidate.mailbox, candidate.uid) == target
+            ),
+            0,
+        )
+
+    def recipient_email(self) -> str:
+        return normalize_email_address(self.recipient.GetValue())
+
+    def selected_message(self) -> MessageSummary | None:
+        selection = self.message_list.GetSelection()
+        return self.messages[selection] if 0 <= selection < len(self.messages) else None
+
+    def on_address_selected(self, _event: wx.Event) -> None:
+        selection = self.address_list.GetSelection()
+        if 0 <= selection < len(self.entries):
+            self.recipient.SetValue(self.entries[selection].email)
+            self.recipient.SetInsertionPointEnd()
+
+    def on_address_activated(self, event: wx.Event) -> None:
+        self.on_address_selected(event)
+        self.recipient.SetFocus()
+
+    def on_address_key(self, event: wx.KeyEvent) -> None:
+        if event.GetKeyCode() in {wx.WXK_RETURN, wx.WXK_NUMPAD_ENTER, wx.WXK_SPACE}:
+            self.on_address_activated(event)
+            return
+        event.Skip()
+
+    def on_message_key(self, event: wx.KeyEvent) -> None:
+        if event.GetKeyCode() in {wx.WXK_RETURN, wx.WXK_NUMPAD_ENTER}:
+            self.on_confirm(event)
+            return
+        event.Skip()
+
+    def on_confirm(self, _event: wx.Event) -> None:
+        if not self.recipient_email():
+            wx.MessageBox(
+                tr("يرجى كتابة بريد إلكتروني صالح للمستلم أولاً."),
+                tr("عنوان غير صالح"),
+                wx.OK | wx.ICON_INFORMATION,
+                self,
+            )
+            self.recipient.SetFocus()
+            return
+        if self.selected_message() is None:
+            wx.MessageBox(
+                tr("يرجى اختيار رسالة لإعادة توجيهها."),
+                tr("لا توجد رسالة"),
+                wx.OK | wx.ICON_INFORMATION,
+                self,
+            )
+            self.message_list.SetFocus()
+            return
+        self.EndModal(wx.ID_OK)
 
 
 class AddressBookDialog(wx.Dialog):
@@ -128,7 +326,9 @@ class AddressBookDialog(wx.Dialog):
         self.entries = sort_address_book(self.entries)
         self.address_list.Set(
             [
-                f"{tr('مثبت')}: {entry.email}" if entry.pinned else entry.email
+                f"{tr('مثبت')}: {entry.display_label}"
+                if entry.pinned
+                else entry.display_label
                 for entry in self.entries
             ]
         )
@@ -187,7 +387,8 @@ class AddressBookDialog(wx.Dialog):
         if any(entry.email.casefold() == email.casefold() for entry in self.entries):
             self.show_duplicate_message()
             return
-        self.entries.append(AddressEntry(email))
+        name = request_custom_address_name(self, email)
+        self.entries.append(AddressEntry(email, name=name))
         save_address_book(self.entries)
         self.refresh_list(email)
         self.announce_event("تمت إضافة عنوان البريد الإلكتروني.")
@@ -206,6 +407,17 @@ class AddressBookDialog(wx.Dialog):
             self.show_duplicate_message()
             return
         entry.email = email
+        name_dialog = wx.TextEntryDialog(
+            self,
+            tr("اكتب الاسم المخصص لهذا العنوان، أو اتركه فارغًا:"),
+            tr("تعديل الاسم المخصص"),
+            value=entry.name,
+        )
+        try:
+            if name_dialog.ShowModal() == wx.ID_OK:
+                entry.name = " ".join(name_dialog.GetValue().split()).strip()
+        finally:
+            name_dialog.Destroy()
         save_address_book(self.entries)
         self.refresh_list(email)
         self.announce_event("تم تعديل عنوان البريد الإلكتروني.")

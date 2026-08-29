@@ -14,6 +14,12 @@ EMAIL_PATTERN = re.compile(r"^[^\s@<>]+@[^\s@<>]+\.[^\s@<>]+$")
 class AddressEntry:
     email: str
     pinned: bool = False
+    name: str = ""
+
+    @property
+    def display_label(self) -> str:
+        clean_name = " ".join(self.name.split()).strip()
+        return f"{clean_name}: {self.email}" if clean_name else self.email
 
 
 def normalize_email_address(value: str) -> str:
@@ -46,7 +52,14 @@ def load_address_book() -> list[AddressEntry]:
         if not email or key in known:
             continue
         known.add(key)
-        entries.append(AddressEntry(email=email, pinned=bool(item.get("pinned", False))))
+        name = " ".join(str(item.get("name", "")).split()).strip()
+        entries.append(
+            AddressEntry(
+                email=email,
+                pinned=bool(item.get("pinned", False)),
+                name=name,
+            )
+        )
     return sort_address_book(entries)
 
 
@@ -55,14 +68,21 @@ def save_address_book(entries: list[AddressEntry]) -> None:
     _atomic_write_json(
         address_book_path(),
         [
-            {"email": entry.email, "pinned": entry.pinned}
+            {"email": entry.email, "pinned": entry.pinned, "name": entry.name}
             for entry in clean_entries
         ],
     )
 
 
 def sort_address_book(entries: list[AddressEntry]) -> list[AddressEntry]:
-    return sorted(entries, key=lambda entry: (not entry.pinned, entry.email.casefold()))
+    return sorted(
+        entries,
+        key=lambda entry: (
+            not entry.pinned,
+            (entry.name or entry.email).casefold(),
+            entry.email.casefold(),
+        ),
+    )
 
 
 def unique_address_entries(entries: list[AddressEntry]) -> list[AddressEntry]:
@@ -74,17 +94,19 @@ def unique_address_entries(entries: list[AddressEntry]) -> list[AddressEntry]:
         if not email or key in known:
             continue
         known.add(key)
-        result.append(AddressEntry(email=email, pinned=bool(entry.pinned)))
+        name = " ".join(str(entry.name or "").split()).strip()
+        result.append(AddressEntry(email=email, pinned=bool(entry.pinned), name=name))
     return sort_address_book(result)
 
 
-def add_address(email: str) -> tuple[bool, str]:
+def add_address(email: str, name: str = "") -> tuple[bool, str]:
     normalized = normalize_email_address(email)
     if not normalized:
         return False, "invalid"
     entries = load_address_book()
     if any(entry.email.casefold() == normalized.casefold() for entry in entries):
         return False, "duplicate"
-    entries.append(AddressEntry(normalized))
+    clean_name = " ".join(str(name or "").split()).strip()
+    entries.append(AddressEntry(normalized, name=clean_name))
     save_address_book(entries)
     return True, normalized

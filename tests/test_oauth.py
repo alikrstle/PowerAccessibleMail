@@ -6,6 +6,7 @@ import json
 import threading
 import time
 import unittest
+import urllib.request
 from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
@@ -14,6 +15,7 @@ import rsa
 from accessible_mail.oauth import (
     OAUTH_PROVIDERS,
     OAuthError,
+    _make_callback_server,
     _post_form,
     _callback_handler,
     _validate_id_token,
@@ -195,6 +197,29 @@ class OAuthErrorTests(unittest.TestCase):
         self.assertNotIn(
             "تم تسجيل الدخول. يمكنك العودة إلى برنامج البريد الإلكتروني.",
             source,
+        )
+
+    def test_callback_response_finishes_before_oauth_event_is_released(self) -> None:
+        server = _make_callback_server("expected-state", "127.0.0.1")
+        server_thread = threading.Thread(target=server.handle_request, daemon=True)
+        server_thread.start()
+        try:
+            with urllib.request.urlopen(
+                f"http://127.0.0.1:{server.server_port}/?state=expected-state&code=test-code",
+                timeout=5,
+            ) as response:
+                body = response.read().decode("utf-8")
+            self.assertIn("Power Accessible Mail", body)
+            self.assertTrue(server.oauth_event.wait(1))
+            self.assertEqual(server.oauth_code, "test-code")
+        finally:
+            server.server_close()
+            server_thread.join(timeout=1)
+
+    def test_google_uses_explicit_ipv4_loopback_callback(self) -> None:
+        self.assertEqual(
+            OAUTH_PROVIDERS["google_gmail_api"]["callback_host"],
+            "127.0.0.1",
         )
 
     def test_unified_product_uses_gmail_api_and_microsoft(self) -> None:

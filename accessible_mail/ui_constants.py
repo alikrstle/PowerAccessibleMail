@@ -4,6 +4,9 @@ from .config import (
     LANGUAGE_ARABIC,
     LANGUAGE_ENGLISH,
     LANGUAGE_FRENCH,
+    LANGUAGE_HINDI,
+    LANGUAGE_SPANISH,
+    LANGUAGE_TURKISH,
     MESSAGE_READ_MANUAL,
     MESSAGE_READ_ON_VIEWER_ENTER,
     THEME_DARK,
@@ -15,6 +18,7 @@ from .config import (
 )
 from .notification_preferences import (
     NOTIFICATION_LEVEL_ALL,
+    NOTIFICATION_LEVEL_CUSTOM,
     NOTIFICATION_LEVEL_MOST,
     NOTIFICATION_LEVEL_NONE,
     NOTIFICATION_LEVEL_SOME,
@@ -56,6 +60,9 @@ LANGUAGE_CHOICES = {
     "العربية": LANGUAGE_ARABIC,
     "الإنجليزية": LANGUAGE_ENGLISH,
     "الفرنسية": LANGUAGE_FRENCH,
+    "الإسبانية": LANGUAGE_SPANISH,
+    "التركية": LANGUAGE_TURKISH,
+    "الهندية": LANGUAGE_HINDI,
 }
 VIEWER_CHOICES = {
     "مستعرض HTML": VIEWER_HTML,
@@ -78,6 +85,7 @@ SPOKEN_NOTIFICATION_LEVEL_CHOICES = {
     "نطق بعض إجراءات البرنامج": NOTIFICATION_LEVEL_SOME,
     "نطق معظم إجراءات البرنامج": NOTIFICATION_LEVEL_MOST,
     "نطق كل إجراءات البرنامج": NOTIFICATION_LEVEL_ALL,
+    "مخصص": NOTIFICATION_LEVEL_CUSTOM,
 }
 
 MANUAL_PROVIDER_GOOGLE = "google"

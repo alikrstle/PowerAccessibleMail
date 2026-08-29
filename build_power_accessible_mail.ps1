@@ -27,7 +27,10 @@ $LoginLogo = Join-Path $PSScriptRoot "assets\branding\power_accessible_mail_oaut
 $ProgramGuides = @(
     (Join-Path $PSScriptRoot "installer_readme_ar.txt"),
     (Join-Path $PSScriptRoot "installer_readme_en.txt"),
-    (Join-Path $PSScriptRoot "installer_readme_fr.txt")
+    (Join-Path $PSScriptRoot "installer_readme_fr.txt"),
+    (Join-Path $PSScriptRoot "installer_readme_es.txt"),
+    (Join-Path $PSScriptRoot "installer_readme_tr.txt"),
+    (Join-Path $PSScriptRoot "installer_readme_hi.txt")
 )
 $NvdaVendor = Join-Path $PSScriptRoot "accessible_mail\vendor\nvda"
 $NvdaController = Join-Path $NvdaVendor "$Architecture\nvdaControllerClient.dll"

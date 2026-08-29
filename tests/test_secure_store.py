@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import tempfile
 import unittest
+import sqlite3
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from unittest.mock import patch
@@ -26,6 +27,64 @@ class MessageCacheTests(unittest.TestCase):
                 side_effect=lambda data: bytes(data).removeprefix(b"encrypted:"),
             ),
         )
+
+    def test_access_error_does_not_move_or_delete_database(self) -> None:
+        self.cache_path.write_bytes(b"healthy database placeholder")
+        access_error = sqlite3.OperationalError("unable to open database file")
+
+        with (
+            patch.object(MessageCache, "_init_db", side_effect=access_error),
+            patch.object(MessageCache, "_move_corrupt_database") as move_corrupt,
+        ):
+            with self.assertRaises(sqlite3.OperationalError):
+                MessageCache(self.cache_path)
+
+        move_corrupt.assert_not_called()
+        self.assertTrue(self.cache_path.exists())
+
+    def test_lazy_attachment_reference_survives_cache_round_trip(self) -> None:
+        protect_patch, unprotect_patch = self.crypto_patches()
+        with protect_patch, unprotect_patch:
+            cache = MessageCache(self.cache_path)
+            summary = MessageSummary(uid="42", mailbox="INBOX", has_attachments=True)
+            cache.upsert_summaries(self.account, [summary])
+            cache.upsert_content(
+                self.account,
+                MessageContent(
+                    summary=summary,
+                    text="Body",
+                    links=[
+                        LinkItem(
+                            text="large.pdf",
+                            kind="attachment",
+                            filename="large.pdf",
+                            size=314572800,
+                            remote_source="imap",
+                            remote_id="2.1",
+                            transfer_encoding="base64",
+                        )
+                    ],
+                ),
+            )
+
+            content = cache.get_content(self.account.id, "INBOX", "42")
+
+            self.assertIsNotNone(content)
+            attachment = content.links[0]
+            self.assertEqual(attachment.remote_source, "imap")
+            self.assertEqual(attachment.remote_id, "2.1")
+            self.assertEqual(attachment.transfer_encoding, "base64")
+            self.assertEqual(attachment.attachment_bytes(), b"")
+
+    def test_confirmed_corrupt_database_is_preserved_before_recreation(self) -> None:
+        self.cache_path.write_bytes(b"not a sqlite database")
+
+        MessageCache(self.cache_path)
+
+        preserved = list(self.cache_path.parent.glob("messages.corrupt-*.sqlite3"))
+        self.assertEqual(len(preserved), 1)
+        self.assertEqual(preserved[0].read_bytes(), b"not a sqlite database")
+        self.assertTrue(self.cache_path.exists())
 
     def test_unchanged_summaries_are_not_encrypted_and_written_again(self) -> None:
         protect_patch, unprotect_patch = self.crypto_patches()

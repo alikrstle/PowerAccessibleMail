@@ -49,6 +49,31 @@ class AddressBookStorageTests(unittest.TestCase):
             ],
         )
 
+    def test_custom_names_round_trip_and_are_used_in_display_labels(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "address_book.json"
+            with patch("accessible_mail.address_book.address_book_path", return_value=path):
+                save_address_book(
+                    [AddressEntry("person@example.com", name="  Person   Name  ")]
+                )
+                restored = load_address_book()
+
+        self.assertEqual(restored[0].name, "Person Name")
+        self.assertEqual(restored[0].display_label, "Person Name: person@example.com")
+
+    def test_old_address_book_entries_without_names_remain_compatible(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "address_book.json"
+            path.write_text(
+                '[{"email": "legacy@example.com", "pinned": true}]',
+                encoding="utf-8",
+            )
+            with patch("accessible_mail.address_book.address_book_path", return_value=path):
+                restored = load_address_book()
+
+        self.assertEqual(restored[0].name, "")
+        self.assertEqual(restored[0].display_label, "legacy@example.com")
+
     def test_add_address_rejects_case_insensitive_duplicates(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "address_book.json"

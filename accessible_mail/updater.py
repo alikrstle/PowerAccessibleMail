@@ -182,13 +182,26 @@ def download_update_installer(
         raise
 
 
-def launch_update_installer(installer_path: Path) -> subprocess.Popen[bytes]:
+def launch_update_installer(
+    installer_path: Path,
+    language: str = "en",
+) -> subprocess.Popen[bytes]:
     path = Path(installer_path).resolve()
     if not path.is_file() or not _has_windows_executable_header(path):
         raise UpdateInstallError("ملف تثبيت التحديث غير صالح.")
+    installer_language = {
+        "ar": "arabic",
+        "fr": "french",
+        "en": "english",
+        "es": "spanish",
+        "tr": "turkish",
+        "hi": "hindi",
+    }.get(str(language or "").strip().lower(), "english")
     return subprocess.Popen(
         [
             str(path),
+            "/VERYSILENT",
+            f"/LANG={installer_language}",
             "/NORESTART",
             "/CLOSEAPPLICATIONS",
             "/UPDATEFROMAPP=1",

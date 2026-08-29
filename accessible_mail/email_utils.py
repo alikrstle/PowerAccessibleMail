@@ -35,6 +35,8 @@ HTML_DISPLAY_TAG_PATTERN = re.compile(
     r"</?(?:!doctype|html|head|body|title|meta|link|style|script|noscript|template|svg|xml|section|article|header|footer|main|nav|div|table|thead|tbody|tfoot|tr|td|th|span|p|a|button|form|input|img|font|center|blockquote|ul|ol|li|h[1-6]|br|hr)\b",
     re.IGNORECASE,
 )
+TRACKING_URL_ESCAPE_PATTERN = re.compile(r"(?:%|-)2[0-9a-f]|(?:%|-)3[0-9a-f]", re.IGNORECASE)
+LONG_TRACKING_FRAGMENT_PATTERN = re.compile(r"[A-Za-z0-9_~.+%-]{35,}")
 GENERIC_LINK_TITLES = {
     "",
     "click here",
@@ -189,7 +191,6 @@ class _HtmlToTextParser(HTMLParser):
                 "visibility:hidden",
                 "opacity:0",
                 "mso-hide:all",
-                "font-size:0",
             )
         )
         if (
@@ -617,6 +618,12 @@ def _merge_duplicate_link(existing: LinkItem, candidate: LinkItem) -> LinkItem:
 
 def _attachment_identity(item: LinkItem) -> tuple[object, ...]:
     filename = _clean_resource_title(item.filename or item.text).casefold()
+    if item.remote_id:
+        return (
+            "remote",
+            item.remote_source.strip().casefold(),
+            item.remote_id,
+        )
     attachment_bytes = item.attachment_bytes()
     if attachment_bytes:
         return ("content", filename, hashlib.sha256(attachment_bytes).digest())
@@ -636,6 +643,9 @@ def _merge_duplicate_attachment(existing: LinkItem, candidate: LinkItem) -> Link
         content_type=existing.content_type or candidate.content_type,
         size=existing.size or candidate.size,
         data=existing.data or candidate.data,
+        remote_source=existing.remote_source or candidate.remote_source,
+        remote_id=existing.remote_id or candidate.remote_id,
+        transfer_encoding=existing.transfer_encoding or candidate.transfer_encoding,
     )
 
 
@@ -669,6 +679,9 @@ def _merge_duplicate_image(existing: LinkItem, candidate: LinkItem) -> LinkItem:
         size=existing.size or candidate.size,
         data=existing.data or candidate.data,
         content_id=existing.content_id or candidate.content_id,
+        remote_source=existing.remote_source or candidate.remote_source,
+        remote_id=existing.remote_id or candidate.remote_id,
+        transfer_encoding=existing.transfer_encoding or candidate.transfer_encoding,
     )
 
 
@@ -757,6 +770,7 @@ def normalize_message_text(text: str) -> str:
         .replace("\u00a0", " ")
         .replace("\u202f", " ")
         .replace("\u00ad", "")
+        .replace("\u034f", "")
         .replace("\u200b", "")
         .replace("\u2060", "")
         .replace("\ufeff", "")
@@ -800,6 +814,68 @@ def looks_like_visual_markup_dump(text: str) -> bool:
         if marker in sample:
             score += 1
     return score >= 4
+
+
+def looks_like_wrapped_tracking_url_dump(text: str) -> bool:
+    """Detect email tracking URLs whose encoded payload was wrapped into prose."""
+    sample = str(text or "")[:200_000]
+    if len(sample) < 300:
+        return False
+    # Marketing templates use repeated combining grapheme joiners to pad the
+    # inbox preview. They are visually hidden but disrupt screen-reader output.
+    if sample.count("\u034f") >= 10:
+        return True
+    visible_urls = [match.group(0) for match in URL_PATTERN.finditer(sample)]
+    redirect_urls = [
+        url
+        for url in visible_urls
+        if any(
+            marker in url.casefold()
+            for marker in ("/r/?id=", "/ls/click?", "redirect", "ablink.")
+        )
+    ]
+    if len(redirect_urls) >= 3:
+        return True
+    if len(visible_urls) >= 4 and sum(map(len, visible_urls)) >= 600:
+        return True
+    escape_count = len(TRACKING_URL_ESCAPE_PATTERN.findall(sample))
+    if escape_count < 8:
+        return False
+    fragment_length = sum(
+        len(match.group(0))
+        for match in LONG_TRACKING_FRAGMENT_PATTERN.finditer(sample)
+    )
+    tracking_hint = any(
+        marker in sample.casefold()
+        for marker in (
+            "ablink.",
+            "/ls/click?",
+            "redirect",
+            "tracking",
+            "click.email",
+        )
+    )
+    return tracking_hint or fragment_length >= 300
+
+
+def should_prefer_html_alternative(
+    raw_plain_text: str,
+    cleaned_plain_text: str,
+    html_text: str,
+) -> bool:
+    return bool(
+        html_text
+        and (
+            not cleaned_plain_text
+            or looks_like_visual_markup_dump(raw_plain_text)
+            or looks_like_wrapped_tracking_url_dump(raw_plain_text)
+            or is_plain_text_placeholder(raw_plain_text)
+            or (
+                "\ufffd" in cleaned_plain_text
+                and html_text.count("\ufffd") < cleaned_plain_text.count("\ufffd")
+            )
+        )
+    )
 
 
 def clean_message_text_for_display(text: str) -> str:
@@ -919,7 +995,12 @@ def is_inline_image_part(part: Message | EmailMessage) -> bool:
     return part.get_content_type().casefold().startswith("image/") and disposition == "inline" and bool(content_id)
 
 
-def attachment_from_part(part: Message | EmailMessage) -> LinkItem | None:
+def attachment_from_part(
+    part: Message | EmailMessage,
+    *,
+    remote_id: str = "",
+    lazy: bool = False,
+) -> LinkItem | None:
     content_type = part.get_content_type() or "application/octet-stream"
     content_id = _normalized_content_id(header_to_text(part.get("Content-ID")))
     inline_image = is_inline_image_part(part)
@@ -927,33 +1008,64 @@ def attachment_from_part(part: Message | EmailMessage) -> LinkItem | None:
     if not filename and inline_image:
         filename = f"image{mimetypes.guess_extension(content_type) or ''}"
     filename = filename or "مرفق بدون اسم"
-    try:
-        payload = part.get_payload(decode=True) or b""
-    except Exception:
-        payload = b""
+    payload = b""
+    if not lazy:
+        try:
+            payload = part.get_payload(decode=True) or b""
+        except Exception:
+            payload = b""
+    raw_payload = part.get_payload(decode=False)
+    encoded_size = len(raw_payload.encode("ascii", errors="ignore")) if isinstance(raw_payload, str) else 0
     return LinkItem(
         text=filename,
         kind="image" if inline_image else "attachment",
         filename=filename,
         content_type=content_type,
-        size=len(payload),
+        size=len(payload) or encoded_size,
         data=base64.b64encode(payload).decode("ascii") if payload else "",
         content_id=content_id,
+        remote_source="imap" if remote_id else "",
+        remote_id=remote_id,
+        transfer_encoding=str(part.get("Content-Transfer-Encoding", "") or "").strip().casefold(),
     )
 
 
-def extract_body(message: Message | EmailMessage) -> tuple[str, list[LinkItem]]:
+def _numbered_leaf_parts(
+    message: Message | EmailMessage,
+    prefix: str = "",
+) -> list[tuple[str, Message | EmailMessage]]:
+    payload = message.get_payload()
+    if not message.is_multipart() or not isinstance(payload, list):
+        return [(prefix or "1", message)]
+    result: list[tuple[str, Message | EmailMessage]] = []
+    for index, part in enumerate(payload, start=1):
+        number = f"{prefix}.{index}" if prefix else str(index)
+        if part.is_multipart():
+            result.extend(_numbered_leaf_parts(part, number))
+        else:
+            result.append((number, part))
+    return result
+
+
+def extract_body(
+    message: Message | EmailMessage,
+    *,
+    lazy_attachments: bool = False,
+) -> tuple[str, list[LinkItem]]:
     text_parts: list[str] = []
     html_parts: list[str] = []
     attachments: list[LinkItem] = []
 
     if message.is_multipart():
-        for part in message.walk():
-            if part.is_multipart():
-                continue
+        for part_number, part in _numbered_leaf_parts(message):
             content_type = part.get_content_type()
             if is_attachment_part(part) or is_inline_image_part(part):
-                attachment = attachment_from_part(part)
+                lazy_part = lazy_attachments and not is_inline_image_part(part)
+                attachment = attachment_from_part(
+                    part,
+                    remote_id=part_number if lazy_part else "",
+                    lazy=lazy_part,
+                )
                 if attachment:
                     attachments.append(attachment)
                 continue
@@ -990,13 +1102,8 @@ def extract_body(message: Message | EmailMessage) -> tuple[str, list[LinkItem]]:
 
     if text_parts:
         raw_text = "\n".join(part.strip() for part in text_parts if part.strip())
-        plain_text_has_visual_noise = looks_like_visual_markup_dump(raw_text)
         text = clean_message_text_for_display(raw_text)
-        if html_text and (
-            not text
-            or plain_text_has_visual_noise
-            or is_plain_text_placeholder(raw_text)
-        ):
+        if should_prefer_html_alternative(raw_text, text, html_text):
             return html_text, organize_message_items(html_text, html_links + attachments)
         body = text or "لا يوجد نص قابل للعرض داخل هذه الرسالة."
         return body, organize_message_items(body, html_links + attachments)

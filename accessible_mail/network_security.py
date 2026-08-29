@@ -157,7 +157,10 @@ class PublicHttpRedirectHandler(urllib.request.HTTPRedirectHandler):
 
 
 def public_http_opener() -> urllib.request.OpenerDirector:
-    return urllib.request.build_opener(PublicHttpRedirectHandler())
+    return urllib.request.build_opener(
+        urllib.request.HTTPSHandler(context=trusted_https_context()),
+        PublicHttpRedirectHandler(),
+    )
 
 
 def _is_ip_literal(hostname: str) -> bool:

@@ -117,9 +117,30 @@ class MessageCache:
         self.path.parent.mkdir(parents=True, exist_ok=True)
         try:
             self._init_db()
-        except sqlite3.DatabaseError:
+        except sqlite3.DatabaseError as exc:
+            if not self._is_corrupt_database_error(exc):
+                raise
             self._move_corrupt_database()
             self._init_db()
+
+    @staticmethod
+    def _is_corrupt_database_error(exc: sqlite3.DatabaseError) -> bool:
+        corruption_codes = {
+            getattr(sqlite3, "SQLITE_CORRUPT", 11),
+            getattr(sqlite3, "SQLITE_NOTADB", 26),
+        }
+        error_code = getattr(exc, "sqlite_errorcode", None)
+        if isinstance(error_code, int) and (error_code & 0xFF) in corruption_codes:
+            return True
+        message = str(exc).casefold()
+        return any(
+            marker in message
+            for marker in (
+                "database disk image is malformed",
+                "file is not a database",
+                "database corruption",
+            )
+        )
 
     def list_summaries(
         self,
@@ -240,6 +261,10 @@ class MessageCache:
                     activation_start=int(item.get("activation_start", -1) or -1),
                     activation_end=int(item.get("activation_end", -1) or -1),
                     content_id=str(item.get("content_id", "")),
+                    context_text=str(item.get("context_text", "")),
+                    remote_source=str(item.get("remote_source", "")),
+                    remote_id=str(item.get("remote_id", "")),
+                    transfer_encoding=str(item.get("transfer_encoding", "")),
                 )
                 for item in link_payload
                 if isinstance(item, dict)
@@ -342,6 +367,10 @@ class MessageCache:
                 "activation_start": link.activation_start,
                 "activation_end": link.activation_end,
                 "content_id": link.content_id,
+                "context_text": link.context_text,
+                "remote_source": link.remote_source,
+                "remote_id": link.remote_id,
+                "transfer_encoding": link.transfer_encoding,
             }
             for link in content.links
         ]
@@ -726,10 +755,10 @@ class MessageCache:
             return
         suffix = time.strftime("%Y%m%d-%H%M%S")
         corrupt_path = self.path.with_name(f"{self.path.stem}.corrupt-{suffix}{self.path.suffix}")
-        try:
-            self.path.replace(corrupt_path)
-        except OSError:
-            self.path.unlink(missing_ok=True)
+        # Never delete the original database when preserving it fails.  Access
+        # control, antivirus, another process, or a full disk can all make a
+        # healthy database temporarily unmovable.
+        self.path.replace(corrupt_path)
         for suffix_name in ("-wal", "-shm"):
             sidecar = self.path.with_name(self.path.name + suffix_name)
             if sidecar.exists():

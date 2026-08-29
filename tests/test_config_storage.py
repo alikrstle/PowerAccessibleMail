@@ -11,6 +11,9 @@ from accessible_mail import config
 from accessible_mail.config import (
     LANGUAGE_ENGLISH,
     LANGUAGE_FRENCH,
+    LANGUAGE_HINDI,
+    LANGUAGE_SPANISH,
+    LANGUAGE_TURKISH,
     MESSAGE_READ_ON_VIEWER_ENTER,
     TRANSLATION_INLINE,
     ProgramSettings,
@@ -144,6 +147,17 @@ class ConfigStorageTests(unittest.TestCase):
 
         self.assertEqual(loaded.message_read_mode, MESSAGE_READ_ON_VIEWER_ENTER)
 
+    def test_last_selected_account_id_is_saved(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "settings.json"
+            settings = ProgramSettings(last_selected_account_id="account-2")
+
+            with patch("accessible_mail.config.settings_path", return_value=path):
+                save_settings(settings)
+                loaded = load_settings()
+
+        self.assertEqual(loaded.last_selected_account_id, "account-2")
+
     def test_french_language_is_saved(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "settings.json"
@@ -158,6 +172,9 @@ class ConfigStorageTests(unittest.TestCase):
         self.assertEqual(config.system_language(["fr-FR"]), LANGUAGE_FRENCH)
         self.assertEqual(config.system_language(["ar_IQ"]), config.LANGUAGE_ARABIC)
         self.assertEqual(config.system_language(["en_US"]), LANGUAGE_ENGLISH)
+        self.assertEqual(config.system_language(["es_ES"]), LANGUAGE_SPANISH)
+        self.assertEqual(config.system_language(["tr-TR"]), LANGUAGE_TURKISH)
+        self.assertEqual(config.system_language(["hi_IN"]), LANGUAGE_HINDI)
         self.assertEqual(config.system_language(["de_DE"]), LANGUAGE_ENGLISH)
 
     def test_first_run_uses_system_language(self) -> None:

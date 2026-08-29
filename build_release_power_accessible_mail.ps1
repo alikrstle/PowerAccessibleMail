@@ -23,7 +23,7 @@ param(
 
 $ErrorActionPreference = "Stop"
 $ProjectRoot = $PSScriptRoot
-$Version = "1.3.1"
+$Version = "1.4.0"
 $AppName = "Power Accessible Mail"
 $ProductName = "Power Accessible Mail"
 $LockFile = Join-Path $ProjectRoot "requirements-release.lock"
@@ -55,9 +55,15 @@ $InstallerResources = @(
     (Join-Path $ProjectRoot "installer_info_ar.txt"),
     (Join-Path $ProjectRoot "installer_info_en.txt"),
     (Join-Path $ProjectRoot "installer_info_fr.txt"),
+    (Join-Path $ProjectRoot "installer_info_es.txt"),
+    (Join-Path $ProjectRoot "installer_info_tr.txt"),
+    (Join-Path $ProjectRoot "installer_info_hi.txt"),
     (Join-Path $ProjectRoot "installer_readme_ar.txt"),
     (Join-Path $ProjectRoot "installer_readme_en.txt"),
-    (Join-Path $ProjectRoot "installer_readme_fr.txt")
+    (Join-Path $ProjectRoot "installer_readme_fr.txt"),
+    (Join-Path $ProjectRoot "installer_readme_es.txt"),
+    (Join-Path $ProjectRoot "installer_readme_tr.txt"),
+    (Join-Path $ProjectRoot "installer_readme_hi.txt")
 )
 $ReleaseRoot = Join-Path $ProjectRoot "release"
 $AppDir = Join-Path $ReleaseRoot "win-$Architecture\$AppName"
@@ -67,9 +73,15 @@ $PackageAppExe = Join-Path $PackageAppDir "$AppName.exe"
 $ArabicReadme = Join-Path $ProjectRoot "installer_readme_ar.txt"
 $EnglishReadme = Join-Path $ProjectRoot "installer_readme_en.txt"
 $FrenchReadme = Join-Path $ProjectRoot "installer_readme_fr.txt"
+$SpanishReadme = Join-Path $ProjectRoot "installer_readme_es.txt"
+$TurkishReadme = Join-Path $ProjectRoot "installer_readme_tr.txt"
+$HindiReadme = Join-Path $ProjectRoot "installer_readme_hi.txt"
 $PackageArabicReadme = Join-Path $PackageAppDir "README_AR.txt"
 $PackageEnglishReadme = Join-Path $PackageAppDir "README_EN.txt"
 $PackageFrenchReadme = Join-Path $PackageAppDir "README_FR.txt"
+$PackageSpanishReadme = Join-Path $PackageAppDir "README_ES.txt"
+$PackageTurkishReadme = Join-Path $PackageAppDir "README_TR.txt"
+$PackageHindiReadme = Join-Path $PackageAppDir "README_HI.txt"
 $InstallerDir = Join-Path $ReleaseRoot "installer"
 $isSigned = -not [string]::IsNullOrWhiteSpace($CertificateThumbprint)
 if (-not $isSigned -and -not $AllowUnsigned) {
@@ -318,10 +330,16 @@ if (Test-Path -LiteralPath $PortableZip) {
 Copy-Item -LiteralPath $ArabicReadme -Destination $PackageArabicReadme -Force
 Copy-Item -LiteralPath $EnglishReadme -Destination $PackageEnglishReadme -Force
 Copy-Item -LiteralPath $FrenchReadme -Destination $PackageFrenchReadme -Force
+Copy-Item -LiteralPath $SpanishReadme -Destination $PackageSpanishReadme -Force
+Copy-Item -LiteralPath $TurkishReadme -Destination $PackageTurkishReadme -Force
+Copy-Item -LiteralPath $HindiReadme -Destination $PackageHindiReadme -Force
 foreach ($readmePair in @(
     @($ArabicReadme, $PackageArabicReadme),
     @($EnglishReadme, $PackageEnglishReadme),
-    @($FrenchReadme, $PackageFrenchReadme)
+    @($FrenchReadme, $PackageFrenchReadme),
+    @($SpanishReadme, $PackageSpanishReadme),
+    @($TurkishReadme, $PackageTurkishReadme),
+    @($HindiReadme, $PackageHindiReadme)
 )) {
     $sourceReadmeHash = (
         Get-FileHash -LiteralPath $readmePair[0] -Algorithm SHA256

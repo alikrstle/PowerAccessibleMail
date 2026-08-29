@@ -17,6 +17,22 @@ from accessible_mail.notification_preferences import (
 
 
 class OAuthClientConfigTests(unittest.TestCase):
+    def test_new_install_uses_requested_display_and_reading_defaults(self) -> None:
+        settings = config.ProgramSettings()
+
+        self.assertEqual(settings.theme, config.THEME_DARK)
+        self.assertEqual(settings.translation_mode, config.TRANSLATION_INLINE)
+        self.assertEqual(settings.message_read_mode, config.MESSAGE_READ_MANUAL)
+        self.assertEqual(settings.message_viewer, config.VIEWER_HTML)
+
+    def test_invalid_visual_defaults_fall_back_to_requested_defaults(self) -> None:
+        settings = config.normalize_settings(
+            config.ProgramSettings(theme="invalid", translation_mode="invalid")
+        )
+
+        self.assertEqual(settings.theme, config.THEME_DARK)
+        self.assertEqual(settings.translation_mode, config.TRANSLATION_INLINE)
+
     def test_invalid_message_read_mode_falls_back_to_manual(self) -> None:
         settings = config.normalize_settings(
             config.ProgramSettings(message_read_mode="invalid")
@@ -84,9 +100,15 @@ class OAuthClientConfigTests(unittest.TestCase):
             "installer_info_ar.txt",
             "installer_info_en.txt",
             "installer_info_fr.txt",
+            "installer_info_es.txt",
+            "installer_info_tr.txt",
+            "installer_info_hi.txt",
             "installer_readme_ar.txt",
             "installer_readme_en.txt",
             "installer_readme_fr.txt",
+            "installer_readme_es.txt",
+            "installer_readme_tr.txt",
+            "installer_readme_hi.txt",
         ):
             release_text = (project_root / release_text_name).read_text(
                 encoding="utf-8-sig"
@@ -111,6 +133,27 @@ class OAuthClientConfigTests(unittest.TestCase):
         self.assertIn("installer_readme_fr.txt", release_script)
         self.assertIn("PackageFrenchReadme", release_script)
 
+    def test_installer_and_portable_package_include_new_language_resources(self) -> None:
+        project_root = Path(__file__).resolve().parents[1]
+        installer = (project_root / "installer_power_accessible_mail.iss").read_text(
+            encoding="utf-8-sig"
+        )
+        release_script = (
+            project_root / "build_release_power_accessible_mail.ps1"
+        ).read_text(encoding="utf-8")
+        expected = {
+            "spanish": (r"compiler:Languages\Spanish.isl", "ES", "Spanish"),
+            "turkish": (r"compiler:Languages\Turkish.isl", "TR", "Turkish"),
+            "hindi": (r"installer_languages\Hindi.islu", "HI", "Hindi"),
+        }
+        for language, (messages_file, code, variable_name) in expected.items():
+            with self.subTest(language=language):
+                self.assertIn(f'Name: "{language}"', installer)
+                self.assertIn(messages_file, installer)
+                self.assertIn(f'DestName: "README_{code}.txt"', installer)
+                self.assertIn(f"Languages: {language}", installer)
+                self.assertIn(f"Package{variable_name}Readme", release_script)
+
     def test_application_build_bundles_all_program_guides(self) -> None:
         project_root = Path(__file__).resolve().parents[1]
         build_script = (project_root / "build_power_accessible_mail.ps1").read_text(
@@ -122,6 +165,9 @@ class OAuthClientConfigTests(unittest.TestCase):
             "installer_readme_ar.txt",
             "installer_readme_en.txt",
             "installer_readme_fr.txt",
+            "installer_readme_es.txt",
+            "installer_readme_tr.txt",
+            "installer_readme_hi.txt",
         ):
             self.assertIn(guide_name, build_script)
 
@@ -259,7 +305,7 @@ class OAuthClientConfigTests(unittest.TestCase):
         self.assertIn("Push-Location $ProjectRoot", release_build)
         self.assertIn("[System.IO.Path]::IsPathRooted($PythonPath)", release_build)
         self.assertIn("Pre-release", readme)
-        self.assertIn("PowerAccessibleMailSetup-1.3.1-win-x64-UNSIGNED.exe", readme)
+        self.assertIn("PowerAccessibleMailSetup-1.4.0-win-x64-UNSIGNED.exe", readme)
 
     def test_release_pipeline_avoids_opaque_update_behavior(self) -> None:
         project_root = Path(__file__).resolve().parents[1]

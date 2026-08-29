@@ -207,19 +207,40 @@ class InternalUpdaterTests(unittest.TestCase):
         )
 
     @patch("accessible_mail.updater.subprocess.Popen")
-    def test_launcher_uses_visible_internal_update_mode(self, popen) -> None:
+    def test_launcher_uses_silent_internal_update_mode(self, popen) -> None:
         with tempfile.TemporaryDirectory() as directory:
             installer = Path(directory) / "setup.exe"
             installer.write_bytes(b"MZinstaller")
 
-            launch_update_installer(installer)
+            launch_update_installer(installer, "ar")
 
         arguments = popen.call_args.args[0]
         self.assertIn("/UPDATEFROMAPP=1", arguments)
         self.assertIn("/CLOSEAPPLICATIONS", arguments)
-        self.assertNotIn("/SILENT", arguments)
+        self.assertIn("/VERYSILENT", arguments)
+        self.assertIn("/LANG=arabic", arguments)
         self.assertNotIn("/SUPPRESSMSGBOXES", arguments)
         self.assertNotIn("/RESTARTAPPLICATIONS", arguments)
+
+    @patch("accessible_mail.updater.subprocess.Popen")
+    def test_launcher_passes_every_supported_installer_language(self, popen) -> None:
+        expected = {
+            "en": "english",
+            "ar": "arabic",
+            "fr": "french",
+            "es": "spanish",
+            "tr": "turkish",
+            "hi": "hindi",
+        }
+        with tempfile.TemporaryDirectory() as directory:
+            installer = Path(directory) / "setup.exe"
+            installer.write_bytes(b"MZinstaller")
+            for language, installer_language in expected.items():
+                with self.subTest(language=language):
+                    popen.reset_mock()
+                    launch_update_installer(installer, language)
+                    arguments = popen.call_args.args[0]
+                    self.assertIn(f"/LANG={installer_language}", arguments)
 
 
 if __name__ == "__main__":

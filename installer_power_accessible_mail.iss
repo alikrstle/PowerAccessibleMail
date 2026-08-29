@@ -1,5 +1,5 @@
 ﻿#define MyAppName "Power Accessible Mail"
-#define MyAppVersion "1.3.1"
+#define MyAppVersion "1.4.0"
 #define MyAppPublisher "Soljan.AlSharq."
 #define MyAppExeName "Power Accessible Mail.exe"
 #define MyAppIcon "assets\branding\power_accessible_mail.ico"
@@ -55,7 +55,7 @@ ArchitecturesInstallIn64BitMode=x64compatible
 #else
 ArchitecturesAllowed=x86compatible
 #endif
-VersionInfoVersion=1.3.1.0
+VersionInfoVersion=1.4.0.0
 VersionInfoCompany={#MyAppPublisher}
 VersionInfoDescription={#MyAppName} Installer
 VersionInfoProductName={#MyAppName}
@@ -73,38 +73,71 @@ SignToolRetryCount=3
 Name: "english"; MessagesFile: "compiler:Default.isl"; InfoBeforeFile: "installer_info_en.txt"
 Name: "arabic"; MessagesFile: "compiler:Languages\Arabic.isl"; InfoBeforeFile: "installer_info_ar.txt"
 Name: "french"; MessagesFile: "compiler:Languages\French.isl"; InfoBeforeFile: "installer_info_fr.txt"
+Name: "spanish"; MessagesFile: "compiler:Languages\Spanish.isl"; InfoBeforeFile: "installer_info_es.txt"
+Name: "turkish"; MessagesFile: "compiler:Languages\Turkish.isl"; InfoBeforeFile: "installer_info_tr.txt"
+Name: "hindi"; MessagesFile: "compiler:Default.isl,installer_languages\Hindi.islu"; InfoBeforeFile: "installer_info_hi.txt"
 
 [CustomMessages]
 arabic.ReadLocalizedReadme=قراءة دليل البرنامج العربي
 english.ReadLocalizedReadme=Read the English README
 french.ReadLocalizedReadme=Lire le guide du programme en français
+spanish.ReadLocalizedReadme=Leer la guía del programa en español
+turkish.ReadLocalizedReadme=Türkçe program kılavuzunu oku
+hindi.ReadLocalizedReadme=हिन्दी प्रोग्राम मार्गदर्शिका पढ़ें
 arabic.LaunchLocalizedApp=تشغيل البرنامج بعد إنهاء التثبيت
 english.LaunchLocalizedApp=Launch the application after Setup finishes
 french.LaunchLocalizedApp=Lancer l'application à la fin de l'installation
+spanish.LaunchLocalizedApp=Iniciar la aplicación al finalizar la instalación
+turkish.LaunchLocalizedApp=Kurulum tamamlandıktan sonra uygulamayı başlat
+hindi.LaunchLocalizedApp=सेटअप पूर्ण होने के बाद एप्लिकेशन चलाएँ
 arabic.DefaultMailIntegration=تكامل البريد الافتراضي في Windows
 english.DefaultMailIntegration=Windows default email integration
 french.DefaultMailIntegration=Intégration de la messagerie par défaut de Windows
+spanish.DefaultMailIntegration=Integración con el correo predeterminado de Windows
+turkish.DefaultMailIntegration=Windows varsayılan e-posta tümleştirmesi
+hindi.DefaultMailIntegration=Windows डिफ़ॉल्ट ईमेल एकीकरण
 arabic.OpenDefaultMailSettings=فتح إعدادات Windows لاختيار Power Accessible Mail كتطبيق البريد الافتراضي
 english.OpenDefaultMailSettings=Open Windows Settings to choose Power Accessible Mail as the default email app
 french.OpenDefaultMailSettings=Ouvrir les paramètres Windows pour choisir Power Accessible Mail comme application de messagerie par défaut
+spanish.OpenDefaultMailSettings=Abrir la configuración de Windows para elegir Power Accessible Mail como aplicación de correo predeterminada
+turkish.OpenDefaultMailSettings=Power Accessible Mail uygulamasını varsayılan e-posta uygulaması olarak seçmek için Windows Ayarlarını aç
+hindi.OpenDefaultMailSettings=Power Accessible Mail को डिफ़ॉल्ट ईमेल ऐप चुनने के लिए Windows सेटिंग्स खोलें
 arabic.AcceptPrivacy=أنا أوافق على شروط الخصوصية
 english.AcceptPrivacy=I agree to the privacy terms
 french.AcceptPrivacy=J'accepte les conditions de confidentialité
+spanish.AcceptPrivacy=Acepto las condiciones de privacidad
+turkish.AcceptPrivacy=Gizlilik koşullarını kabul ediyorum
+hindi.AcceptPrivacy=मैं गोपनीयता शर्तों से सहमत हूँ
 arabic.UpdateTitle=تحديث Power Accessible Mail
 english.UpdateTitle=Update Power Accessible Mail
 french.UpdateTitle=Mise à jour de Power Accessible Mail
+spanish.UpdateTitle=Actualizar Power Accessible Mail
+turkish.UpdateTitle=Power Accessible Mail'i güncelle
+hindi.UpdateTitle=Power Accessible Mail अपडेट करें
 arabic.UpdateDescription=تم العثور على إصدار أقدم مثبت على هذا الجهاز
 english.UpdateDescription=An older installed version was found on this computer
 french.UpdateDescription=Une ancienne version est installée sur cet ordinateur
+spanish.UpdateDescription=Se encontró una versión anterior instalada en este equipo
+turkish.UpdateDescription=Bu bilgisayarda daha eski bir sürüm bulundu
+hindi.UpdateDescription=इस कंप्यूटर पर एक पुराना संस्करण मिला
 arabic.UpdateBody=الإصدار المثبت هو %s، والإصدار الجديد هو %s. اضغط تحديث الآن للمتابعة أو إغلاق للخروج من المثبت.
 english.UpdateBody=Installed version: %s. New version: %s. Select Update now to continue or Close to exit Setup.
 french.UpdateBody=Version installée : %s. Nouvelle version : %s. Sélectionnez Mettre à jour maintenant pour continuer ou Fermer pour quitter l'installation.
+spanish.UpdateBody=Versión instalada: %s. Versión nueva: %s. Seleccione Actualizar ahora para continuar o Cerrar para salir de la instalación.
+turkish.UpdateBody=Yüklü sürüm: %s. Yeni sürüm: %s. Devam etmek için Şimdi güncelle'yi, kurulumdan çıkmak için Kapat'ı seçin.
+hindi.UpdateBody=स्थापित संस्करण: %s। नया संस्करण: %s। जारी रखने के लिए अभी अपडेट करें या सेटअप से बाहर निकलने के लिए बंद करें चुनें।
 arabic.UpdateNow=تحديث الآن
 english.UpdateNow=Update now
 french.UpdateNow=Mettre à jour maintenant
+spanish.UpdateNow=Actualizar ahora
+turkish.UpdateNow=Şimdi güncelle
+hindi.UpdateNow=अभी अपडेट करें
 arabic.CloseSetup=إغلاق
 english.CloseSetup=Close
 french.CloseSetup=Fermer
+spanish.CloseSetup=Cerrar
+turkish.CloseSetup=Kapat
+hindi.CloseSetup=बंद करें
 
 [Tasks]
 Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{cm:AdditionalIcons}"
@@ -120,6 +153,9 @@ Source: "release\win-{#TargetArchitecture}\Power Accessible Mail\*"; Excludes: "
 Source: "installer_readme_ar.txt"; DestDir: "{app}"; DestName: "README_AR.txt"; Flags: ignoreversion
 Source: "installer_readme_en.txt"; DestDir: "{app}"; DestName: "README_EN.txt"; Flags: ignoreversion
 Source: "installer_readme_fr.txt"; DestDir: "{app}"; DestName: "README_FR.txt"; Flags: ignoreversion
+Source: "installer_readme_es.txt"; DestDir: "{app}"; DestName: "README_ES.txt"; Flags: ignoreversion
+Source: "installer_readme_tr.txt"; DestDir: "{app}"; DestName: "README_TR.txt"; Flags: ignoreversion
+Source: "installer_readme_hi.txt"; DestDir: "{app}"; DestName: "README_HI.txt"; Flags: ignoreversion
 
 [Registry]
 Root: HKCU; Subkey: "Software\Clients\Mail\PowerAccessibleMail"; ValueType: string; ValueName: ""; ValueData: "{#MyAppName}"; Flags: uninsdeletekey
@@ -151,6 +187,9 @@ Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; Tasks: de
 Filename: "{app}\README_AR.txt"; Description: "{cm:ReadLocalizedReadme}"; Flags: shellexec nowait postinstall skipifsilent; Languages: arabic
 Filename: "{app}\README_EN.txt"; Description: "{cm:ReadLocalizedReadme}"; Flags: shellexec nowait postinstall skipifsilent; Languages: english
 Filename: "{app}\README_FR.txt"; Description: "{cm:ReadLocalizedReadme}"; Flags: shellexec nowait postinstall skipifsilent; Languages: french
+Filename: "{app}\README_ES.txt"; Description: "{cm:ReadLocalizedReadme}"; Flags: shellexec nowait postinstall skipifsilent; Languages: spanish
+Filename: "{app}\README_TR.txt"; Description: "{cm:ReadLocalizedReadme}"; Flags: shellexec nowait postinstall skipifsilent; Languages: turkish
+Filename: "{app}\README_HI.txt"; Description: "{cm:ReadLocalizedReadme}"; Flags: shellexec nowait postinstall skipifsilent; Languages: hindi
 Filename: "{app}\{#MyAppExeName}"; Description: "{cm:LaunchLocalizedApp}"; Flags: nowait postinstall skipifsilent
 Filename: "ms-settings:defaultapps?registeredAppUser=Power%20Accessible%20Mail"; Description: "{cm:OpenDefaultMailSettings}"; Flags: shellexec nowait postinstall skipifsilent; Tasks: defaultmailsettings; Check: not IsInternalUpdate
 Filename: "{app}\{#MyAppExeName}"; Flags: nowait skipifdoesntexist; Check: IsInternalUpdate
@@ -219,7 +258,9 @@ end;
 
 procedure UpdatePrivacyNextButton;
 begin
-  if WizardForm.CurPageID = wpInfoBefore then
+  if IsInternalUpdate then
+    WizardForm.NextButton.Enabled := True
+  else if WizardForm.CurPageID = wpInfoBefore then
     WizardForm.NextButton.Enabled := PrivacyAgreementCheck.Checked
   else
     WizardForm.NextButton.Enabled := True;
@@ -232,7 +273,8 @@ end;
 
 procedure InitializeWizard;
 begin
-  UpdateMode := ReadInstalledVersion(InstalledVersion) and
+  UpdateMode := (not IsInternalUpdate) and
+    ReadInstalledVersion(InstalledVersion) and
     IsVersionOlder(InstalledVersion, '{#MyAppVersion}');
   if UpdateMode then
   begin
@@ -254,7 +296,7 @@ begin
   PrivacyAgreementCheck := TNewCheckBox.Create(WizardForm.InfoBeforePage);
   PrivacyAgreementCheck.Parent := WizardForm.InfoBeforePage;
   PrivacyAgreementCheck.Caption := CustomMessage('AcceptPrivacy');
-  PrivacyAgreementCheck.Checked := False;
+  PrivacyAgreementCheck.Checked := IsInternalUpdate;
   PrivacyAgreementCheck.TabStop := True;
   PrivacyAgreementCheck.TabOrder := WizardForm.InfoBeforeMemo.TabOrder + 1;
   PrivacyAgreementCheck.Left := WizardForm.InfoBeforeMemo.Left;
@@ -282,7 +324,7 @@ end;
 
 function ShouldSkipPage(PageID: Integer): Boolean;
 begin
-  Result := UpdateMode and
+  Result := (IsInternalUpdate or UpdateMode) and
     ((PageID = wpWelcome) or
      (PageID = wpInfoBefore) or
      (PageID = wpSelectDir) or
@@ -302,5 +344,6 @@ end;
 
 function NextButtonClick(CurPageID: Integer): Boolean;
 begin
-  Result := (CurPageID <> wpInfoBefore) or PrivacyAgreementCheck.Checked;
+  Result := IsInternalUpdate or
+    (CurPageID <> wpInfoBefore) or PrivacyAgreementCheck.Checked;
 end;

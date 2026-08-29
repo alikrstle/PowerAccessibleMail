@@ -10,11 +10,13 @@ NOTIFICATION_LEVEL_NONE = "none"
 NOTIFICATION_LEVEL_SOME = "some"
 NOTIFICATION_LEVEL_MOST = "most"
 NOTIFICATION_LEVEL_ALL = "all"
+NOTIFICATION_LEVEL_CUSTOM = "custom"
 NOTIFICATION_LEVELS: Final = {
     NOTIFICATION_LEVEL_NONE,
     NOTIFICATION_LEVEL_SOME,
     NOTIFICATION_LEVEL_MOST,
     NOTIFICATION_LEVEL_ALL,
+    NOTIFICATION_LEVEL_CUSTOM,
 }
 
 EVENT_DIALOGS = "dialogs"
@@ -35,6 +37,10 @@ EVENT_COMPOSE_ATTACHMENTS = "compose_attachments"
 EVENT_SEND = "send"
 EVENT_LINKS = "links"
 EVENT_RECEIVED_ATTACHMENTS = "received_attachments"
+EVENT_RECEIVED_ATTACHMENT_STARTED = "received_attachment_started"
+EVENT_RECEIVED_ATTACHMENT_PROGRESS = "received_attachment_progress"
+EVENT_RECEIVED_ATTACHMENT_COMPLETED = "received_attachment_completed"
+EVENT_RECEIVED_ATTACHMENT_ERRORS = "received_attachment_errors"
 EVENT_IMAGES = "images"
 _LEGACY_EVENT_TRANSLATION = "translation"
 EVENT_TRANSLATION = "translation_completed"
@@ -81,7 +87,11 @@ SPOKEN_NOTIFICATION_EVENTS: Final = (
     SpokenNotificationEvent(EVENT_COMPOSE_ATTACHMENTS, "إضافة مرفقات الرسالة وإزالتها"),
     SpokenNotificationEvent(EVENT_SEND, "إرسال الرسائل ونتيجة الإرسال"),
     SpokenNotificationEvent(EVENT_LINKS, "فتح الروابط ونسخها ومنع الروابط غير الآمنة"),
-    SpokenNotificationEvent(EVENT_RECEIVED_ATTACHMENTS, "فتح المرفقات المستلمة وحفظها"),
+    SpokenNotificationEvent(EVENT_RECEIVED_ATTACHMENTS, "إجراءات المرفقات المستلمة العامة"),
+    SpokenNotificationEvent(EVENT_RECEIVED_ATTACHMENT_STARTED, "بدء فتح المرفق أو تنزيله"),
+    SpokenNotificationEvent(EVENT_RECEIVED_ATTACHMENT_PROGRESS, "نسبة تقدم تنزيل المرفق"),
+    SpokenNotificationEvent(EVENT_RECEIVED_ATTACHMENT_COMPLETED, "اكتمال فتح المرفق أو حفظه"),
+    SpokenNotificationEvent(EVENT_RECEIVED_ATTACHMENT_ERRORS, "فشل فتح المرفق أو تنزيله"),
     SpokenNotificationEvent(EVENT_IMAGES, "فتح الصور وحفظها وفحصها"),
     SpokenNotificationEvent(EVENT_TRANSLATION, "نجاح ترجمة نص الرسالة وظهورها"),
     SpokenNotificationEvent(EVENT_TRANSLATION_STARTED, "بدء ترجمة نص الرسالة"),
@@ -150,6 +160,10 @@ SPOKEN_NOTIFICATION_GROUPS: Final = (
         (
             EVENT_LINKS,
             EVENT_RECEIVED_ATTACHMENTS,
+            EVENT_RECEIVED_ATTACHMENT_STARTED,
+            EVENT_RECEIVED_ATTACHMENT_PROGRESS,
+            EVENT_RECEIVED_ATTACHMENT_COMPLETED,
+            EVENT_RECEIVED_ATTACHMENT_ERRORS,
             EVENT_IMAGES,
         ),
     ),
@@ -180,6 +194,7 @@ _NOISY_EVENT_IDS: Final = frozenset(
         EVENT_MESSAGE_LOADING,
         EVENT_MESSAGE_READ,
         EVENT_PROGRESS,
+        EVENT_RECEIVED_ATTACHMENT_PROGRESS,
         EVENT_FOCUS_NAVIGATION,
     }
 )
@@ -194,6 +209,8 @@ def preset_event_ids(level: str) -> set[str]:
         return set(_SOME_EVENT_IDS)
     if level == NOTIFICATION_LEVEL_ALL:
         return set(ALL_EVENT_IDS)
+    if level == NOTIFICATION_LEVEL_CUSTOM:
+        return set()
     return set(ALL_EVENT_IDS - _NOISY_EVENT_IDS)
 
 
@@ -212,6 +229,15 @@ def normalize_event_ids(event_ids: object) -> list[str] | None:
                 EVENT_TRANSLATION_BACKGROUND,
                 EVENT_TRANSLATION_CANCELED,
                 EVENT_TRANSLATION_ERRORS,
+            }
+        )
+    if EVENT_RECEIVED_ATTACHMENTS in requested:
+        selected.update(
+            {
+                EVENT_RECEIVED_ATTACHMENT_STARTED,
+                EVENT_RECEIVED_ATTACHMENT_PROGRESS,
+                EVENT_RECEIVED_ATTACHMENT_COMPLETED,
+                EVENT_RECEIVED_ATTACHMENT_ERRORS,
             }
         )
     return [event.event_id for event in SPOKEN_NOTIFICATION_EVENTS if event.event_id in selected]
@@ -239,6 +265,20 @@ def notification_event_for_message(message: str) -> str:
     text = source_text(str(message or "")).strip()
     if not text:
         return EVENT_GENERAL
+    if "مرفق" in text and "الرسالة" in text and any(
+        word in text for word in ("إضافة", "إزالة", "المضافة")
+    ):
+        return EVENT_COMPOSE_ATTACHMENTS
+    if "مرفق" in text:
+        if "%" in text:
+            return EVENT_RECEIVED_ATTACHMENT_PROGRESS
+        if any(word in text for word in ("خطأ", "تعذر", "فشل", "رفض")):
+            return EVENT_RECEIVED_ATTACHMENT_ERRORS
+        if text.startswith(("بدأ ", "جار ")):
+            return EVENT_RECEIVED_ATTACHMENT_STARTED
+        if text.startswith(("تم ", "تمت ", "اكتمل", "اكتملت")):
+            return EVENT_RECEIVED_ATTACHMENT_COMPLETED
+        return EVENT_RECEIVED_ATTACHMENTS
     if "%" in text:
         return EVENT_PROGRESS
     if text == "جاهز":
@@ -269,10 +309,6 @@ def notification_event_for_message(message: str) -> str:
         or "العنوان" in text and "البريد" in text
     ):
         return EVENT_ADDRESS_BOOK
-    if "مرفق" in text and "الرسالة" in text and any(word in text for word in ("إضافة", "إزالة", "المضافة")):
-        return EVENT_COMPOSE_ATTACHMENTS
-    if "مرفق" in text:
-        return EVENT_RECEIVED_ATTACHMENTS
     if "الصورة" in text or "صورة" in text:
         return EVENT_IMAGES
     if text.startswith(("رابط:", "زر:")):
@@ -295,7 +331,7 @@ def notification_event_for_message(message: str) -> str:
         return EVENT_MESSAGE_STAR
     if "مقروء" in text or "حالة الرسالة" in text:
         return EVENT_MESSAGE_READ
-    if any(word in text for word in ("مزامنة", "تحديث الرسائل", "رسائل أقدم", "عرض")) and any(
+    if any(word in text for word in ("مزامنة", "تحديث الرسائل", "رسائل أقدم", "المزيد من الرسائل", "عرض")) and any(
         word in text for word in ("رسالة", "رسائل", "الرسائل")
     ):
         return EVENT_SYNC

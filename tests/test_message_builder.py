@@ -4,11 +4,30 @@ import unittest
 import tempfile
 from pathlib import Path
 
-from accessible_mail.message_builder import build_outgoing_message
+from accessible_mail.message_builder import (
+    MAX_OUTGOING_ATTACHMENT_BYTES,
+    build_outgoing_message,
+)
 from accessible_mail.models import Account, MessageSummary
 
 
 class MessageBuilderTests(unittest.TestCase):
+    def test_oversized_outgoing_attachment_is_rejected_before_reading(self) -> None:
+        account = Account(email_address="me@example.com")
+        with tempfile.TemporaryDirectory() as directory:
+            attachment = Path(directory) / "oversized.bin"
+            with attachment.open("wb") as stream:
+                stream.truncate(MAX_OUTGOING_ATTACHMENT_BYTES + 1)
+
+            with self.assertRaisesRegex(ValueError, "25 ميغابايت"):
+                build_outgoing_message(
+                    account,
+                    "friend@example.com",
+                    "large attachment",
+                    "body",
+                    attachments=[attachment],
+                )
+
     def test_reply_message_contains_headers_needed_for_threading_and_return_path(self) -> None:
         account = Account(email_address="me@example.com")
         original = MessageSummary(

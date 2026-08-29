@@ -16,6 +16,11 @@ from accessible_mail.notification_preferences import (
     EVENT_MESSAGE_PIN,
     EVENT_MESSAGE_READ,
     EVENT_PROGRESS,
+    EVENT_RECEIVED_ATTACHMENTS,
+    EVENT_RECEIVED_ATTACHMENT_COMPLETED,
+    EVENT_RECEIVED_ATTACHMENT_ERRORS,
+    EVENT_RECEIVED_ATTACHMENT_PROGRESS,
+    EVENT_RECEIVED_ATTACHMENT_STARTED,
     EVENT_READY,
     EVENT_SEND,
     EVENT_SYNC,
@@ -25,6 +30,7 @@ from accessible_mail.notification_preferences import (
     EVENT_TRANSLATION_ERRORS,
     EVENT_TRANSLATION_STARTED,
     NOTIFICATION_LEVEL_ALL,
+    NOTIFICATION_LEVEL_CUSTOM,
     NOTIFICATION_LEVEL_MOST,
     NOTIFICATION_LEVEL_NONE,
     NOTIFICATION_LEVEL_SOME,
@@ -56,6 +62,9 @@ class NotificationPreferenceTests(unittest.TestCase):
         self.assertNotIn(EVENT_MESSAGE_READ, most)
         self.assertIn(EVENT_READY, all_events)
         self.assertIn(EVENT_MESSAGE_READ, all_events)
+
+    def test_custom_level_starts_with_no_selected_actions(self) -> None:
+        self.assertEqual(preset_event_ids(NOTIFICATION_LEVEL_CUSTOM), set())
 
     def test_checkbox_groups_cover_every_notification_once(self) -> None:
         grouped_event_ids = [
@@ -93,6 +102,10 @@ class NotificationPreferenceTests(unittest.TestCase):
             "ألغيت ترجمة الرسالة قبل إرسال النص.": EVENT_TRANSLATION_CANCELED,
             "تعذر الحصول على ترجمة من Google.": EVENT_TRANSLATION_ERRORS,
             "اكتملت ترجمة أوصاف العناصر في الخلفية، وتعذر ترجمة بعضها.": EVENT_TRANSLATION_BACKGROUND,
+            "بدأ تنزيل المرفق: report.pdf": EVENT_RECEIVED_ATTACHMENT_STARTED,
+            "جار تنزيل المرفق report.pdf: 50%": EVENT_RECEIVED_ATTACHMENT_PROGRESS,
+            "اكتمل تنزيل المرفق وحفظه: report.pdf": EVENT_RECEIVED_ATTACHMENT_COMPLETED,
+            "فشل تنزيل المرفق: report.pdf": EVENT_RECEIVED_ATTACHMENT_ERRORS,
         }
 
         for message, event_id in expected.items():
@@ -115,6 +128,36 @@ class NotificationPreferenceTests(unittest.TestCase):
                 EVENT_TRANSLATION_CANCELED,
                 EVENT_TRANSLATION_ERRORS,
             },
+        )
+
+    def test_attachment_notifications_have_individual_spoken_options(self) -> None:
+        content_group = next(
+            group
+            for group in SPOKEN_NOTIFICATION_GROUPS
+            if group.label == "محتوى الرسالة"
+        )
+
+        self.assertTrue(
+            {
+                EVENT_RECEIVED_ATTACHMENTS,
+                EVENT_RECEIVED_ATTACHMENT_STARTED,
+                EVENT_RECEIVED_ATTACHMENT_PROGRESS,
+                EVENT_RECEIVED_ATTACHMENT_COMPLETED,
+                EVENT_RECEIVED_ATTACHMENT_ERRORS,
+            }.issubset(set(content_group.event_ids))
+        )
+
+    def test_legacy_attachment_choice_enables_new_attachment_options(self) -> None:
+        normalized = set(normalize_event_ids([EVENT_RECEIVED_ATTACHMENTS]) or [])
+
+        self.assertTrue(
+            {
+                EVENT_RECEIVED_ATTACHMENTS,
+                EVENT_RECEIVED_ATTACHMENT_STARTED,
+                EVENT_RECEIVED_ATTACHMENT_PROGRESS,
+                EVENT_RECEIVED_ATTACHMENT_COMPLETED,
+                EVENT_RECEIVED_ATTACHMENT_ERRORS,
+            }.issubset(normalized)
         )
 
     def test_legacy_translation_choice_enables_all_new_translation_options(self) -> None:

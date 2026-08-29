@@ -7,9 +7,11 @@ import urllib.parse
 import urllib.request
 
 from .email_service import MailError
+from .network_security import friendly_https_error, trusted_https_context
 
 TRANSLATION_ATTEMPTS = 2
 TRANSIENT_HTTP_STATUS_CODES = {408, 429, 500, 502, 503, 504}
+MAX_TRANSLATION_RESPONSE_BYTES = 2 * 1024 * 1024
 
 
 def text_chunks(text: str, max_length: int = 4500) -> list[str]:
@@ -62,8 +64,15 @@ def translate_chunk_with_google(chunk: str, target_language: str) -> str:
             headers={"User-Agent": "Power Accessible Mail"},
         )
         try:
-            with urllib.request.urlopen(request, timeout=20) as response:
-                payload = json.loads(response.read().decode("utf-8"))
+            with urllib.request.urlopen(
+                request,
+                timeout=20,
+                context=trusted_https_context(),
+            ) as response:
+                raw = response.read(MAX_TRANSLATION_RESPONSE_BYTES + 1)
+            if len(raw) > MAX_TRANSLATION_RESPONSE_BYTES:
+                raise MailError("استجابة خدمة الترجمة أكبر من الحجم المسموح.")
+            payload = json.loads(raw.decode("utf-8"))
             if not payload or not isinstance(payload[0], list):
                 raise MailError("تعذر الحصول على ترجمة من Google.")
             translated = "".join(
@@ -86,4 +95,5 @@ def translate_chunk_with_google(chunk: str, target_language: str) -> str:
             last_error = exc
         if attempt + 1 < TRANSLATION_ATTEMPTS:
             time.sleep(0.6)
-    raise MailError("تعذر الحصول على ترجمة من Google.") from last_error
+    friendly_error = friendly_https_error(last_error) if last_error else ""
+    raise MailError(friendly_error or "تعذر الحصول على ترجمة من Google.") from last_error

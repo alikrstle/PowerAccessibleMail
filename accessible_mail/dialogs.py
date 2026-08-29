@@ -1,14 +1,14 @@
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from dataclasses import replace
 from pathlib import Path
 
 import wx
 
 from .accessibility import announce_context_menu, announce_to_screen_reader, set_accessible
-from .address_book import add_address, load_address_book
-from .address_book_dialog import AddressPickerDialog
+from .address_book import add_address, load_address_book, normalize_email_address
+from .address_book_dialog import AddressPickerDialog, request_custom_address_name
 from .config import ProgramSettings, THEME_DARK, THEME_LIGHT
 from .i18n import tr
 from .notification_preferences import (
@@ -16,6 +16,7 @@ from .notification_preferences import (
     EVENT_COMPOSE_ATTACHMENTS,
     EVENTS_BY_ID,
     SPOKEN_NOTIFICATION_GROUPS,
+    NOTIFICATION_LEVEL_CUSTOM,
     normalize_event_ids,
     preset_event_ids,
 )
@@ -39,9 +40,14 @@ class ComposeDialog(wx.Dialog):
         to_address: str = "",
         subject: str = "",
         body: str = "",
+        attachment_paths: Sequence[Path] = (),
     ) -> None:
         super().__init__(parent, title=title, size=(720, 680))
-        self.attachment_paths: list[Path] = []
+        self.attachment_paths = [
+            Path(path)
+            for path in attachment_paths
+            if Path(path).is_file()
+        ]
         panel = wx.Panel(self)
         root = wx.BoxSizer(wx.VERTICAL)
 
@@ -93,6 +99,7 @@ class ComposeDialog(wx.Dialog):
             wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM,
             8,
         )
+        self.refresh_attachment_list()
 
         send_button = wx.Button(panel, id=wx.ID_OK, label="إرسال")
         cancel_button = wx.Button(panel, id=wx.ID_CANCEL, label="إلغاء")
@@ -174,7 +181,27 @@ class ComposeDialog(wx.Dialog):
             )
             self.to_address.SetFocus()
             return
-        added, result = add_address(value)
+        normalized = normalize_email_address(value)
+        if not normalized:
+            wx.MessageBox(
+                tr("يرجى كتابة بريد إلكتروني صالح أولاً."),
+                tr("عنوان غير صالح"),
+                wx.OK | wx.ICON_INFORMATION,
+                self,
+            )
+            self.to_address.SetFocus()
+            return
+        if any(entry.email.casefold() == normalized.casefold() for entry in load_address_book()):
+            wx.MessageBox(
+                tr("عنوان البريد الإلكتروني موجود بالفعل في سجل العناوين."),
+                tr("العنوان موجود"),
+                wx.OK | wx.ICON_INFORMATION,
+                self,
+            )
+            self.to_address.SetFocus()
+            return
+        name = request_custom_address_name(self, normalized)
+        added, result = add_address(normalized, name)
         if added:
             announce_to_screen_reader(
                 self.to_address,
@@ -676,6 +703,7 @@ class SettingsDialog(wx.Dialog):
                 self.settings.spoken_notification_level,
             ),
             spoken_notification_events=selected_events or [],
+            last_selected_account_id=self.settings.last_selected_account_id,
         )
 
     def on_notification_level_changed(self, _event: wx.Event) -> None:
@@ -685,6 +713,17 @@ class SettingsDialog(wx.Dialog):
             self.settings.spoken_notification_level,
         )
         self.notification_event_ids = preset_event_ids(level)
+        if level == NOTIFICATION_LEVEL_CUSTOM:
+            wx.MessageBox(
+                tr(
+                    "اخترت المستوى المخصص. جميع إجراءات النطق غير محددة الآن. "
+                    "حدد الإجراءات التي تريد أن ينطقها البرنامج ثم اضغط حفظ."
+                ),
+                tr("تخصيص نطق الإجراءات"),
+                wx.OK | wx.ICON_INFORMATION,
+                self,
+            )
+            self.on_customize_notifications(_event)
 
     def on_customize_notifications(self, _event: wx.Event) -> None:
         dialog = SpokenNotificationsDialog(self, self.notification_event_ids)

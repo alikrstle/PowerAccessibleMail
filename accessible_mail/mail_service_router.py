@@ -5,7 +5,7 @@ from pathlib import Path
 
 from .email_service import EmailService, MailSyncResult
 from .gmail_api_service import GmailApiService
-from .models import Account, MessageContent, MessageSummary
+from .models import Account, LinkItem, MessageContent, MessageSummary
 from .secure_store import MessageCache
 
 
@@ -36,6 +36,22 @@ class MailServiceRouter:
         mark_read: bool = True,
     ) -> MessageContent:
         return self.service_for(account).fetch_message(account, summary, mark_read)
+
+    def download_attachment(
+        self,
+        account: Account,
+        summary: MessageSummary,
+        item: LinkItem,
+        destination: Path,
+        on_progress: Callable[[int, int], None] | None = None,
+    ) -> Path:
+        return self.service_for(account).download_attachment(
+            account,
+            summary,
+            item,
+            destination,
+            on_progress,
+        )
 
     def set_message_read(
         self,

@@ -4,6 +4,7 @@ import base64
 import html
 import logging
 import os
+import threading
 import time
 import urllib.parse
 import urllib.request
@@ -43,6 +44,7 @@ from .network_security import UnsafeRemoteUrl, public_http_opener, validate_publ
 from .ui_constants import (
     BULK_ACTION_DELETE,
     BULK_ACTION_MARK_READ,
+    BULK_ACTION_MARK_UNREAD,
     BULK_ACTION_PIN,
     BULK_ACTION_STAR,
     BULK_ACTION_UNPIN,
@@ -118,6 +120,14 @@ class MailPage(wx.Panel):
         on_bulk_action: Callable[["MailPage", str, list[MessageSummary]], None],
         on_filter_changed: Callable[["MailPage"], None] | None = None,
         on_viewer_enter: Callable[["MailPage", MessageSummary], None] | None = None,
+        on_end_reached: Callable[["MailPage"], None] | None = None,
+        on_attachment_transfer: Callable[
+            ["MailPage", MessageSummary, LinkItem, Path, Callable[[int, int], None]],
+            Path,
+        ] | None = None,
+        on_forward: Callable[["MailPage"], None] | None = None,
+        on_toggle_expanded: Callable[["MailPage"], None] | None = None,
+        on_html_focus_state: Callable[["MailPage", bool], None] | None = None,
     ) -> None:
         super().__init__(parent)
         self.title = title
@@ -130,7 +140,7 @@ class MailPage(wx.Panel):
         self.viewer_text = ""
         self.viewer_mode = VIEWER_HTML
         self.message_read_mode = MESSAGE_READ_MANUAL
-        self.theme = THEME_LIGHT
+        self.theme = THEME_DARK
         self.link_panel_visible_in_html = False
         self.viewer_action_ranges: list[tuple[int, int, LinkItem]] = []
         self.current_viewer_action_range: tuple[int, int, LinkItem] | None = None
@@ -139,18 +149,22 @@ class MailPage(wx.Panel):
         self._last_items_toggle_at = 0.0
         self._last_context_menu_request_at = 0.0
         self._html_focus_call: wx.CallLater | None = None
+        self._message_list_focus_call: wx.CallLater | None = None
         self._html_refresh_call: wx.CallLater | None = None
         self._html_load_timeout_call: wx.CallLater | None = None
         self._html_viewer_active = False
         self._html_refresh_pending = True
         self._html_focus_after_load = False
         self._html_loading = False
+        self._html_refresh_retry_count = 0
+        self._pending_html_context_menu = False
         self._focus_plain_start_after_content = False
         self._suppress_selection_event = False
         self._pending_auto_read_key: tuple[str, str] | None = None
         self._deferred_filter_refresh = False
         self._deferred_filter_previous_index = 0
         self._translation_generation = 0
+        self._expanded_viewer = False
         self.multi_select_mode = False
         self._multi_selected_keys: set[tuple[str, str]] = set()
         self._control_pressed_alone = False
@@ -166,6 +180,11 @@ class MailPage(wx.Panel):
         self.on_bulk_action = on_bulk_action
         self.on_filter_changed = on_filter_changed
         self.on_viewer_enter = on_viewer_enter
+        self.on_end_reached = on_end_reached
+        self.on_attachment_transfer = on_attachment_transfer
+        self.on_forward = on_forward
+        self.on_toggle_expanded = on_toggle_expanded
+        self.on_html_focus_state = on_html_focus_state
         self._build()
 
     def _build(self) -> None:
@@ -177,7 +196,7 @@ class MailPage(wx.Panel):
         set_accessible(self.filter_choice, f"تصنيف {self.title}")
         self.filter_choice.Bind(wx.EVT_CHOICE, self.on_filter)
         filter_row.Add(self.filter_choice, 1, wx.EXPAND | wx.ALL, 6)
-        root.Add(filter_row, 0, wx.EXPAND)
+        self.filter_row_sizer_item = root.Add(filter_row, 0, wx.EXPAND)
 
         self.list = wx.ListCtrl(self, style=wx.LC_REPORT)
         self.list.EnableCheckBoxes(False)
@@ -198,18 +217,51 @@ class MailPage(wx.Panel):
         self.list.Bind(wx.EVT_KEY_DOWN, self.on_list_key_down)
         self.list.Bind(wx.EVT_KEY_UP, self.on_list_key_up)
         self.list.Bind(wx.EVT_SET_FOCUS, self.on_message_list_focus)
-        root.Add(self.list, 2, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM, 8)
+        self.list_sizer_item = root.Add(
+            self.list,
+            2,
+            wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM,
+            8,
+        )
 
         self.selection_status = wx.StaticText(self, label="")
         set_accessible(self.selection_status, "حالة التحديد المتعدد")
         self.selection_status.Hide()
         root.Add(self.selection_status, 0, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM, 8)
 
-        root.Add(wx.StaticText(self, label="نص الرسالة:"), 0, wx.LEFT | wx.RIGHT, 8)
+        self.viewer_label = wx.StaticText(self, label="نص الرسالة:")
+        self.viewer_label_sizer_item = root.Add(
+            self.viewer_label,
+            0,
+            wx.LEFT | wx.RIGHT,
+            8,
+        )
+        self.expanded_line_preview = wx.StaticText(
+            self,
+            label="",
+            style=wx.ST_ELLIPSIZE_END,
+        )
+        preview_font = wx.Font(self.expanded_line_preview.GetFont())
+        preview_font.SetPointSize(max(24, preview_font.GetPointSize() + 12))
+        preview_font.SetWeight(wx.FONTWEIGHT_BOLD)
+        self.expanded_line_preview.SetFont(preview_font)
+        set_accessible(
+            self.expanded_line_preview,
+            "السطر الحالي المكبر",
+            "معاينة مرئية مكبرة للسطر الحالي في المستعرض السهل.",
+        )
+        self.expanded_line_preview.Hide()
+        self.expanded_line_preview_sizer_item = root.Add(
+            self.expanded_line_preview,
+            0,
+            wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM,
+            8,
+        )
         self.viewer = wx.TextCtrl(
             self,
             style=wx.TE_MULTILINE | wx.TE_READONLY,
         )
+        self._viewer_normal_font = wx.Font(self.viewer.GetFont())
         self.viewer.Hide()
         self.html_viewer = wx.html2.WebView.New(self)
         self._html_message_bridge = False
@@ -236,6 +288,8 @@ class MailPage(wx.Panel):
         self.viewer.Bind(wx.EVT_KEY_DOWN, self.on_viewer_key)
         self.viewer.Bind(wx.EVT_CHAR, self.on_viewer_key)
         self.viewer.Bind(wx.EVT_SET_FOCUS, self.on_message_viewer_focus)
+        self.viewer.Bind(wx.EVT_KEY_UP, self.on_viewer_navigation)
+        self.viewer.Bind(wx.EVT_LEFT_UP, self.on_viewer_navigation)
         self.html_viewer.Bind(wx.EVT_CHAR_HOOK, self.on_html_viewer_key)
         self.html_viewer.Bind(wx.EVT_KEY_DOWN, self.on_html_viewer_key)
         self.html_viewer.Bind(wx.EVT_SET_FOCUS, self.on_message_viewer_focus)
@@ -302,7 +356,7 @@ class MailPage(wx.Panel):
         self.item_filter_choice.Bind(wx.EVT_CHOICE, self.on_item_filter)
         link_row.Add(self.item_filter_choice, 0, wx.EXPAND | wx.ALL, 6)
         self.link_panel.SetSizer(link_row)
-        root.Add(self.link_panel, 1, wx.EXPAND)
+        self.link_panel_sizer_item = root.Add(self.link_panel, 1, wx.EXPAND)
 
         self.SetSizer(root)
         self.localize_ui()
@@ -468,6 +522,12 @@ class MailPage(wx.Panel):
             self._control_pressed_alone = False
 
         if (
+            key_code in {wx.WXK_DOWN, wx.WXK_END, wx.WXK_PAGEDOWN}
+            and self.focused_index() == len(self.visible_messages) - 1
+        ):
+            MailPage.notify_end_reached(self)
+
+        if (
             key_code == wx.WXK_SPACE
             and event.ControlDown()
             and event.ShiftDown()
@@ -607,6 +667,13 @@ class MailPage(wx.Panel):
                 or index == self.focused_index()
             ):
                 self.on_selected(self, self.visible_messages[index])
+                if index == len(self.visible_messages) - 1:
+                    MailPage.notify_end_reached(self)
+
+    def notify_end_reached(self) -> None:
+        callback = getattr(self, "on_end_reached", None)
+        if self.visible_messages and callback:
+            callback(self)
 
     def on_item_deselected(self, event: wx.ListEvent) -> None:
         if not self._suppress_selection_event:
@@ -829,6 +896,8 @@ class MailPage(wx.Panel):
             self._suppress_selection_event = False
         self.list.EnsureVisible(target)
         self.on_selected(self, self.visible_messages[target])
+        if target == item_count - 1:
+            MailPage.notify_end_reached(self)
 
     def toggle_focused_message_selection(self) -> None:
         index = self.focused_index()
@@ -958,6 +1027,7 @@ class MailPage(wx.Panel):
 
     def set_viewer_text(self, text: str) -> None:
         self.viewer_text = text
+        self._html_refresh_retry_count = 0
         try:
             self.viewer.ChangeValue(text)
         except AttributeError:
@@ -1070,7 +1140,13 @@ class MailPage(wx.Panel):
         if self._html_loading:
             self._html_refresh_pending = True
             return
-        self.show_html_viewer()
+        if self.show_html_viewer() is False:
+            self._html_loading = False
+            self._html_refresh_pending = True
+            self._html_viewer_active = False
+            self._html_focus_after_load = False
+            self.show_plain_viewer()
+            return
         self._html_loading = True
         try:
             self.html_viewer.SetPage(self.message_html(self.viewer_text), "about:blank")
@@ -1078,9 +1154,17 @@ class MailPage(wx.Panel):
             LOGGER.exception("Failed to replace the HTML message document")
             self._html_loading = False
             self._html_refresh_pending = True
-            self._html_viewer_active = False
-            self._html_focus_after_load = False
-            self.show_plain_viewer()
+            self._html_refresh_retry_count += 1
+            if self._html_viewer_active and self._html_refresh_retry_count <= 2:
+                self._html_refresh_call = wx.CallLater(
+                    150,
+                    self.run_scheduled_html_refresh,
+                )
+            else:
+                self._html_viewer_active = False
+                self._html_focus_after_load = False
+                self._pending_html_context_menu = False
+                self.show_plain_viewer()
             return
         MailPage.cancel_html_load_timeout(self)
         self._html_load_timeout_call = wx.CallLater(
@@ -1108,13 +1192,26 @@ class MailPage(wx.Panel):
         if self._html_viewer_active and self._html_focus_after_load:
             self._html_focus_after_load = False
             wx.CallAfter(self.focus_html_document_start)
+        MailPage.show_pending_html_context_menu(self)
 
     def activate_html_viewer(self) -> None:
+        pending_list_focus = getattr(self, "_message_list_focus_call", None)
+        if pending_list_focus and pending_list_focus.IsRunning():
+            pending_list_focus.Stop()
+        self._message_list_focus_call = None
         self._html_viewer_active = True
+        callback = getattr(self, "on_html_focus_state", None)
+        if callback:
+            callback(self, True)
         if self._html_refresh_pending:
             self.schedule_html_refresh(focus_start=True)
             return
-        self.show_html_viewer()
+        if self.show_html_viewer() is False:
+            self._html_viewer_active = False
+            self._html_focus_after_load = False
+            self.show_plain_viewer()
+            self.viewer.SetFocus()
+            return
         if self._html_loading:
             self._html_focus_after_load = True
             return
@@ -1122,7 +1219,11 @@ class MailPage(wx.Panel):
 
     def deactivate_html_viewer(self) -> None:
         self._html_viewer_active = False
+        callback = getattr(self, "on_html_focus_state", None)
+        if callback:
+            callback(self, False)
         self._html_focus_after_load = False
+        self._pending_html_context_menu = False
         if self._html_refresh_call and self._html_refresh_call.IsRunning():
             self._html_refresh_call.Stop()
         self._html_refresh_call = None
@@ -1137,8 +1238,8 @@ class MailPage(wx.Panel):
             if self._html_refresh_pending and not self._html_loading:
                 self.schedule_html_refresh(focus_start=True)
             return
-        self.html_viewer.SetFocus()
         try:
+            self.html_viewer.SetFocus()
             self.html_viewer.RunScript(
                 "var messageElement = document.getElementById('message'); "
                 "if (messageElement) { "
@@ -1156,8 +1257,16 @@ class MailPage(wx.Panel):
                 "textSelection.addRange(textRangeModern); "
                 "} } window.scrollTo(0, 0);"
             )
-        except (AttributeError, RuntimeError):
-            pass
+        except (AttributeError, RuntimeError, wx.PyAssertionError):
+            LOGGER.warning("HTML viewer focus failed; returning to the native viewer")
+            self._html_viewer_active = False
+            self._html_focus_after_load = False
+            self._html_refresh_pending = True
+            self.show_plain_viewer()
+            try:
+                self.viewer.SetFocus()
+            except (RuntimeError, wx.PyAssertionError):
+                self.focus_message_list()
 
     def set_viewer_mode(self, mode: str) -> None:
         self.viewer_mode = VIEWER_SIMPLE if mode == VIEWER_SIMPLE else VIEWER_HTML
@@ -1165,12 +1274,61 @@ class MailPage(wx.Panel):
         self._html_refresh_pending = True
         self.link_panel_visible_in_html = False
         self.update_link_panel_visibility()
+        self.expanded_line_preview.Show(
+            bool(self._expanded_viewer and self.viewer_mode == VIEWER_SIMPLE)
+        )
         self.set_viewer_text(self.viewer_text)
 
     def set_theme(self, theme: str) -> None:
         self.theme = THEME_DARK if theme == THEME_DARK else THEME_LIGHT
         self.apply_viewer_colours()
         self.set_viewer_text(self.viewer_text)
+
+    def set_expanded_viewer(self, expanded: bool) -> None:
+        self._expanded_viewer = bool(expanded)
+        self.filter_row_sizer_item.Show(not expanded)
+        self.list_sizer_item.Show(not expanded)
+        self.viewer_label_sizer_item.Show(not expanded)
+        self.link_panel_sizer_item.Show(not expanded)
+        if expanded:
+            self.selection_status.Hide()
+        else:
+            self.selection_status.Show(
+                bool(self.multi_select_mode and self.selection_status.GetLabel())
+            )
+        expanded_font = wx.Font(self._viewer_normal_font)
+        if expanded:
+            expanded_font.SetPointSize(
+                max(24, self._viewer_normal_font.GetPointSize() + 10)
+            )
+        self.viewer.SetFont(expanded_font)
+        self.expanded_line_preview.Show(
+            bool(expanded and self.viewer_mode == VIEWER_SIMPLE)
+        )
+        self._html_refresh_pending = True
+        self.set_viewer_text(self.viewer_text)
+        self.update_expanded_line_preview()
+        self.Layout()
+
+    def on_viewer_navigation(self, event: wx.Event) -> None:
+        if self._expanded_viewer:
+            wx.CallAfter(self.update_expanded_line_preview)
+        event.Skip()
+
+    def update_expanded_line_preview(self) -> None:
+        if not self._expanded_viewer or self.viewer_mode != VIEWER_SIMPLE:
+            self.expanded_line_preview.SetLabel("")
+            return
+        text = self.viewer.GetValue()
+        position = max(0, min(self.viewer.GetInsertionPoint(), len(text)))
+        line_start = text.rfind("\n", 0, position) + 1
+        line_end = text.find("\n", position)
+        if line_end < 0:
+            line_end = len(text)
+        line = " ".join(text[line_start:line_end].split()).strip()
+        self.expanded_line_preview.SetLabel(line[:500] or tr("سطر فارغ"))
+        self.expanded_line_preview.SetToolTip(line)
+        self.Layout()
 
     def apply_viewer_colours(self) -> None:
         if self.theme == THEME_DARK:
@@ -1182,19 +1340,27 @@ class MailPage(wx.Panel):
         self.viewer.SetBackgroundColour(background)
         self.viewer.SetForegroundColour(foreground)
 
-    def show_html_viewer(self) -> None:
+    def show_html_viewer(self) -> bool:
+        try:
+            self.html_viewer.Show(True)
+            self.html_viewer_sizer_item.Show(True)
+        except (RuntimeError, wx.PyAssertionError):
+            LOGGER.warning("HTML viewer became unavailable; keeping the native viewer visible")
+            return False
         self.viewer.Show(False)
-        self.html_viewer.Show(True)
         self.viewer_sizer_item.Show(False)
-        self.html_viewer_sizer_item.Show(True)
         self.update_link_panel_visibility()
         self.layout_viewer_area()
+        return True
 
     def show_plain_viewer(self) -> None:
-        self.html_viewer.Show(False)
         self.viewer.Show(True)
-        self.html_viewer_sizer_item.Show(False)
         self.viewer_sizer_item.Show(True)
+        try:
+            self.html_viewer.Show(False)
+            self.html_viewer_sizer_item.Show(False)
+        except (RuntimeError, wx.PyAssertionError):
+            LOGGER.warning("HTML viewer was already unavailable while showing the native viewer")
         self.update_link_panel_visibility()
         self.layout_viewer_area()
 
@@ -1205,6 +1371,9 @@ class MailPage(wx.Panel):
             parent.Layout()
 
     def update_link_panel_visibility(self) -> None:
+        if self._expanded_viewer:
+            self.link_panel.Hide()
+            return
         if self.viewer_mode == VIEWER_HTML:
             self.link_panel.Show(bool(self.link_panel_visible_in_html))
         else:
@@ -1242,6 +1411,12 @@ class MailPage(wx.Panel):
         self.focus_link_panel()
 
     def focus_link_panel(self) -> None:
+        if getattr(self, "_expanded_viewer", False) and getattr(
+            self,
+            "on_toggle_expanded",
+            None,
+        ):
+            self.on_toggle_expanded(self)
         self.deactivate_html_viewer()
         if self.viewer_mode == VIEWER_HTML and not self.link_panel_visible_in_html:
             self.link_panel_visible_in_html = True
@@ -1275,9 +1450,47 @@ class MailPage(wx.Panel):
         self.set_status("مستعرض الرسالة.")
 
     def focus_message_list(self) -> None:
+        if getattr(self, "_expanded_viewer", False) and getattr(
+            self,
+            "on_toggle_expanded",
+            None,
+        ):
+            self.on_toggle_expanded(self)
+        # Escape can arrive while WebView2 is completing a translated document
+        # replacement or while a delayed context-menu focus action is pending.
+        # Cancel those requests first so that Chromium cannot immediately steal
+        # focus back from the native message list.
+        self._translation_return_control = None
+        if self._html_focus_call and self._html_focus_call.IsRunning():
+            self._html_focus_call.Stop()
+        self._html_focus_call = None
         self.deactivate_html_viewer()
         self.list.SetFocus()
+        if self._message_list_focus_call and self._message_list_focus_call.IsRunning():
+            self._message_list_focus_call.Stop()
+        self._message_list_focus_call = wx.CallLater(
+            120,
+            self.ensure_message_list_focus_after_html,
+        )
         self.set_status("قائمة الرسائل.")
+
+    def ensure_message_list_focus_after_html(self) -> None:
+        """Recover focus if WebView2 takes it back while its document is closing."""
+        self._message_list_focus_call = None
+        if self._html_viewer_active:
+            return
+        try:
+            focus = wx.Window.FindFocus()
+        except (RuntimeError, wx.PyAssertionError):
+            focus = None
+        if focus is self.list:
+            return
+        if focus not in {None, self.html_viewer, self.viewer}:
+            return
+        try:
+            self.list.SetFocus()
+        except (RuntimeError, wx.PyAssertionError):
+            return
 
     def focus_list_index(self, index: int) -> None:
         item_count = self.list.GetItemCount()
@@ -1304,6 +1517,15 @@ class MailPage(wx.Panel):
             ),
             quote=True,
         )
+        expanded_viewer = getattr(self, "_expanded_viewer", False)
+        font_size = 28 if expanded_viewer else 18
+        line_height = 1.8 if expanded_viewer else 1.65
+        expanded_line_preview = (
+            '<div id="pam-current-line" class="current-line-preview" '
+            'aria-hidden="true"></div>'
+            if expanded_viewer
+            else ""
+        )
         if self.theme == THEME_DARK:
             background = "#202124"
             foreground = "#f5f5f5"
@@ -1325,14 +1547,27 @@ class MailPage(wx.Panel):
 <style>
 body {{
     font-family: "Segoe UI", Tahoma, Arial, sans-serif;
-    font-size: 18px;
-    line-height: 1.65;
+    font-size: {font_size}px;
+    line-height: {line_height};
     margin: 12px;
     color: {foreground};
     background: {background};
 }}
 .message-content {{
     white-space: pre-wrap;
+}}
+.current-line-preview {{
+    display: none;
+    position: sticky;
+    top: 0;
+    z-index: 10;
+    margin: 0 0 12px 0;
+    padding: 8px 10px;
+    border: 2px solid {link_colour};
+    color: {foreground};
+    background: {background};
+    font-size: 1.3em;
+    font-weight: 700;
 }}
 .items-shortcut-note {{
     margin: 16px 0 0 0;
@@ -1360,24 +1595,39 @@ a:focus, button:focus {{
 </head>
 <body>
 <article id="message" tabindex="0" aria-label="{message_label}">
+{expanded_line_preview}
 <div class="message-content">{content}</div>
 <p class="items-shortcut-note">{items_shortcut_note}</p>
 </article>
 <script>
-function pamSend(command) {{
+function pamSend(command, ensureNavigationFallback) {{
+    var bridgeUsed = false;
     try {{
         if (window.pamBridge && typeof window.pamBridge.postMessage === "function") {{
             window.pamBridge.postMessage(command);
-            return;
+            bridgeUsed = true;
         }}
     }} catch (bridgeError) {{
     }}
-    window.location.href = "pam:" + command;
+    if (!bridgeUsed) {{
+        window.location.href = "pam:" + command;
+    }} else if (ensureNavigationFallback) {{
+        // Some WebView2 versions accept postMessage but lose the message while
+        // a translated document is being replaced. The navigation fallback is
+        // cancelled naturally when the successful native handler hides this
+        // document, and duplicate native commands are harmless.
+        window.setTimeout(function () {{
+            window.location.href = "pam:" + command;
+        }}, 60);
+    }}
 }}
 function pamKeyMatches(event, codes, keys, legacyCode) {{
     return codes.indexOf(event.code) !== -1 ||
         keys.indexOf(event.key) !== -1 ||
         event.keyCode === legacyCode;
+}}
+function pamIsEscape(event) {{
+    return pamKeyMatches(event, ["Escape"], ["Escape", "Esc"], 27);
 }}
 function pamActionElement(target) {{
     while (target && target !== document.documentElement) {{
@@ -1411,14 +1661,31 @@ document.addEventListener("contextmenu", function (event) {{
     event.stopPropagation();
     pamSend("context-menu:pointer");
 }}, true);
+var pamEscapeHandledOnKeyDown = false;
+var pamContextHandledOnKeyDown = false;
 window.addEventListener("keydown", function (event) {{
+    if (event.altKey && !event.ctrlKey && !event.metaKey && !event.shiftKey &&
+            pamKeyMatches(event, ["Enter", "NumpadEnter"], ["Enter"], 13)) {{
+        event.preventDefault();
+        event.stopPropagation();
+        pamSend("toggle-expanded");
+        return;
+    }}
+    if (event.altKey || event.metaKey) {{
+        return;
+    }}
     var ctrlOnly = event.ctrlKey && !event.altKey && !event.metaKey;
     var plainKey = !event.ctrlKey && !event.altKey && !event.metaKey;
     if (ctrlOnly && pamKeyMatches(event, ["Enter", "NumpadEnter"], ["Enter"], 13)) {{
         event.preventDefault();
         event.stopPropagation();
         pamSend("toggle-items");
+    }} else if (ctrlOnly && !event.shiftKey && pamKeyMatches(event, ["KeyC"], ["c", "C"], 67)) {{
+        event.preventDefault();
+        event.stopPropagation();
+        pamSend("copy-message");
     }} else if ((event.shiftKey && event.code === "F10") || event.key === "ContextMenu") {{
+        pamContextHandledOnKeyDown = true;
         event.preventDefault();
         event.stopPropagation();
         pamSend("context-menu:keyboard");
@@ -1426,12 +1693,62 @@ window.addEventListener("keydown", function (event) {{
         event.preventDefault();
         event.stopPropagation();
         pamActionCommand("open-action", document.activeElement);
-    }} else if (plainKey && event.key === "Escape") {{
+    }} else if (plainKey && pamIsEscape(event)) {{
+        pamEscapeHandledOnKeyDown = true;
         event.preventDefault();
         event.stopPropagation();
-        pamSend("focus-list");
+        pamSend("focus-list", true);
     }}
 }}, true);
+window.addEventListener("keyup", function (event) {{
+    if (event.altKey || event.metaKey) {{
+        return;
+    }}
+    var plainKey = !event.ctrlKey && !event.altKey && !event.metaKey;
+    if (plainKey && pamIsEscape(event)) {{
+        if (!pamEscapeHandledOnKeyDown) {{
+            event.preventDefault();
+            event.stopPropagation();
+            pamSend("focus-list", true);
+        }}
+        pamEscapeHandledOnKeyDown = false;
+    }} else if ((event.shiftKey && event.code === "F10") || event.key === "ContextMenu") {{
+        if (!pamContextHandledOnKeyDown) {{
+            event.preventDefault();
+            event.stopPropagation();
+            pamSend("context-menu:keyboard");
+        }}
+        pamContextHandledOnKeyDown = false;
+    }}
+}}, true);
+function pamUpdateCurrentLinePreview() {{
+    var preview = document.getElementById("pam-current-line");
+    if (!preview) {{
+        return;
+    }}
+    var selection = window.getSelection ? window.getSelection() : null;
+    if (!selection || !selection.focusNode) {{
+        preview.style.display = "none";
+        return;
+    }}
+    var node = selection.focusNode;
+    var value = node.nodeType === 3 ? (node.nodeValue || "") : (node.textContent || "");
+    var offset = node.nodeType === 3 ? selection.focusOffset : 0;
+    var start = value.lastIndexOf("\n", Math.max(0, offset - 1)) + 1;
+    var end = value.indexOf("\n", offset);
+    if (end < 0) {{
+        end = value.length;
+    }}
+    var line = value.slice(start, end).replace(/\\s+/g, " ").trim();
+    if (!line) {{
+        preview.style.display = "none";
+        return;
+    }}
+    preview.textContent = line;
+    preview.style.display = "block";
+}}
+document.addEventListener("selectionchange", pamUpdateCurrentLinePreview, true);
+document.addEventListener("keyup", pamUpdateCurrentLinePreview, true);
 </script>
 </body>
 </html>"""
@@ -1506,10 +1823,12 @@ window.addEventListener("keydown", function (event) {{
     def on_html_viewer_loaded(self, _event: wx.html2.WebViewEvent) -> None:
         MailPage.cancel_html_load_timeout(self)
         self._html_loading = False
+        self._html_refresh_retry_count = 0
         if self._html_refresh_pending:
             if self._html_viewer_active:
                 self.schedule_html_refresh(focus_start=self._html_focus_after_load)
             return
+        MailPage.show_pending_html_context_menu(self)
         if not self._html_viewer_active or not self._html_focus_after_load:
             return
         self._html_focus_after_load = False
@@ -1527,10 +1846,22 @@ window.addEventListener("keydown", function (event) {{
 
     def on_html_viewer_key(self, event: wx.KeyEvent) -> None:
         key_code = event.GetKeyCode()
+        if (
+            event.AltDown()
+            and not event.ControlDown()
+            and not event.CmdDown()
+            and key_code in {wx.WXK_RETURN, wx.WXK_NUMPAD_ENTER}
+            and self.on_toggle_expanded
+        ):
+            self.on_toggle_expanded(self)
+            return
         ctrl_only = event.ControlDown() and not event.AltDown() and not event.CmdDown()
         if ctrl_only:
             if key_code in {wx.WXK_RETURN, wx.WXK_NUMPAD_ENTER}:
                 self.toggle_message_and_link_viewers()
+                return
+            if not event.ShiftDown() and key_code in {ord("C"), ord("c")}:
+                self.copy_message_viewer_text(self.html_viewer)
                 return
         if (
             not event.ControlDown()
@@ -1546,10 +1877,19 @@ window.addEventListener("keydown", function (event) {{
         normalized = command.strip().lower().strip("/").partition("?")[0]
         action, separator, payload = normalized.partition(":")
         if action == "focus-list":
-            self.schedule_html_focus_action(self.focus_message_list)
+            # Escape is a navigation command, not a popup action. Running it on
+            # the next UI turn avoids the old 75 ms window in which WebView2
+            # could finish a reload and retain keyboard focus.
+            wx.CallAfter(self.focus_message_list)
             return True
         if action == "toggle-items":
             self.schedule_html_focus_action(self.toggle_message_and_link_viewers)
+            return True
+        if action == "toggle-expanded" and self.on_toggle_expanded:
+            wx.CallAfter(self.on_toggle_expanded, self)
+            return True
+        if action == "copy-message":
+            wx.CallAfter(self.copy_message_viewer_text, self.html_viewer)
             return True
         if action == "context-menu":
             self.request_html_context_menu()
@@ -1585,6 +1925,30 @@ window.addEventListener("keydown", function (event) {{
         if now - self._last_context_menu_request_at < 0.3:
             return
         self._last_context_menu_request_at = now
+        if getattr(self, "_html_loading", False) or getattr(
+            self,
+            "_html_refresh_pending",
+            False,
+        ):
+            self._pending_html_context_menu = True
+            self.activate_html_viewer()
+            return
+        wx.CallAfter(
+            self.show_message_context_menu,
+            self.html_viewer,
+            self.has_translatable_content(),
+        )
+
+    def show_pending_html_context_menu(self) -> None:
+        if not getattr(self, "_pending_html_context_menu", False):
+            return
+        if getattr(self, "_html_loading", False) or getattr(
+            self,
+            "_html_refresh_pending",
+            False,
+        ):
+            return
+        self._pending_html_context_menu = False
         wx.CallAfter(
             self.show_message_context_menu,
             self.html_viewer,
@@ -1960,6 +2324,15 @@ window.addEventListener("keydown", function (event) {{
                 translation_enabled=self.has_translatable_content(),
             )
             return True
+        if (
+            event.AltDown()
+            and not event.ControlDown()
+            and not event.CmdDown()
+            and event.GetKeyCode() in {wx.WXK_RETURN, wx.WXK_NUMPAD_ENTER}
+            and self.on_toggle_expanded
+        ):
+            self.on_toggle_expanded(self)
+            return True
         ctrl_only = event.ControlDown() and not event.AltDown() and not event.CmdDown()
         if ctrl_only:
             if event.GetKeyCode() in {wx.WXK_RETURN, wx.WXK_NUMPAD_ENTER}:
@@ -2307,19 +2680,28 @@ window.addEventListener("keydown", function (event) {{
             if answer != wx.YES:
                 self.set_status("تم إلغاء فتح المرفق غير الآمن.")
                 return
-        try:
-            path = self.write_attachment_to_folder(item, self.opened_attachments_dir())
-            if hasattr(os, "startfile"):
-                os.startfile(str(path))  # type: ignore[attr-defined]
-            else:
-                webbrowser.open(path.as_uri())
-        except OSError as exc:
-            wx.MessageBox(str(exc), "تعذر فتح المرفق", wx.OK | wx.ICON_ERROR, self)
-            return
-        except RuntimeError as exc:
-            wx.MessageBox(str(exc), "تعذر فتح المرفق", wx.OK | wx.ICON_INFORMATION, self)
-            return
-        self.set_status(f"تم فتح المرفق محليا: {path.name}")
+        folder = self.opened_attachments_dir()
+        folder.mkdir(parents=True, exist_ok=True)
+        path = self.unique_path(folder / self.safe_attachment_filename(item))
+
+        def opened(result: Path) -> None:
+            try:
+                if hasattr(os, "startfile"):
+                    os.startfile(str(result))  # type: ignore[attr-defined]
+                else:
+                    webbrowser.open(result.as_uri())
+            except OSError as exc:
+                wx.MessageBox(str(exc), "تعذر فتح المرفق", wx.OK | wx.ICON_ERROR, self)
+                return
+            self.set_status(f"اكتمل تنزيل المرفق وفتحه: {result.name}")
+
+        self.run_attachment_transfer(
+            item,
+            path,
+            f"بدأ فتح المرفق: {path.name}. جار تنزيله...",
+            opened,
+            "تعذر فتح المرفق",
+        )
 
     def save_attachment(self, item: LinkItem) -> None:
         default_name = Path(item.filename or item.text or "attachment").name or "attachment"
@@ -2330,17 +2712,27 @@ window.addEventListener("keydown", function (event) {{
             wildcard=tr("كل الملفات (*.*)|*.*"),
             style=wx.FD_SAVE | wx.FD_OVERWRITE_PROMPT,
         )
+        selected_path: Path | None = None
         try:
             if dialog.ShowModal() != wx.ID_OK:
                 return
-            self.write_attachment_to_path(item, Path(dialog.GetPath()))
-        except (OSError, RuntimeError) as exc:
-            wx.MessageBox(str(exc), "خطأ في حفظ المرفق", wx.OK | wx.ICON_ERROR, self)
-            return
+            selected_path = Path(dialog.GetPath())
         finally:
             dialog.Destroy()
-        wx.MessageBox("تم حفظ المرفق.", "تم الحفظ", wx.OK | wx.ICON_INFORMATION, self)
-        self.set_status("تم حفظ المرفق.")
+        if selected_path is None:
+            return
+
+        def saved(result: Path) -> None:
+            wx.MessageBox("اكتمل تنزيل المرفق وحفظه.", "تم الحفظ", wx.OK | wx.ICON_INFORMATION, self)
+            self.set_status(f"اكتمل تنزيل المرفق وحفظه: {result.name}")
+
+        self.run_attachment_transfer(
+            item,
+            selected_path,
+            f"بدأ تنزيل المرفق: {selected_path.name}",
+            saved,
+            "خطأ في حفظ المرفق",
+        )
 
     def save_all_attachments(self) -> None:
         attachments = self.attachment_items()
@@ -2356,55 +2748,243 @@ window.addEventListener("keydown", function (event) {{
             if dialog.ShowModal() != wx.ID_OK:
                 return
             folder = Path(dialog.GetPath())
-            saved_count = 0
-            for item in attachments:
-                self.write_attachment_to_folder(item, folder)
-                saved_count += 1
-        except (OSError, RuntimeError) as exc:
-            wx.MessageBox(str(exc), "خطأ في حفظ المرفقات", wx.OK | wx.ICON_ERROR, self)
-            return
         finally:
             dialog.Destroy()
-        wx.MessageBox(f"تم حفظ {saved_count} مرفق.", "تم الحفظ", wx.OK | wx.ICON_INFORMATION, self)
-        self.set_status(f"تم حفظ {saved_count} مرفق.")
+
+        self.run_attachment_batch(attachments, folder)
+
+    def run_attachment_transfer(
+        self,
+        item: LinkItem,
+        destination: Path,
+        start_message: str,
+        done: Callable[[Path], None],
+        error_title: str,
+    ) -> None:
+        summary = self.selected_summary()
+        if summary is None:
+            wx.MessageBox("تعذر تحديد الرسالة التي ينتمي إليها المرفق.", error_title, wx.OK | wx.ICON_ERROR, self)
+            return
+        progress_dialog = wx.ProgressDialog(
+            "تنزيل المرفق",
+            start_message,
+            maximum=100,
+            parent=self,
+            style=wx.PD_APP_MODAL | wx.PD_ELAPSED_TIME | wx.PD_REMAINING_TIME,
+        )
+        self.set_status(start_message)
+
+        def report(current: int, total: int) -> None:
+            percent = min(100, max(0, round((current * 100) / total))) if total > 0 else 0
+            wx.CallAfter(
+                self._update_attachment_progress,
+                progress_dialog,
+                percent,
+                destination.name,
+            )
+
+        def work() -> Path:
+            if self.on_attachment_transfer:
+                return self.on_attachment_transfer(self, summary, item, destination, report)
+            self.write_attachment_to_path(item, destination)
+            report(1, 1)
+            return destination
+
+        def delivered(result: object | None, error: Exception | None) -> None:
+            try:
+                progress_dialog.Destroy()
+            except RuntimeError:
+                pass
+            if error is not None:
+                wx.MessageBox(str(error), tr(error_title), wx.OK | wx.ICON_ERROR, self)
+                self.set_status(f"فشل تنزيل المرفق: {destination.name}")
+                return
+            done(Path(result))
+
+        def target() -> None:
+            try:
+                result = work()
+            except Exception as exc:
+                wx.CallAfter(delivered, None, exc)
+            else:
+                wx.CallAfter(delivered, result, None)
+
+        threading.Thread(target=target, daemon=True).start()
+
+    def _update_attachment_progress(
+        self,
+        dialog: wx.ProgressDialog,
+        percent: int,
+        filename: str,
+    ) -> None:
+        try:
+            dialog.Update(percent, f"جار تنزيل المرفق {filename}: {percent}%")
+        except RuntimeError:
+            pass
+
+    def run_attachment_batch(self, attachments: list[LinkItem], folder: Path) -> None:
+        summary = self.selected_summary()
+        if summary is None:
+            return
+        dialog = wx.ProgressDialog(
+            "تنزيل المرفقات",
+            f"بدأ تنزيل {len(attachments)} مرفق.",
+            maximum=100,
+            parent=self,
+            style=wx.PD_APP_MODAL | wx.PD_ELAPSED_TIME | wx.PD_REMAINING_TIME,
+        )
+        self.set_status(f"بدأ تنزيل {len(attachments)} مرفق.")
+
+        def work() -> int:
+            count = len(attachments)
+            for index, item in enumerate(attachments):
+                destination = self.unique_path(folder / self.safe_attachment_filename(item))
+
+                def report(
+                    current: int,
+                    total: int,
+                    base: int = index,
+                    destination_name: str = destination.name,
+                ) -> None:
+                    fraction = (current / total) if total > 0 else 0.0
+                    percent = round(((base + fraction) / count) * 100)
+                    wx.CallAfter(
+                        self._update_attachment_progress,
+                        dialog,
+                        percent,
+                        destination_name,
+                    )
+
+                if self.on_attachment_transfer:
+                    self.on_attachment_transfer(self, summary, item, destination, report)
+                else:
+                    self.write_attachment_to_path(item, destination)
+                    report(1, 1)
+            return count
+
+        def delivered(result: int | None, error: Exception | None) -> None:
+            try:
+                dialog.Destroy()
+            except RuntimeError:
+                pass
+            if error:
+                wx.MessageBox(str(error), "خطأ في حفظ المرفقات", wx.OK | wx.ICON_ERROR, self)
+                self.set_status("فشل تنزيل المرفقات.")
+                return
+            count = int(result or 0)
+            wx.MessageBox(f"اكتمل تنزيل وحفظ {count} مرفق.", "تم الحفظ", wx.OK | wx.ICON_INFORMATION, self)
+            self.set_status(f"اكتمل تنزيل وحفظ {count} مرفق.")
+
+        def target() -> None:
+            try:
+                result = work()
+            except Exception as exc:
+                wx.CallAfter(delivered, None, exc)
+            else:
+                wx.CallAfter(delivered, result, None)
+
+        threading.Thread(target=target, daemon=True).start()
 
     def open_image(self, item: LinkItem) -> None:
-        try:
-            image = self.materialize_image(item)
+        def work() -> Path:
+            image = self.materialize_image(replace(item))
             path = self.write_attachment_to_folder(image, self.opened_attachments_dir())
             if hasattr(os, "startfile"):
                 os.startfile(str(path))  # type: ignore[attr-defined]
             else:
                 webbrowser.open(path.as_uri())
-        except (OSError, RuntimeError) as exc:
-            wx.MessageBox(str(exc), tr("تعذر فتح الصورة"), wx.OK | wx.ICON_ERROR, self)
-            return
-        self.set_status(f"تم فتح الصورة محليا: {path.name}")
+            return path
+
+        def done(result: object) -> None:
+            path = Path(result)
+            self.set_status(f"تم فتح الصورة محليا: {path.name}")
+
+        self.run_background_io(
+            "جار تنزيل الصورة وفحصها...",
+            work,
+            done,
+            "تعذر فتح الصورة",
+        )
 
     def save_image(self, item: LinkItem) -> None:
-        try:
-            image = self.materialize_image(item)
-        except (OSError, RuntimeError) as exc:
-            wx.MessageBox(str(exc), tr("تعذر حفظ الصورة"), wx.OK | wx.ICON_ERROR, self)
-            return
-        dialog = wx.FileDialog(
-            self,
-            tr("حفظ الصورة"),
-            defaultFile=self.safe_attachment_filename(image),
-            wildcard=tr("كل الملفات (*.*)|*.*"),
-            style=wx.FD_SAVE | wx.FD_OVERWRITE_PROMPT,
-        )
-        try:
-            if dialog.ShowModal() != wx.ID_OK:
+        def work() -> LinkItem:
+            return self.materialize_image(replace(item))
+
+        def done(result: object) -> None:
+            image = result
+            if not isinstance(image, LinkItem):
                 return
-            self.write_attachment_to_path(image, Path(dialog.GetPath()))
-        except (OSError, RuntimeError) as exc:
-            wx.MessageBox(str(exc), tr("تعذر حفظ الصورة"), wx.OK | wx.ICON_ERROR, self)
-            return
-        finally:
-            dialog.Destroy()
-        wx.MessageBox(tr("تم حفظ الصورة."), tr("تم الحفظ"), wx.OK | wx.ICON_INFORMATION, self)
-        self.set_status("تم حفظ الصورة.")
+            dialog = wx.FileDialog(
+                self,
+                tr("حفظ الصورة"),
+                defaultFile=self.safe_attachment_filename(image),
+                wildcard=tr("كل الملفات (*.*)|*.*"),
+                style=wx.FD_SAVE | wx.FD_OVERWRITE_PROMPT,
+            )
+            try:
+                if dialog.ShowModal() != wx.ID_OK:
+                    return
+                self.write_attachment_to_path(image, Path(dialog.GetPath()))
+            except (OSError, RuntimeError) as exc:
+                wx.MessageBox(
+                    str(exc),
+                    tr("تعذر حفظ الصورة"),
+                    wx.OK | wx.ICON_ERROR,
+                    self,
+                )
+                return
+            finally:
+                dialog.Destroy()
+            wx.MessageBox(
+                tr("تم حفظ الصورة."),
+                tr("تم الحفظ"),
+                wx.OK | wx.ICON_INFORMATION,
+                self,
+            )
+            self.set_status("تم حفظ الصورة.")
+
+        self.run_background_io(
+            "جار تنزيل الصورة وفحصها...",
+            work,
+            done,
+            "تعذر حفظ الصورة",
+        )
+
+    def run_background_io(
+        self,
+        status_message: str,
+        work: Callable[[], object],
+        done: Callable[[object], None],
+        error_title: str,
+    ) -> None:
+        self.set_status(status_message)
+
+        def deliver(result: object | None, error: Exception | None) -> None:
+            try:
+                if self.IsBeingDeleted():
+                    return
+            except RuntimeError:
+                return
+            if error is not None:
+                wx.MessageBox(
+                    str(error),
+                    tr(error_title),
+                    wx.OK | wx.ICON_ERROR,
+                    self,
+                )
+                self.set_status(str(error))
+                return
+            done(result)
+
+        def target() -> None:
+            try:
+                result = work()
+            except Exception as exc:
+                wx.CallAfter(deliver, None, exc)
+            else:
+                wx.CallAfter(deliver, result, None)
+
+        threading.Thread(target=target, daemon=True).start()
 
     def materialize_image(self, item: LinkItem) -> LinkItem:
         stored_data = item.attachment_bytes()
@@ -2651,19 +3231,36 @@ window.addEventListener("keydown", function (event) {{
             return selected_text, True
         return self.viewer_text, False
 
-    def copy_message_viewer_text(self, control: wx.Window) -> None:
-        text, selection_only = self.message_viewer_copy_text(control)
+    def copy_message_viewer_text(
+        self,
+        control: wx.Window,
+        *,
+        use_webview_selection: bool = True,
+    ) -> None:
+        if control is self.html_viewer and not use_webview_selection:
+            text, selection_only = self.viewer_text, False
+        else:
+            text, selection_only = self.message_viewer_copy_text(control)
         if not text:
             self.set_status("لا يوجد نص لنسخه.")
             return
         copied = False
-        if wx.TheClipboard.Open():
+        try:
+            clipboard_open = bool(wx.TheClipboard.Open())
+        except (RuntimeError, wx.PyAssertionError):
+            clipboard_open = False
+        if clipboard_open:
             try:
                 copied = bool(wx.TheClipboard.SetData(wx.TextDataObject(text)))
                 if copied:
                     wx.TheClipboard.Flush()
+            except (RuntimeError, wx.PyAssertionError):
+                copied = False
             finally:
-                wx.TheClipboard.Close()
+                try:
+                    wx.TheClipboard.Close()
+                except (RuntimeError, wx.PyAssertionError):
+                    pass
         if not copied:
             self.set_status("تعذر نسخ النص إلى الحافظة.")
             return
@@ -2697,6 +3294,15 @@ window.addEventListener("keydown", function (event) {{
             self.on_reply()
             wx.CallAfter(self.focus_message_list)
 
+        def forward_action(_event: wx.CommandEvent) -> None:
+            nonlocal action_invoked
+            forward_callback = getattr(self, "on_forward", None)
+            if forward_callback is None:
+                return
+            action_invoked = True
+            forward_callback(self)
+            wx.CallAfter(self.focus_message_list)
+
         def star_action(_event: wx.CommandEvent) -> None:
             nonlocal action_invoked
             action_invoked = True
@@ -2720,8 +3326,15 @@ window.addEventListener("keydown", function (event) {{
         def copy_action(_event: wx.CommandEvent) -> None:
             nonlocal action_invoked
             action_invoked = True
-            self.copy_message_viewer_text(control)
-            wx.CallAfter(self.restore_context_focus, return_control)
+            try:
+                self.copy_message_viewer_text(
+                    control,
+                    use_webview_selection=control is not self.html_viewer,
+                )
+            except RuntimeError:
+                self.set_status("تعذر نسخ النص إلى الحافظة.")
+            finally:
+                self.schedule_context_focus_restore(return_control)
 
         def pin_action(_event: wx.CommandEvent) -> None:
             nonlocal action_invoked
@@ -2747,11 +3360,20 @@ window.addEventListener("keydown", function (event) {{
                 if opened_from_viewer
                 else None
             )
-            read_item = (
-                menu.Append(wx.ID_ANY, tr("تعليم كمقروءة"))
-                if summary and not summary.is_read
-                else None
-            )
+            forward_item = menu.Append(wx.ID_ANY, tr("إعادة توجيه"))
+            if opened_from_viewer:
+                read_item = (
+                    menu.Append(wx.ID_ANY, tr("تعليم كمقروءة"))
+                    if summary and not summary.is_read
+                    else None
+                )
+            else:
+                read_label = (
+                    "تعليم كغير مقروءة"
+                    if summary and summary.is_read
+                    else "تعليم كمقروءة"
+                )
+                read_item = menu.Append(wx.ID_ANY, tr(read_label))
             star_label = "إزالة التمييز بنجمة" if summary and summary.is_starred else "تمييز بنجمة"
             star_item = menu.Append(wx.ID_ANY, tr(star_label))
             pin_label = "إلغاء التثبيت في الأعلى" if summary and summary.is_pinned else "التثبيت في الأعلى"
@@ -2764,6 +3386,9 @@ window.addEventListener("keydown", function (event) {{
 
             has_message = summary is not None
             reply_item.Enable(has_message)
+            forward_item.Enable(
+                has_message and getattr(self, "on_forward", None) is not None
+            )
             if read_item is not None:
                 read_item.Enable(has_message)
             star_item.Enable(has_message)
@@ -2780,6 +3405,7 @@ window.addEventListener("keydown", function (event) {{
                 menu.Bind(wx.EVT_MENU, copy_action, copy_item)
             if translate_item is not None:
                 menu.Bind(wx.EVT_MENU, translate_action, translate_item)
+            menu.Bind(wx.EVT_MENU, forward_action, forward_item)
             if read_item is not None:
                 menu.Bind(wx.EVT_MENU, read_action, read_item)
             menu.Bind(wx.EVT_MENU, star_action, star_item)
@@ -2791,7 +3417,7 @@ window.addEventListener("keydown", function (event) {{
         finally:
             menu.Destroy()
         if not action_invoked:
-            wx.CallAfter(self.restore_context_focus, return_control)
+            self.schedule_context_focus_restore(return_control)
 
     def show_multi_message_context_menu(
         self,
@@ -2819,6 +3445,7 @@ window.addEventListener("keydown", function (event) {{
             count_item.Enable(False)
             menu.AppendSeparator()
             read_item = menu.Append(wx.ID_ANY, tr("تعليم كمقروءة"))
+            unread_item = menu.Append(wx.ID_ANY, tr("تعليم كغير مقروءة"))
             star_item = menu.Append(wx.ID_ANY, tr("تمييز الرسائل بنجمة"))
             unstar_item = menu.Append(wx.ID_ANY, tr("إزالة النجمة من الرسائل"))
             pin_item = menu.Append(wx.ID_ANY, tr("تثبيت الرسائل في الأعلى"))
@@ -2832,6 +3459,7 @@ window.addEventListener("keydown", function (event) {{
             has_messages = bool(summaries)
             for item in (
                 read_item,
+                unread_item,
                 star_item,
                 unstar_item,
                 pin_item,
@@ -2846,6 +3474,11 @@ window.addEventListener("keydown", function (event) {{
                 wx.EVT_MENU,
                 invoke(BULK_ACTION_MARK_READ),
                 read_item,
+            )
+            menu.Bind(
+                wx.EVT_MENU,
+                invoke(BULK_ACTION_MARK_UNREAD),
+                unread_item,
             )
             menu.Bind(wx.EVT_MENU, invoke(BULK_ACTION_STAR), star_item)
             menu.Bind(wx.EVT_MENU, invoke(BULK_ACTION_UNSTAR), unstar_item)
@@ -2890,6 +3523,15 @@ window.addEventListener("keydown", function (event) {{
         target = control
         if target is self.html_viewer and self.viewer_mode != VIEWER_HTML:
             target = self.viewer
+        elif target is self.html_viewer:
+            # A translated HTML document is replaced asynchronously. Activating
+            # the viewer waits for that replacement instead of focusing the old
+            # WebView document while SetPage is still in progress.
+            try:
+                self.activate_html_viewer()
+            except (RuntimeError, wx.PyAssertionError):
+                self.focus_message_list()
+            return
         try:
             if target and target.IsShownOnScreen() and target.IsEnabled():
                 target.SetFocus()
@@ -2897,6 +3539,32 @@ window.addEventListener("keydown", function (event) {{
         except Exception:
             pass
         self.focus_message_list()
+
+    def schedule_context_focus_restore(self, control: wx.Window | None) -> None:
+        if control is self.html_viewer:
+            # WebView2 may still own the native popup for a short time after
+            # PopupMenu returns. Focusing it immediately can leave keyboard
+            # events trapped outside both wx and the HTML document.
+            self.schedule_html_focus_action(
+                lambda: self.restore_context_focus(control)
+            )
+            return
+        wx.CallAfter(self.restore_context_focus, control)
+
+    def request_context_focus_after_content_update(
+        self,
+        control: wx.Window | None,
+    ) -> None:
+        """Restore focus without touching a WebView document being replaced."""
+        if control is self.html_viewer and self.viewer_mode == VIEWER_HTML:
+            self._html_viewer_active = True
+            self._html_focus_after_load = True
+            if self._html_refresh_pending and not self._html_loading:
+                self.schedule_html_refresh(focus_start=True)
+            elif not self._html_loading:
+                wx.CallAfter(self.focus_html_document_start)
+            return
+        wx.CallAfter(self.restore_context_focus, control)
 
     def selected_link(self) -> LinkItem | None:
         index = self.link_list.GetSelection()
@@ -2952,8 +3620,17 @@ window.addEventListener("keydown", function (event) {{
         return path.with_name(f"{stem}-{os.getpid()}{suffix}")
 
     def set_status(self, message: str) -> None:
-        parent = wx.GetTopLevelParent(self)
+        # wx can invalidate a page wrapper while a WebView popup command is
+        # unwinding.  Status reporting must never turn a completed action (for
+        # example copying text) into an unhandled RuntimeError.
+        try:
+            parent = wx.GetTopLevelParent(self)
+        except RuntimeError:
+            parent = None
         if parent and hasattr(parent, "SetStatusText"):
-            parent.SetStatusText(tr(message))
-            return
+            try:
+                parent.SetStatusText(tr(message))
+                return
+            except RuntimeError:
+                pass
         announce_to_screen_reader(self, message)

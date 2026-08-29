@@ -1,0 +1,33 @@
+﻿Power Accessible Mail Bilgileri
+
+Sürüm 1.4.0
+Geliştiren: Soljan.AlSharq.
+
+Soljan.AlSharq., Ali Al-Amir'e aittir.
+x64 ve x86 paketleri aynı özellikleri sunar.
+
+Gizlilik, uygulamanın bir parçasıdır.
+
+Power Accessible Mail, Gmail'e Gmail API aracılığıyla ve Microsoft'a Outlook hizmetleri aracılığıyla yalnızca sağlayıcının resmi oturum açma sayfasında erişimi onayladıktan sonra erişir.
+
+Kendiniz seçtiğinizde manuel IMAP ve SMTP kurulumu da mevcuttur.
+
+Hesaplar ve önbelleğe alınmış veriler cihazınızda saklanır.
+
+Hassas yerel kimlik bilgileri ve mesajlar, geçerli Windows hesabı için Windows DPAPI ile korunur.
+
+Verileriniz satılmaz veya reklam amaçlı kullanılmaz.
+
+Mesaj çevirisi istediğinizde, uygulama seçilen mesaj metnini yalnızca bu isteği gerçekleştirmek için Google Translate'e gönderir.
+
+Uygulama içinden bir hesabı ve yerel önbelleğini silebilirsiniz.
+
+Uygulama sahipliği
+
+Power Accessible Mail ve hakları Ali Al-Amir'e aittir.
+
+Uygulama Soljan.AlSharq. tarafından geliştirilmiş ve üretilmiştir.
+
+Soljan.AlSharq, Ali Al-Amir'e aittir.
+
+Bu özeti inceledikten sonra, sayfanın altındaki "Gizlilik şartlarını kabul ediyorum" onay kutusunu işaretleyerek "İleri" düğmesini etkinleştirin.

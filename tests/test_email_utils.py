@@ -11,11 +11,31 @@ from accessible_mail.email_utils import (
     normalize_message_text,
     organize_message_items,
     safe_external_url,
+    should_prefer_html_alternative,
 )
 from accessible_mail.models import LinkItem
 
 
 class EmailUtilsTests(unittest.TestCase):
+    def test_imap_attachment_can_be_extracted_as_lazy_remote_part(self) -> None:
+        message = EmailMessage()
+        message.set_content("Body")
+        message.add_attachment(
+            b"large-pdf-placeholder",
+            maintype="application",
+            subtype="pdf",
+            filename="document.pdf",
+        )
+
+        text, links = extract_body(message, lazy_attachments=True)
+
+        attachment = next(item for item in links if item.is_attachment)
+        self.assertEqual(text, "Body")
+        self.assertEqual(attachment.remote_source, "imap")
+        self.assertEqual(attachment.remote_id, "2")
+        self.assertEqual(attachment.transfer_encoding, "base64")
+        self.assertEqual(attachment.attachment_bytes(), b"")
+
     def test_clean_message_text_removes_css_rules_and_keeps_real_content(self) -> None:
         text = clean_message_text_for_display(
             """
@@ -50,6 +70,26 @@ class EmailUtilsTests(unittest.TestCase):
         self.assertEqual(text, "الفقرة الأولى.\nالفقرة الثانية.")
         self.assertNotIn("alert", text)
         self.assertNotIn("مخفي", text)
+
+    def test_zero_font_layout_container_does_not_hide_visible_children(self) -> None:
+        text = clean_message_text_for_display(
+            """
+            <div style="font-size: 0">
+              <table><tr><td style="font-size: 16px">عرض مهم</td></tr></table>
+            </div>
+            """
+        )
+
+        self.assertEqual(text, "عرض مهم")
+
+    def test_html_is_preferred_when_plain_text_has_broken_characters(self) -> None:
+        self.assertTrue(
+            should_prefer_html_alternative(
+                "Broken \ufffd text",
+                "Broken \ufffd text",
+                "Readable text",
+            )
+        )
 
     def test_clean_message_text_separates_table_cells_rows_and_list_items(self) -> None:
         text = clean_message_text_for_display(
@@ -397,6 +437,80 @@ class EmailUtilsTests(unittest.TestCase):
         self.assertTrue(is_plain_text_placeholder("Plain text version not available"))
         self.assertIn("هذا هو محتوى الرسالة الحقيقي.", text)
         self.assertNotIn("Plain text version not available", text)
+
+    def test_udemy_style_wrapped_tracking_dump_prefers_readable_html(self) -> None:
+        tracking_fragment = (
+            "https://ablink.students.udemy.com/ls/click?upn=u001."
+            + "FWb4C6mdz6rNETB59OSL5TAbExbrXe-2F1n7sJ4bXClbLXBecTuF-2Biat8j3Akh1L4tteq0PeAtyLvRnGA\n"
+            + ("94EIs3eCgkus5R01woJSB7-2BEoypUmrFWl8t7mKT4h2VtT0DVcjG3nJyf-2B-2BIzJ8cqgbsapiYF6jgo\n" * 8)
+        )
+        message = EmailMessage()
+        message.set_content(f"عرض خاص اليوم.\n{tracking_fragment}")
+        message.add_alternative(
+            '<html><body><p>عرض خاص اليوم.</p><a href="https://www.udemy.com/">احفظ الآن</a></body></html>',
+            subtype="html",
+        )
+
+        text, resources = extract_body(message)
+
+        self.assertEqual(text, "عرض خاص اليوم.\nاحفظ الآن")
+        self.assertNotIn("FWb4C6", text)
+        self.assertEqual(resources[0].text, "احفظ الآن")
+        self.assertEqual(resources[0].url, "https://www.udemy.com/")
+
+    def test_samsung_style_redirects_and_preview_padding_prefer_html(self) -> None:
+        redirect = (
+            "https://t6.mena.email.samsung.com/r/?id=test,123,456&"
+            "e=bWRpZD1ETTQ0MjUxMSZtYmlkPWNlMzQ5ZDQ4LWExMDgtNGFmNi1hZTAx&"
+            "s=Twi1nnTGsDypPcYnhaDi_GLdR93fN_hfdG8_NOdXHeg"
+        )
+        message = EmailMessage()
+        message.set_content(
+            "محبوبة من قبل الكثيرين، ومصممة للجميع "
+            + ("\u034f " * 30)
+            + "\n"
+            + "\n".join(
+                (
+                    f"{redirect} تسوّق الآن",
+                    f"{redirect} اشترِ الآن",
+                    f"{redirect} تواصل معنا",
+                )
+            )
+        )
+        message.add_alternative(
+            """
+            <html><body>
+              <h1>المنتجات الأكثر مبيعًا لهذا الأسبوع بانتظارك!</h1>
+              <p>لفترة محدودة فقط!</p>
+              <p>تلفزيون ذكي Neo QN85F قياس 75 بوصة</p>
+              <a href="https://samsung.example/product">اشترِ الآن</a>
+            </body></html>
+            """,
+            subtype="html",
+        )
+
+        text, resources = extract_body(message)
+
+        self.assertIn("المنتجات الأكثر مبيعًا", text)
+        self.assertIn("تلفزيون ذكي", text)
+        self.assertNotIn("t6.mena.email.samsung.com", text)
+        self.assertNotIn("\u034f", text)
+        self.assertEqual(resources[0].text, "اشترِ الآن")
+
+    def test_preview_padding_is_removed_from_normalized_text(self) -> None:
+        self.assertEqual(
+            normalize_message_text("مقدمة " + ("\u034f " * 20) + "نهاية"),
+            "مقدمة نهاية",
+        )
+
+    def test_normal_plain_alternative_is_not_replaced_by_html(self) -> None:
+        self.assertFalse(
+            should_prefer_html_alternative(
+                "Readable plain message.",
+                "Readable plain message.",
+                "Different HTML message.",
+            )
+        )
 
     def test_extract_body_ignores_arabic_html_client_warning(self) -> None:
         warning = (

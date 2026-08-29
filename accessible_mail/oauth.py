@@ -21,6 +21,7 @@ import rsa
 
 from .i18n import get_language, is_rtl, tr
 from .models import Account
+from .network_security import friendly_https_error, trusted_https_context
 
 
 LOCAL_CALLBACK_PORTS = range(8765, 8785)
@@ -42,6 +43,7 @@ OAUTH_PROVIDERS: dict[str, dict[str, Any]] = {
             "access_type": "offline",
             "prompt": "consent select_account",
         },
+        "callback_host": "127.0.0.1",
         "imap_server": "",
         "imap_port": 993,
         "imap_ssl": True,
@@ -68,6 +70,7 @@ OAUTH_PROVIDERS: dict[str, dict[str, Any]] = {
         "extra_authorize": {
             "prompt": "select_account",
         },
+        "callback_host": "localhost",
         "imap_server": "outlook.office365.com",
         "imap_port": 993,
         "imap_ssl": True,
@@ -165,7 +168,8 @@ def run_browser_oauth_flow(
     code_challenge = _code_challenge(code_verifier)
     state = secrets.token_urlsafe(24)
     nonce = secrets.token_urlsafe(24)
-    server = _make_callback_server(state)
+    callback_host = str(provider.get("callback_host") or "127.0.0.1")
+    server = _make_callback_server(state, callback_host)
     server_thread = threading.Thread(
         target=_serve_callback_until_done,
         args=(server, timeout_seconds),
@@ -173,7 +177,7 @@ def run_browser_oauth_flow(
     )
     server_thread.start()
 
-    redirect_uri = f"http://localhost:{server.server_port}"
+    redirect_uri = f"http://{callback_host}:{server.server_port}"
     auth_params: dict[str, str] = {
         "client_id": client_id.strip(),
         "redirect_uri": redirect_uri,
@@ -188,26 +192,26 @@ def run_browser_oauth_flow(
     authorize_url = provider["authorization_endpoint"] + "?" + urllib.parse.urlencode(auth_params)
 
     if not webbrowser.open(authorize_url):
-        server.server_close()
+        _stop_callback_server(server, server_thread)
         raise OAuthError("تعذر فتح المتصفح لإكمال تسجيل الدخول.")
     deadline = time.monotonic() + timeout_seconds
     while not server.oauth_event.is_set():
         if cancel_event is not None and cancel_event.is_set():
-            server.server_close()
+            _stop_callback_server(server, server_thread)
             raise OAuthError("تم إلغاء تسجيل الدخول عبر المتصفح.")
         remaining = deadline - time.monotonic()
         if remaining <= 0:
             break
         server.oauth_event.wait(min(0.25, remaining))
     if not server.oauth_event.is_set():
-        server.server_close()
+        _stop_callback_server(server, server_thread)
         raise OAuthError(
             "انتهى وقت انتظار تسجيل الدخول عبر المتصفح. إذا بقيت صفحة Google على "
             "تحذير تطبيق غير موثق، فتأكد أن عنوان Gmail المستخدم مضاف إلى قائمة "
             "المختبرين في Google Cloud ثم أكمل خطوات الموافقة."
         )
 
-    server.server_close()
+    _stop_callback_server(server, server_thread)
     if server.oauth_error:
         raise OAuthError(server.oauth_error)
     if not server.oauth_code:
@@ -224,6 +228,7 @@ def run_browser_oauth_flow(
     access_token = str(token_payload.get("access_token") or "")
     if not access_token:
         raise OAuthError("لم يرسل مزود الخدمة رمز دخول صالحا.")
+    refresh_token = str(token_payload.get("refresh_token") or "")
 
     profile = _validate_id_token(
         provider_id,
@@ -239,7 +244,7 @@ def run_browser_oauth_flow(
         email_address=email_address,
         display_name=display_name,
         access_token=access_token,
-        refresh_token=str(token_payload.get("refresh_token") or ""),
+        refresh_token=refresh_token,
         expires_at=expires_at,
     )
 
@@ -289,11 +294,14 @@ def xoauth2_auth_string(username: str, access_token: str) -> bytes:
     return f"user={username}\x01auth=Bearer {access_token}\x01\x01".encode("utf-8")
 
 
-def _make_callback_server(state: str) -> HTTPServer:
+def _make_callback_server(
+    state: str,
+    callback_host: str = "127.0.0.1",
+) -> HTTPServer:
     last_error: OSError | None = None
-    for port in LOCAL_CALLBACK_PORTS:
+    for port in (*LOCAL_CALLBACK_PORTS, 0):
         try:
-            server = HTTPServer(("localhost", port), _callback_handler(state))
+            server = HTTPServer((callback_host, port), _callback_handler(state))
             server.timeout = 0.5
             server.oauth_event = threading.Event()  # type: ignore[attr-defined]
             server.oauth_code = ""  # type: ignore[attr-defined]
@@ -324,12 +332,16 @@ def _callback_handler(expected_state: str) -> type[BaseHTTPRequestHandler]:
                 )
             else:
                 self.server.oauth_code = query.get("code", [""])[0]  # type: ignore[attr-defined]
-            self.server.oauth_event.set()  # type: ignore[attr-defined]
-            self._finish(
-                "تم استلام موافقة تسجيل الدخول. عد الآن إلى برنامج Power Accessible Mail "
-                "وانتظر رسالة نجاح إضافة الحساب. إذا بقيت نافذة تسجيل الدخول ظاهرة، "
-                "فاقرأ رسالة الخطأ داخل البرنامج وأرسلها إلى المطور."
-            )
+            try:
+                self._finish(
+                    "تم استلام موافقة تسجيل الدخول. عد الآن إلى برنامج Power Accessible Mail "
+                    "وانتظر رسالة نجاح إضافة الحساب. إذا بقيت نافذة تسجيل الدخول ظاهرة، "
+                    "فاقرأ رسالة الخطأ داخل البرنامج وأرسلها إلى المطور."
+                )
+            finally:
+                # Do not let the waiting application close the listening socket before
+                # the browser has received the complete success page.
+                self.server.oauth_event.set()  # type: ignore[attr-defined]
 
         def _finish(self, message: str) -> None:
             localized_message = tr(message)
@@ -382,7 +394,20 @@ def oauth_callback_error_message(error_code: str, error_description: str) -> str
 def _serve_callback_until_done(server: HTTPServer, timeout_seconds: int) -> None:
     deadline = time.monotonic() + timeout_seconds
     while not server.oauth_event.is_set() and time.monotonic() < deadline:  # type: ignore[attr-defined]
-        server.handle_request()
+        try:
+            server.handle_request()
+        except (OSError, ValueError):
+            if server.oauth_event.is_set():  # type: ignore[attr-defined]
+                return
+            raise
+
+
+def _stop_callback_server(server: HTTPServer, server_thread: threading.Thread) -> None:
+    server.oauth_event.set()  # type: ignore[attr-defined]
+    server_thread.join(
+        timeout=max(1.0, float(getattr(server, "timeout", 0.0) or 0.0) + 0.5)
+    )
+    server.server_close()
 
 
 def _exchange_code_for_token(
@@ -417,7 +442,11 @@ def _post_form(url: str, data: dict[str, str]) -> dict[str, Any]:
         method="POST",
     )
     try:
-        with urllib.request.urlopen(request, timeout=45) as response:
+        with urllib.request.urlopen(
+            request,
+            timeout=45,
+            context=trusted_https_context(),
+        ) as response:
             final_url = str(response.geturl() or url)
             parsed_final_url = urllib.parse.urlparse(final_url)
             if (
@@ -457,10 +486,11 @@ def _post_form(url: str, data: dict[str, str]) -> dict[str, Any]:
                 "ولحساب Microsoft تأكد من إضافة صلاحيات IMAP.AccessAsUser.All وSMTP.Send."
             )
         raise OAuthError(f"فشل طلب OAuth: {message}") from exc
-    except urllib.error.URLError as exc:
-        raise OAuthError(f"تعذر الاتصال بخدمة OAuth: {exc.reason}") from exc
-
-
+    except (OSError, urllib.error.URLError) as exc:
+        friendly_error = friendly_https_error(exc)
+        raise OAuthError(
+            friendly_error or "تعذر الاتصال الآمن بخدمة تسجيل الدخول."
+        ) from exc
 def oauth_error_requires_reauthentication(error_code: str, message: str) -> bool:
     normalized_code = error_code.strip().lower()
     normalized_message = message.strip().lower()
@@ -626,7 +656,11 @@ def _load_jwks(provider_id: str, *, force_refresh: bool) -> dict[str, Any]:
         headers={"Accept": "application/json", "User-Agent": "Power Accessible Mail"},
     )
     try:
-        with urllib.request.urlopen(request, timeout=30) as response:
+        with urllib.request.urlopen(
+            request,
+            timeout=30,
+            context=trusted_https_context(),
+        ) as response:
             final_url = urllib.parse.urlparse(str(response.geturl() or url))
             if (
                 final_url.scheme != "https"
@@ -637,7 +671,10 @@ def _load_jwks(provider_id: str, *, force_refresh: bool) -> dict[str, Any]:
     except OAuthError:
         raise
     except (OSError, urllib.error.URLError) as exc:
-        raise OAuthError("تعذر تنزيل مفاتيح التحقق من مزود تسجيل الدخول.") from exc
+        friendly_error = friendly_https_error(exc)
+        raise OAuthError(
+            friendly_error or "تعذر تنزيل مفاتيح التحقق من مزود تسجيل الدخول."
+        ) from exc
     if len(payload) > MAX_OAUTH_RESPONSE_BYTES:
         raise OAuthError("استجابة مفاتيح OAuth أكبر من الحجم المسموح.")
     try:

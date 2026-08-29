@@ -1,5 +1,5 @@
 Power Accessible Mail
-Version 1.3.1
+Version 1.4.0
 Developed by Soljan.AlSharq.
 Soljan.AlSharq. is owned by Ali Al-Amir
 
@@ -7,7 +7,7 @@ Welcome to your email
 
 Power Accessible Mail is built to make reading writing organizing and updating email comfortable from the keyboard
 
-Version 1.3.1 improves update reliability by using the native Windows certificate store and provides a clear message for device time Windows update or security software certificate problems without disabling secure verification
+Version 1.4.0 improves update reliability by using the native Windows certificate store and provides a clear message for device time Windows update or security software certificate problems without disabling secure verification
 
 Native Windows lists and fields give screen readers predictable controls while messages are arranged vertically so moving through your mail feels direct and familiar
 
@@ -111,7 +111,7 @@ It requires an internet connection and sends the selected message text to the of
 
 Make the application yours
 
-Settings lets you choose Arabic English or French the HTML or easy message viewer translation inside the page or in a separate window and light or dark appearance
+Settings lets you choose Arabic English French Spanish Turkish or Hindi the HTML or easy message viewer translation inside the page or in a separate window and light or dark appearance
 
 You can also control how many application actions the NVDA library announces with four levels: none some most or all. The Customize and manage action announcements button beside the level opens categories containing native Windows checkboxes. Use Tab to move between them hear their state and Space to change it then save. The default level does not announce read or unread state changes or server-save confirmations unless the user enables that category in customization. Settings also includes Choose PowerAccessibleMail as the default email app which opens the application's page in Windows Settings; press Space on MAILTO to open the app picker if Enter does not respond
 
@@ -123,7 +123,7 @@ The application checks GitHub Releases after startup and you can check manually 
 
 When a release is available Update now opens an internal progress window showing its version release date progress bar and percentage
 
-The correct installer is downloaded to the Power Accessible Mail updates folder in the user profile its SHA-256 digest is verified and Setup appears in a visible window before the application closes to complete the update and restart
+The correct installer is downloaded to the Power Accessible Mail updates folder in the user profile and its SHA-256 digest is verified. The application then closes, installs the new release automatically without the language page or ordinary Setup steps, and restarts. UAC prompts and Windows security warnings remain visible whenever Windows requires them
 
 Detailed guide to the main window
 

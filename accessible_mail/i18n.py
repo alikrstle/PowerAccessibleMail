@@ -3,12 +3,25 @@ from __future__ import annotations
 import re
 
 from .i18n_fr import FRENCH_DYNAMIC_TEMPLATES, FRENCH_TRANSLATIONS
+from .i18n_hi import HINDI_DYNAMIC_TEMPLATES, HINDI_TRANSLATIONS
+from .i18n_es import SPANISH_DYNAMIC_TEMPLATES, SPANISH_TRANSLATIONS
+from .i18n_tr import TURKISH_DYNAMIC_TEMPLATES, TURKISH_TRANSLATIONS
 
 
 LANGUAGE_ARABIC = "ar"
 LANGUAGE_ENGLISH = "en"
 LANGUAGE_FRENCH = "fr"
-SUPPORTED_LANGUAGES = {LANGUAGE_ARABIC, LANGUAGE_ENGLISH, LANGUAGE_FRENCH}
+LANGUAGE_SPANISH = "es"
+LANGUAGE_TURKISH = "tr"
+LANGUAGE_HINDI = "hi"
+SUPPORTED_LANGUAGES = {
+    LANGUAGE_ARABIC,
+    LANGUAGE_ENGLISH,
+    LANGUAGE_FRENCH,
+    LANGUAGE_SPANISH,
+    LANGUAGE_TURKISH,
+    LANGUAGE_HINDI,
+}
 
 _language = LANGUAGE_ARABIC
 
@@ -17,6 +30,9 @@ ENGLISH_TRANSLATIONS: dict[str, str] = {
     "العربية": "Arabic",
     "الإنجليزية": "English",
     "الفرنسية": "French",
+    "الإسبانية": "Spanish",
+    "التركية": "Turkish",
+    "الهندية": "Hindi",
     "لغة البرنامج": "Application language",
     "لغة البرنامج:": "Application language:",
     "الإعدادات": "Settings",
@@ -52,6 +68,8 @@ ENGLISH_TRANSLATIONS: dict[str, str] = {
     "تم تسجيل الدخول وإضافة الحساب بنجاح.": "The account was signed in and added successfully.",
     "تم تجديد تسجيل الدخول بنجاح.": "The account was signed in again successfully.",
     "تعذر تسجيل الدخول.": "Unable to sign in.",
+    "تعذر حفظ تسجيل الدخول": "Unable to save sign-in",
+    "اكتمل تفويض Google، لكن لم يصل رمز يسمح للبرنامج بالاحتفاظ بتسجيل الدخول. أزل وصول Power Accessible Mail من اتصالات حساب Google ثم حاول إضافته مرة أخرى، أو انسخ هذا الخطأ وأرسله إلى المطور.": "Google authorization completed, but no token was returned that would let the app keep you signed in. Remove Power Accessible Mail from your Google Account connections, then try adding it again, or copy this error and send it to the developer.",
     "نوع الخطأ:": "Error type:",
     "تفاصيل الخطأ:": "Error details:",
     "حدث خطأ غير معروف أثناء تسجيل الدخول.": "An unknown error occurred during sign-in.",
@@ -122,10 +140,13 @@ ENGLISH_TRANSLATIONS: dict[str, str] = {
     "نطق بعض إجراءات البرنامج": "Announce some application actions",
     "نطق معظم إجراءات البرنامج": "Announce most application actions",
     "نطق كل إجراءات البرنامج": "Announce all application actions",
+    "مخصص": "Custom",
     "نطق إجراءات البرنامج:": "Application action announcements:",
     "مستوى نطق إجراءات البرنامج": "Application action announcement level",
     "اختر مستوى جاهزًا، ثم استخدم زر عرض الإشعارات لتخصيصه.": "Choose a preset level, then use Show spoken notifications to customize it.",
     "تخصيص نطق الإجراءات وإدارتها": "Customize and manage action announcements",
+    "تخصيص نطق الإجراءات": "Customize action announcements",
+    "اخترت المستوى المخصص. جميع إجراءات النطق غير محددة الآن. حدد الإجراءات التي تريد أن ينطقها البرنامج ثم اضغط حفظ.": "You selected the custom level. All action announcements are now cleared. Select the actions you want the application to announce, then choose Save.",
     "يفتح تصنيفات تحتوي مربعات اختيار حقيقية مع زر حفظ.": "Opens categorized native checkboxes with a Save button.",
     "تصنيفات نطق إجراءات البرنامج": "Application action announcement categories",
     "اختر تصنيفًا ثم اضغط Tab للانتقال إلى خياراته.": "Choose a category, then press Tab to move to its options.",
@@ -179,11 +200,22 @@ ENGLISH_TRANSLATIONS: dict[str, str] = {
     "أسماء مناطق الرسائل عند انتقال التركيز": "Message area names when focus moves",
     "اسم الرابط أو الزر عند التنقل داخل الرسالة": "Link or button name while navigating a message",
     "سجل العناوين": "Address book",
+    "تسجيل الدخول الكلاسيكي": "Classic sign-in",
+    "إخفاء تسجيل الدخول الكلاسيكي": "Hide classic sign-in",
+    "إظهار حقلي البريد الإلكتروني وكلمة المرور": "Show the email and password fields",
+    "المتابعة كزائر": "Continue as guest",
     "اختيار عنوان بريد إلكتروني": "Choose an email address",
     "اختر عنوانًا ثم اضغط Enter.": "Choose an address, then press Enter.",
     "عناوين البريد الإلكتروني المحفوظة": "Saved email addresses",
     "عناوين البريد الإلكتروني المحفوظة:": "Saved email addresses:",
     "سجل عناوين البريد الإلكتروني": "Email address book",
+    "هل تريد وضع اسم مخصص لعنوان {email}؟": "Would you like to assign a custom name to {email}?",
+    "اسم مخصص لعنوان البريد الإلكتروني": "Custom email address name",
+    "نعم، أريد": "Yes, I would",
+    "كلا، الاستمرار بعنوان البريد": "No, continue with the email address",
+    "اكتب الاسم المخصص لهذا العنوان:": "Enter a custom name for this address:",
+    "اكتب الاسم المخصص لهذا العنوان، أو اتركه فارغًا:": "Enter a custom name for this address, or leave it blank:",
+    "تعديل الاسم المخصص": "Edit custom name",
     "حالة سجل العناوين": "Address book status",
     "يعرض وينطق نتيجة آخر عملية في سجل العناوين.": "Displays and announces the result of the latest address book action.",
     "استخدم الأسهم لاختيار عنوان ثم اضغط Enter أو Space.": "Use the arrow keys to choose an address, then press Enter or Space.",
@@ -233,6 +265,8 @@ ENGLISH_TRANSLATIONS: dict[str, str] = {
     "زيارة الموقع الرسمي": "Visit the official website",
     "إرسال رسالة إلى المطور عبر PowerAccessibleMail": "Email the developer using PowerAccessibleMail",
     "الاشتراك بقناة التليجرام للحصول على آخر المستجدات": "Join the Telegram channel for the latest news",
+    "القناة الدولية": "International channel",
+    "القناة العربية": "Arabic channel",
     "التواصل مع المطور عبر تليجرام": "Contact the developer on Telegram",
     "تعذر فتح رابط التواصل في المتصفح.": "The contact link could not be opened in the browser.",
     "تعذر فتح الرابط": "Could not open the link",
@@ -441,6 +475,7 @@ ENGLISH_TRANSLATIONS: dict[str, str] = {
     "جار إرسال الرسالة...": "Sending message...",
     "جار تحديث الرسائل...": "Refreshing messages...",
     "جار تحميل رسائل أقدم...": "Loading older messages...",
+    "جاري تحميل المزيد من الرسائل...": "Loading more messages...",
     "جار مزامنة كل الرسائل...": "Syncing all messages...",
     "جار حفظ حالة الرسالة...": "Saving message status...",
     "جار تحديث تمييز الرسالة...": "Updating message star...",
@@ -566,6 +601,7 @@ ENGLISH_TRANSLATIONS: dict[str, str] = {
     "تم حفظ المرفق.": "The attachment was saved.",
     "بدء تحديث الرسائل": "Starting message refresh",
     "بدء تحميل رسائل أقدم": "Starting to load older messages",
+    "بدء تحميل المزيد من الرسائل": "Starting to load more messages",
     "بدء مزامنة كل الرسائل": "Starting full message sync",
     "بدء فحص سلة المحذوفات": "Starting Trash scan",
     "جار استلام رسائل الوارد من الخادم": "Retrieving Inbox messages from the server",
@@ -615,11 +651,52 @@ ENGLISH_TRANSLATIONS: dict[str, str] = {
     "تحذير أمان المرفق": "Attachment security warning",
     "تم منع فتح رابط غير آمن من الرسالة.": "An unsafe link in the message was blocked.",
     "تم إلغاء فتح المرفق غير الآمن.": "Opening the unsafe attachment was canceled.",
+    "جار حفظ المرفقات...": "Saving attachments...",
+    "جار تنزيل الصورة وفحصها...": "Downloading and scanning the image...",
+    "استجابة خدمة الترجمة أكبر من الحجم المسموح.": "The translation service response exceeds the allowed size.",
+    "حجم الرسالة أو المرفق يتجاوز الحد الآمن وهو 50 ميغابايت.": "The message or attachment exceeds the safe 50 MB size limit.",
+    "حجم الرسالة ومرفقاتها يتجاوز الحد الآمن وهو 50 ميغابايت.": "The message and its attachments exceed the safe 50 MB size limit.",
+    "المرفق يتجاوز الحد المسموح وهو 25 ميغابايت.": "The attachment exceeds the 25 MB size limit.",
+    "إجمالي حجم المرفقات يتجاوز الحد المسموح وهو 50 ميغابايت.": "The total attachment size exceeds the 50 MB limit.",
+    "تعذر الاتصال الآمن بخدمة تسجيل الدخول.": "Could not establish a secure connection to the sign-in service.",
+    "تم نسخ الرسالة إلى سلة المهملات، لكن الخادم لم يؤكد إزالة الأصل. أعيدت الرسالة الأصلية إلى حالتها السابقة لتجنب فقدانها.": "The message was copied to Trash, but the server did not confirm removal of the original. The original message was restored to its previous state to prevent data loss.",
 }
+
+ENGLISH_TRANSLATIONS.update(
+    {
+        "إعادة توجيه رسالة": "Forward a message",
+        "إعادة توجيه": "Forward",
+        "اختر المستلم من سجل العناوين أو اكتب بريده الإلكتروني:": "Choose the recipient from the address book or enter their email address:",
+        "سجل العناوين لإعادة التوجيه": "Address book for forwarding",
+        "استخدم الأسهم لاختيار عنوان واضغط Enter أو Space لوضعه في حقل المستلم.": "Use the arrow keys to choose an address, then press Enter or Space to place it in the recipient field.",
+        "البريد الإلكتروني للمستلم:": "Recipient email address:",
+        "البريد الإلكتروني للمستلم": "Recipient email address",
+        "اكتب عنوان البريد الإلكتروني الذي ستعاد توجيه الرسالة إليه.": "Enter the email address to which the message will be forwarded.",
+        "اختر رسالة مستلمة لإعادة توجيهها، مرتبة من الأحدث إلى الأقدم:": "Choose a received message to forward, ordered from newest to oldest:",
+        "الرسائل المستلمة لإعادة التوجيه": "Received messages for forwarding",
+        "استخدم الأسهم لاختيار الرسالة ثم اضغط Enter أو انتقل إلى زر إعادة التوجيه.": "Use the arrow keys to choose a message, then press Enter or move to the Forward button.",
+        "إعادة توجيه الرسالة المحددة": "Forward the selected message",
+        "مرسل غير معروف": "Unknown sender",
+        "يرجى كتابة بريد إلكتروني صالح للمستلم أولاً.": "Please enter a valid recipient email address first.",
+        "يرجى اختيار رسالة لإعادة توجيهها.": "Please choose a message to forward.",
+        "لا توجد رسائل مستلمة متاحة لإعادة توجيهها.": "There are no received messages available to forward.",
+        "جار تحميل الرسالة لإعادة توجيهها...": "Loading the message for forwarding...",
+        "---------- الرسالة المعاد توجيهها ----------": "---------- Forwarded message ----------",
+        "تم تكبير مستعرض الرسالة إلى ملء الشاشة.": "The message viewer is now expanded to full screen.",
+        "تمت العودة إلى العرض العادي.": "The normal view has been restored.",
+        "السطر الحالي المكبر": "Enlarged current line",
+        "معاينة مرئية مكبرة للسطر الحالي في المستعرض السهل.": "An enlarged visual preview of the current line in the simple viewer.",
+        "سطر فارغ": "Blank line",
+        "جار تجهيز مرفقات الرسالة لإعادة توجيهها": "Preparing message attachments for forwarding",
+    }
+)
 
 
 _ENGLISH_TO_ARABIC = {english: arabic for arabic, english in ENGLISH_TRANSLATIONS.items()}
 _FRENCH_TO_ARABIC = {french: arabic for arabic, french in FRENCH_TRANSLATIONS.items()}
+_SPANISH_TO_ARABIC = {spanish: arabic for arabic, spanish in SPANISH_TRANSLATIONS.items()}
+_TURKISH_TO_ARABIC = {turkish: arabic for arabic, turkish in TURKISH_TRANSLATIONS.items()}
+_HINDI_TO_ARABIC = {hindi: arabic for arabic, hindi in HINDI_TRANSLATIONS.items()}
 
 _DYNAMIC_ENGLISH: tuple[tuple[re.Pattern[str], str], ...] = (
     (
@@ -705,16 +782,46 @@ _DYNAMIC_ENGLISH: tuple[tuple[re.Pattern[str], str], ...] = (
     (re.compile(r"^تعذر تحديث سلة المحذوفات من الخادم، فتم عرض (\d+) رسالة محفوظة محليا\. السبب: (.+)$", re.DOTALL), "Trash could not be refreshed from the server, so {0} locally cached message(s) were displayed. Reason: {1}"),
 )
 
-if len(FRENCH_DYNAMIC_TEMPLATES) != len(_DYNAMIC_ENGLISH):
-    raise RuntimeError("The French dynamic translation catalog is incomplete.")
-
-_DYNAMIC_FRENCH = tuple(
-    (pattern, replacement)
-    for (pattern, _english), replacement in zip(
-        _DYNAMIC_ENGLISH,
-        FRENCH_DYNAMIC_TEMPLATES,
-        strict=True,
+def _localized_dynamic_catalog(
+    language_name: str,
+    templates: tuple[str, ...],
+) -> tuple[tuple[re.Pattern[str], str], ...]:
+    if len(templates) != len(_DYNAMIC_ENGLISH):
+        raise RuntimeError(f"The {language_name} dynamic translation catalog is incomplete.")
+    return tuple(
+        (pattern, replacement)
+        for (pattern, _english), replacement in zip(
+            _DYNAMIC_ENGLISH,
+            templates,
+            strict=True,
+        )
     )
+
+_DYNAMIC_FRENCH = _localized_dynamic_catalog("French", FRENCH_DYNAMIC_TEMPLATES)
+_DYNAMIC_SPANISH = _localized_dynamic_catalog("Spanish", SPANISH_DYNAMIC_TEMPLATES)
+_DYNAMIC_TURKISH = _localized_dynamic_catalog("Turkish", TURKISH_DYNAMIC_TEMPLATES)
+_DYNAMIC_HINDI = _localized_dynamic_catalog("Hindi", HINDI_DYNAMIC_TEMPLATES)
+
+_TRANSLATION_CATALOGS = {
+    LANGUAGE_ENGLISH: ENGLISH_TRANSLATIONS,
+    LANGUAGE_FRENCH: FRENCH_TRANSLATIONS,
+    LANGUAGE_SPANISH: SPANISH_TRANSLATIONS,
+    LANGUAGE_TURKISH: TURKISH_TRANSLATIONS,
+    LANGUAGE_HINDI: HINDI_TRANSLATIONS,
+}
+_DYNAMIC_TRANSLATION_CATALOGS = {
+    LANGUAGE_ENGLISH: _DYNAMIC_ENGLISH,
+    LANGUAGE_FRENCH: _DYNAMIC_FRENCH,
+    LANGUAGE_SPANISH: _DYNAMIC_SPANISH,
+    LANGUAGE_TURKISH: _DYNAMIC_TURKISH,
+    LANGUAGE_HINDI: _DYNAMIC_HINDI,
+}
+_REVERSE_TRANSLATION_CATALOGS = (
+    _ENGLISH_TO_ARABIC,
+    _FRENCH_TO_ARABIC,
+    _SPANISH_TO_ARABIC,
+    _TURKISH_TO_ARABIC,
+    _HINDI_TO_ARABIC,
 )
 
 
@@ -736,7 +843,11 @@ def source_text(text: str) -> str:
         return text
     if text in ENGLISH_TRANSLATIONS:
         return text
-    return _ENGLISH_TO_ARABIC.get(text, _FRENCH_TO_ARABIC.get(text, text))
+    for catalog in _REVERSE_TRANSLATION_CATALOGS:
+        arabic = catalog.get(text)
+        if arabic is not None:
+            return arabic
+    return text
 
 
 def tr(text: str) -> str:
@@ -745,18 +856,13 @@ def tr(text: str) -> str:
     arabic = source_text(text)
     if _language == LANGUAGE_ARABIC:
         return arabic
-    translations = (
-        FRENCH_TRANSLATIONS
-        if _language == LANGUAGE_FRENCH
-        else ENGLISH_TRANSLATIONS
-    )
+    translations = _TRANSLATION_CATALOGS.get(_language, ENGLISH_TRANSLATIONS)
     exact = translations.get(arabic)
     if exact is not None:
         return exact
-    dynamic_translations = (
-        _DYNAMIC_FRENCH
-        if _language == LANGUAGE_FRENCH
-        else _DYNAMIC_ENGLISH
+    dynamic_translations = _DYNAMIC_TRANSLATION_CATALOGS.get(
+        _language,
+        _DYNAMIC_ENGLISH,
     )
     for pattern, replacement in dynamic_translations:
         match = pattern.match(arabic)

@@ -198,6 +198,7 @@ class AccountDialog(wx.Dialog):
         self._oauth_login_active = False
         self._oauth_login_generation = 0
         self._oauth_cancel_event: threading.Event | None = None
+        self.pending_sign_in_result: tuple[str, str] | None = None
         self.Bind(wx.EVT_CLOSE, self.on_close)
         self.Bind(wx.EVT_WINDOW_DESTROY, self.on_destroy)
         self._build()
@@ -257,44 +258,12 @@ class AccountDialog(wx.Dialog):
                 set_accessible(logo, "شعار Power Accessible Mail")
                 center.Add(logo, 0, wx.ALIGN_CENTER | wx.BOTTOM, 14)
 
-        email_label = wx.StaticText(content_panel, label="عنوان البريد الإلكتروني:")
-        email_label.SetForegroundColour(wx.WHITE)
-        center.Add(email_label, 0, wx.EXPAND | wx.BOTTOM, 4)
-        self.startup_email = wx.TextCtrl(content_panel, size=(360, 34), style=wx.TE_PROCESS_ENTER)
-        set_accessible(self.startup_email, "عنوان البريد الإلكتروني")
-        self.startup_email.Bind(
-            wx.EVT_TEXT_ENTER,
-            lambda _event: self.startup_password.SetFocus(),
-        )
-        center.Add(self.startup_email, 0, wx.EXPAND | wx.BOTTOM, 9)
-
-        password_label = wx.StaticText(content_panel, label="كلمة المرور:")
-        password_label.SetForegroundColour(wx.WHITE)
-        center.Add(password_label, 0, wx.EXPAND | wx.BOTTOM, 4)
-        self.startup_password = wx.TextCtrl(
-            content_panel,
-            size=(360, 34),
-            style=wx.TE_PASSWORD | wx.TE_PROCESS_ENTER,
-        )
-        set_accessible(self.startup_password, "كلمة المرور")
-        self.startup_password.Bind(wx.EVT_TEXT_ENTER, self.on_startup_manual_login)
-        center.Add(self.startup_password, 0, wx.EXPAND | wx.BOTTOM, 10)
-
-        self.sign_in_button = wx.Button(
-            content_panel,
-            label="تسجيل الدخول",
-            size=(360, 44),
-        )
-        set_accessible(self.sign_in_button, "تسجيل الدخول بالبريد وكلمة المرور")
-        self.sign_in_button.SetDefault()
-        self.sign_in_button.Bind(wx.EVT_BUTTON, self.on_startup_manual_login)
-        center.Add(self.sign_in_button, 0, wx.EXPAND | wx.BOTTOM, 10)
-
         self.continue_google_button = wx.Button(
             content_panel,
             label="الاستمرار مع Google",
             size=(360, 44),
         )
+        self.continue_google_button.SetDefault()
         set_accessible(
             self.continue_google_button,
             "الاستمرار مع Google",
@@ -319,14 +288,70 @@ class AccountDialog(wx.Dialog):
         )
         center.Add(self.continue_microsoft_button, 0, wx.EXPAND | wx.BOTTOM, 10)
 
+        self.classic_login_button = wx.Button(
+            content_panel,
+            label="تسجيل الدخول الكلاسيكي",
+            size=(360, 44),
+        )
+        set_accessible(
+            self.classic_login_button,
+            "تسجيل الدخول الكلاسيكي",
+            "إظهار حقلي البريد الإلكتروني وكلمة المرور",
+        )
+        self.classic_login_button.Bind(wx.EVT_BUTTON, self.on_toggle_classic_login)
+        center.Add(self.classic_login_button, 0, wx.EXPAND | wx.BOTTOM, 10)
+
+        self.classic_login_panel = wx.Panel(content_panel)
+        self.classic_login_panel.SetBackgroundColour(content_background)
+        classic = wx.BoxSizer(wx.VERTICAL)
+        email_label = wx.StaticText(
+            self.classic_login_panel,
+            label="عنوان البريد الإلكتروني:",
+        )
+        email_label.SetForegroundColour(wx.WHITE)
+        classic.Add(email_label, 0, wx.EXPAND | wx.BOTTOM, 4)
+        self.startup_email = wx.TextCtrl(
+            self.classic_login_panel,
+            size=(360, 34),
+            style=wx.TE_PROCESS_ENTER,
+        )
+        set_accessible(self.startup_email, "عنوان البريد الإلكتروني")
+        self.startup_email.Bind(
+            wx.EVT_TEXT_ENTER,
+            lambda _event: self.startup_password.SetFocus(),
+        )
+        classic.Add(self.startup_email, 0, wx.EXPAND | wx.BOTTOM, 9)
+        password_label = wx.StaticText(self.classic_login_panel, label="كلمة المرور:")
+        password_label.SetForegroundColour(wx.WHITE)
+        classic.Add(password_label, 0, wx.EXPAND | wx.BOTTOM, 4)
+        self.startup_password = wx.TextCtrl(
+            self.classic_login_panel,
+            size=(360, 34),
+            style=wx.TE_PASSWORD | wx.TE_PROCESS_ENTER,
+        )
+        set_accessible(self.startup_password, "كلمة المرور")
+        self.startup_password.Bind(wx.EVT_TEXT_ENTER, self.on_startup_manual_login)
+        classic.Add(self.startup_password, 0, wx.EXPAND | wx.BOTTOM, 10)
+        self.sign_in_button = wx.Button(
+            self.classic_login_panel,
+            label="تسجيل الدخول",
+            size=(360, 44),
+        )
+        set_accessible(self.sign_in_button, "تسجيل الدخول بالبريد وكلمة المرور")
+        self.sign_in_button.Bind(wx.EVT_BUTTON, self.on_startup_manual_login)
+        classic.Add(self.sign_in_button, 0, wx.EXPAND | wx.BOTTOM, 10)
+        self.classic_login_panel.SetSizer(classic)
+        self.classic_login_panel.Hide()
+        center.Add(self.classic_login_panel, 0, wx.EXPAND)
+
         self.continue_without_account_button = wx.Button(
             content_panel,
-            label="الاستمرار بدون إضافة حساب",
+            label="المتابعة كزائر",
             size=(360, 44),
         )
         set_accessible(
             self.continue_without_account_button,
-            "الاستمرار بدون إضافة حساب",
+            "المتابعة كزائر",
             "الدخول إلى الواجهة الرئيسية بدون حساب",
         )
         self.continue_without_account_button.Bind(
@@ -339,7 +364,23 @@ class AccountDialog(wx.Dialog):
         content_root.Add(center, 1, wx.EXPAND | wx.ALL, 20)
         content_panel.SetSizer(content_root)
         root.Add(content_panel, 0, wx.ALIGN_CENTER)
-        self.finish_panel(root, self.startup_email)
+        self.finish_panel(root, self.continue_google_button)
+
+    def on_toggle_classic_login(self, _event: wx.CommandEvent) -> None:
+        show = not self.classic_login_panel.IsShown()
+        self.classic_login_panel.Show(show)
+        self.classic_login_button.SetLabel(
+            tr("إخفاء تسجيل الدخول الكلاسيكي")
+            if show
+            else tr("تسجيل الدخول الكلاسيكي")
+        )
+        self.panel.Layout()
+        self.Layout()
+        wx.CallAfter(
+            self.startup_email.SetFocus
+            if show
+            else self.classic_login_button.SetFocus
+        )
 
     def on_startup_manual_login(self, _event: wx.CommandEvent) -> None:
         email_address = self.startup_email.GetValue().strip()
@@ -890,6 +931,31 @@ class AccountDialog(wx.Dialog):
         if result is None:
             return
         account = self.account
+        if (
+            result.provider_id == "google_gmail_api"
+            and not result.refresh_token
+            and not account.oauth_refresh_token
+        ):
+            missing_refresh_token_error = OAuthError(
+                "اكتمل تفويض Google، لكن لم يصل رمز يسمح للبرنامج بالاحتفاظ "
+                "بتسجيل الدخول. أزل وصول Power Accessible Mail من اتصالات حساب "
+                "Google ثم حاول إضافته مرة أخرى، أو انسخ هذا الخطأ وأرسله إلى المطور."
+            )
+            record_handled_exception(
+                missing_refresh_token_error,
+                origin="OAuth account sign-in",
+            )
+            self.Raise()
+            self.RequestUserAttention(wx.USER_ATTENTION_ERROR)
+            show_sign_in_result_dialog(
+                self,
+                "تعذر حفظ تسجيل الدخول",
+                sign_in_error_details(
+                    missing_refresh_token_error,
+                    result.provider_id,
+                ),
+            )
+            return
         account.auth_method = "oauth2"
         account.oauth_provider = result.provider_id
         account.oauth_client_id = client_id
@@ -903,9 +969,7 @@ class AccountDialog(wx.Dialog):
         account.username = result.email_address
         account.display_name = result.display_name
         apply_provider_settings(account, result.provider_id)
-        self.Raise()
-        show_sign_in_result_dialog(
-            self,
+        self.pending_sign_in_result = (
             "نجاح تسجيل الدخول",
             sign_in_success_details(result.provider_id, result.email_address),
         )

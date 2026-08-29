@@ -7,6 +7,9 @@ from .config import (
     LANGUAGE_ARABIC,
     LANGUAGE_ENGLISH,
     LANGUAGE_FRENCH,
+    LANGUAGE_HINDI,
+    LANGUAGE_SPANISH,
+    LANGUAGE_TURKISH,
     app_dir,
 )
 
@@ -15,9 +18,12 @@ GUIDE_FILENAMES = {
     LANGUAGE_ARABIC: "installer_readme_ar.txt",
     LANGUAGE_ENGLISH: "installer_readme_en.txt",
     LANGUAGE_FRENCH: "installer_readme_fr.txt",
+    LANGUAGE_SPANISH: "installer_readme_es.txt",
+    LANGUAGE_TURKISH: "installer_readme_tr.txt",
+    LANGUAGE_HINDI: "installer_readme_hi.txt",
 }
 VERSION_LINE_PATTERN = re.compile(
-    r"^(?P<label>Version|الإصدار)\s*:?[ \t]*\d+(?:\.\d+){2}[ \t]*$",
+    r"^(?P<label>Version|الإصدار|Versión|Sürüm|संस्करण|वर्जन)\s*:?[ \t]*\d+(?:\.\d+){2}[ \t]*$",
     re.MULTILINE,
 )
 
