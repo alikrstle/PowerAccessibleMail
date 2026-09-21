@@ -19,6 +19,8 @@ jobs:
   test:
     runs-on: windows-latest
     timeout-minutes: 15
+    env:
+      GITHUB_TOKEN: ${{ github.token }}
     defaults:
       run:
         working-directory: website

@@ -3,12 +3,14 @@ import { readFile } from "node:fs/promises";
 const repository = "alikrstle/PowerAccessibleMail";
 const releaseTag = "v1.5.0";
 const apiUrl = `https://api.github.com/repos/${repository}/releases/tags/${releaseTag}`;
+const githubToken = process.env.GITHUB_TOKEN;
 const downloadsPage = await readFile(new URL("../public/downloads.html", import.meta.url), "utf8");
 
 const response = await fetch(apiUrl, {
   headers: {
     Accept: "application/vnd.github+json",
-    "User-Agent": "PowerAccessibleMail-Website-release-check"
+    "User-Agent": "PowerAccessibleMail-Website-release-check",
+    ...(githubToken ? { Authorization: `Bearer ${githubToken}` } : {})
   }
 });
 
