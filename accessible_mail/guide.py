@@ -8,6 +8,10 @@ from .config import (
     LANGUAGE_ENGLISH,
     LANGUAGE_FRENCH,
     LANGUAGE_HINDI,
+    LANGUAGE_JAPANESE,
+    LANGUAGE_GERMAN,
+    LANGUAGE_RUSSIAN,
+    LANGUAGE_SIMPLIFIED_CHINESE,
     LANGUAGE_SPANISH,
     LANGUAGE_TURKISH,
     app_dir,
@@ -21,9 +25,13 @@ GUIDE_FILENAMES = {
     LANGUAGE_SPANISH: "installer_readme_es.txt",
     LANGUAGE_TURKISH: "installer_readme_tr.txt",
     LANGUAGE_HINDI: "installer_readme_hi.txt",
+    LANGUAGE_SIMPLIFIED_CHINESE: "installer_readme_zh-CN.txt",
+    LANGUAGE_RUSSIAN: "installer_readme_ru.txt",
+    LANGUAGE_JAPANESE: "installer_readme_ja.txt",
+    LANGUAGE_GERMAN: "installer_readme_de.txt",
 }
 VERSION_LINE_PATTERN = re.compile(
-    r"^(?P<label>Version|الإصدار|Versión|Sürüm|संस्करण|वर्जन)\s*:?[ \t]*\d+(?:\.\d+){2}[ \t]*$",
+    r"^(?P<label>Version|الإصدار|Versión|Sürüm|संस्करण|वर्जन|版本|Версия|バージョン)\s*:?[ \t]*\d+(?:\.\d+){2}[ \t]*$",
     re.MULTILINE,
 )
 

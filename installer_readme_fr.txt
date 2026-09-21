@@ -1,13 +1,19 @@
 ﻿Power Accessible Mail
-Version 1.4.0
+Version 1.5.0
 Développé par Soljan.AlSharq.
 Soljan.AlSharq. appartient à Ali Al-Amir
+
+Rechercher dans les messages
+
+Choisissez votre méthode de recherche dans Paramètres. La recherche à la demande ouvre une fenêtre complète avec Ctrl+F, qui apparaît Ctrl+ب avec un clavier arabe. Vous pouvez aussi afficher un bouton près de la catégorie ou un champ permanent qui filtre la section actuelle pendant la saisie.
+
+La fenêtre contient la liste des résultats, la visionneuse de messages et la visionneuse d’éléments. La recherche porte sur les messages déjà chargés ou synchronisés et correspond au nom de l’expéditeur, à son adresse, à l’objet, à la date et à l’état.
 
 Bienvenue dans votre messagerie
 
 Power Accessible Mail est conçu pour rendre la lecture l'écriture l'organisation et l'actualisation des courriels confortables au clavier
 
-La version 1.4.0 améliore la fiabilité des mises à jour en utilisant le magasin de certificats natif de Windows et fournit un message clair en cas de problème lié à l'heure de l'appareil aux mises à jour de Windows ou au logiciel de sécurité sans désactiver la vérification sécurisée
+La version 1.5.0 améliore la fiabilité des mises à jour en utilisant le magasin de certificats natif de Windows et fournit un message clair en cas de problème lié à l'heure de l'appareil aux mises à jour de Windows ou au logiciel de sécurité sans désactiver la vérification sécurisée
 
 Les listes et les champs Windows natifs offrent aux lecteurs d'écran des commandes prévisibles tandis que les messages sont disposés verticalement pour rendre la navigation directe et familière
 
@@ -17,9 +23,9 @@ Lorsque l'application démarre sans compte vous pouvez continuer avec Google con
 
 Ouvrez Options et gestion des comptes puis sélectionnez Ajouter un compte
 
-Les méthodes de connexion apparaissent dans une véritable liste
+Les trois méthodes de connexion apparaissent dans une véritable liste
 
-Sélectionnez la connexion par navigateur ou la connexion manuelle puis appuyez sur Entrée faites un clic droit sur l'élément sélectionné ou utilisez le bouton OK à côté d'Annuler
+Sélectionnez la connexion par navigateur, la connexion Google avec un mot de passe d'application ou la connexion manuelle avancée, puis appuyez sur Entrée, faites un clic droit sur l'élément sélectionné ou utilisez le bouton OK à côté d'Annuler
 
 La connexion par navigateur ouvre la page d'autorisation officielle de Google ou Microsoft et ne demande jamais à l'application de lire le mot de passe de votre navigateur
 
@@ -29,7 +35,7 @@ La connexion manuelle commence par le choix du service de messagerie
 
 Sélectionnez Google ou Microsoft et l'application remplit les paramètres IMAP et SMTP correspondants tout en laissant les champs disponibles pour vérification
 
-La connexion manuelle à Gmail nécessite généralement un mot de passe d'application
+La connexion Google avec un mot de passe d'application est une option secondaire pour les comptes Gmail. Elle nécessite la validation en deux étapes et un mot de passe d'application créé sur la page Google officielle. Saisissez le code à 16 caractères ; l'application supprime automatiquement les espaces et le conserve avec le chiffrement Windows. Ne saisissez jamais le mot de passe habituel de votre compte Google dans ce champ
 
 Pour Microsoft la connexion par navigateur est recommandée car l'accès IMAP par mot de passe peut être limité par la politique du compte
 
@@ -101,17 +107,17 @@ Utilisez Maj+F10 ou la touche Applications pour le menu contextuel du message et
 
 Traduction dans la visionneuse ou dans une fenêtre séparée
 
-Ctrl+T traduit le message actuel dans la langue de l'application
+Ctrl+T traduit le message actuel dans la langue de traduction sélectionnée
 
 Dans Paramètres choisissez si la traduction remplace le contenu de la visionneuse HTML ou simple ou si elle s'ouvre dans une fenêtre séparée
 
 La traduction est disponible uniquement lorsque vous êtes dans la visionneuse de messages
 
-Elle nécessite une connexion Internet et envoie le texte du message sélectionné au service officiel Google Translate uniquement lorsque vous demandez sa traduction. Avant la première traduction, l'application explique ce transfert et propose Autoriser ou Annuler. Après avoir choisi Autoriser, votre choix est enregistré et l'avertissement ne s'affiche plus
+Elle nécessite une connexion Internet et envoie le texte du message sélectionné au service officiel Google Translate uniquement lorsque vous demandez sa traduction. Avant la première traduction, l'application explique ce transfert et propose Autoriser ou Annuler. Après Autoriser, la liste affiche d'abord 20 langues courantes puis toutes les autres. Choisissez une langue par clic ou avec les flèches puis Entrée. Le consentement et la langue sont enregistrés
 
 Adaptez l'application à vos préférences
 
-Paramètres permet de choisir l'arabe l'anglais le français l'espagnol le turc ou l'hindi la visionneuse HTML ou simple la traduction dans la page ou dans une fenêtre séparée ainsi que l'apparence claire ou sombre
+Paramètres permet de choisir l'arabe l'anglais le français l'espagnol le turc l'hindi le chinois simplifié le russe le japonais ou l'allemand la visionneuse HTML ou simple la traduction dans la page ou dans une fenêtre séparée ainsi que l'apparence claire ou sombre
 
 Vous pouvez également contrôler le nombre d'actions annoncées par la bibliothèque NVDA avec quatre niveaux : aucune certaines la plupart ou toutes. Le bouton Personnaliser et gérer l'annonce des actions à côté du niveau ouvre des catégories contenant de véritables cases à cocher Windows. Utilisez Tab pour passer de l'une à l'autre entendre son état et Espace pour le modifier puis enregistrez. Le niveau par défaut n'annonce pas les changements d'état lu ou non lu ni leur enregistrement sur le serveur sauf si l'utilisateur active cette catégorie dans la personnalisation. Les paramètres contiennent aussi Choisir PowerAccessibleMail comme application de messagerie par défaut qui ouvre la page de l'application dans les paramètres Windows ; appuyez sur Espace sur MAILTO pour ouvrir le sélecteur si Entrée ne répond pas
 

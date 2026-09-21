@@ -30,7 +30,11 @@ $ProgramGuides = @(
     (Join-Path $PSScriptRoot "installer_readme_fr.txt"),
     (Join-Path $PSScriptRoot "installer_readme_es.txt"),
     (Join-Path $PSScriptRoot "installer_readme_tr.txt"),
-    (Join-Path $PSScriptRoot "installer_readme_hi.txt")
+    (Join-Path $PSScriptRoot "installer_readme_hi.txt"),
+    (Join-Path $PSScriptRoot "installer_readme_zh-CN.txt"),
+    (Join-Path $PSScriptRoot "installer_readme_ru.txt"),
+    (Join-Path $PSScriptRoot "installer_readme_ja.txt"),
+    (Join-Path $PSScriptRoot "installer_readme_de.txt")
 )
 $NvdaVendor = Join-Path $PSScriptRoot "accessible_mail\vendor\nvda"
 $NvdaController = Join-Path $NvdaVendor "$Architecture\nvdaControllerClient.dll"

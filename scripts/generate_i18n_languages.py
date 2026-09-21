@@ -11,15 +11,18 @@ from pprint import pformat
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 PLACEHOLDER_PATTERN = re.compile(r"\{\d+\}|\t")
 CATALOG_SEPARATOR = "__PAM_CATALOG_SEPARATOR__"
-MAX_BATCH_CHARACTERS = 1400
+MAX_BATCH_CHARACTERS = 3600
 CACHE_DIR = PROJECT_ROOT / "build-i18n-cache"
 INSTALLER_INFO_SOURCE = PROJECT_ROOT / "installer_info_en.txt"
 INSTALLER_README_SOURCE = PROJECT_ROOT / "installer_readme_en.txt"
 
 sys.path.insert(0, str(PROJECT_ROOT))
 
-from accessible_mail.i18n import ENGLISH_TRANSLATIONS, _DYNAMIC_ENGLISH
-from accessible_mail.translation import translate_text_with_google
+from accessible_mail.i18n import ENGLISH_TRANSLATIONS, _DYNAMIC_ENGLISH  # noqa: E402
+from accessible_mail.translation import (  # noqa: E402
+    TranslationRateLimitError,
+    translate_text_with_google,
+)
 
 
 LANGUAGES = {
@@ -37,6 +40,26 @@ LANGUAGES = {
         "name": "Hindi",
         "variable": "HINDI",
         "module": "i18n_hi.py",
+    },
+    "zh-CN": {
+        "name": "Simplified Chinese",
+        "variable": "SIMPLIFIED_CHINESE",
+        "module": "i18n_zh_cn.py",
+    },
+    "ru": {
+        "name": "Russian",
+        "variable": "RUSSIAN",
+        "module": "i18n_ru.py",
+    },
+    "ja": {
+        "name": "Japanese",
+        "variable": "JAPANESE",
+        "module": "i18n_ja.py",
+    },
+    "de": {
+        "name": "German",
+        "variable": "GERMAN",
+        "module": "i18n_de.py",
     },
 }
 
@@ -131,6 +154,139 @@ MANUAL_TRANSLATIONS = {
         "Check for updates": "अपडेट जाँचें",
         "Power Accessible Mail Guide": "Power Accessible Mail मार्गदर्शिका",
     },
+    "zh-CN": {
+        "Arabic": "阿拉伯语",
+        "English": "英语",
+        "French": "法语",
+        "Spanish": "西班牙语",
+        "Turkish": "土耳其语",
+        "Hindi": "印地语",
+        "Simplified Chinese": "简体中文",
+        "Russian": "俄语",
+        "Japanese": "日语",
+        "Settings": "设置",
+        "Application language": "应用程序语言",
+        "Application language:": "应用程序语言：",
+        "Inbox": "收件箱",
+        "Spam": "垃圾邮件",
+        "Sent": "已发送",
+        "All Mail": "所有邮件",
+        "Trash": "回收站",
+        "Read": "已读",
+        "Unread": "未读",
+        "Mark as read": "标记为已读",
+        "Mark as unread": "标记为未读",
+        "Compose email": "撰写邮件",
+        "Reply": "回复",
+        "Copy": "复制",
+        "Translate": "翻译",
+        "Cancel": "取消",
+        "Close": "关闭",
+        "Save": "保存",
+        "Help": "帮助",
+        "Check for updates": "检查更新",
+        "Power Accessible Mail Guide": "Power Accessible Mail 指南",
+    },
+    "ru": {
+        "Arabic": "Арабский",
+        "English": "Английский",
+        "French": "Французский",
+        "Spanish": "Испанский",
+        "Turkish": "Турецкий",
+        "Hindi": "Хинди",
+        "Simplified Chinese": "Китайский (упрощённый)",
+        "Russian": "Русский",
+        "Japanese": "Японский",
+        "Settings": "Настройки",
+        "Application language": "Язык приложения",
+        "Application language:": "Язык приложения:",
+        "Inbox": "Входящие",
+        "Spam": "Спам",
+        "Sent": "Отправленные",
+        "All Mail": "Вся почта",
+        "Trash": "Корзина",
+        "Read": "Прочитано",
+        "Unread": "Не прочитано",
+        "Mark as read": "Отметить как прочитанное",
+        "Mark as unread": "Отметить как непрочитанное",
+        "Compose email": "Написать письмо",
+        "Reply": "Ответить",
+        "Copy": "Копировать",
+        "Translate": "Перевести",
+        "Cancel": "Отмена",
+        "Close": "Закрыть",
+        "Save": "Сохранить",
+        "Help": "Справка",
+        "Check for updates": "Проверить обновления",
+        "Power Accessible Mail Guide": "Руководство Power Accessible Mail",
+    },
+    "ja": {
+        "Arabic": "アラビア語",
+        "English": "英語",
+        "French": "フランス語",
+        "Spanish": "スペイン語",
+        "Turkish": "トルコ語",
+        "Hindi": "ヒンディー語",
+        "Simplified Chinese": "簡体字中国語",
+        "Russian": "ロシア語",
+        "Japanese": "日本語",
+        "Settings": "設定",
+        "Application language": "アプリケーションの言語",
+        "Application language:": "アプリケーションの言語：",
+        "Inbox": "受信トレイ",
+        "Spam": "迷惑メール",
+        "Sent": "送信済み",
+        "All Mail": "すべてのメール",
+        "Trash": "ゴミ箱",
+        "Read": "既読",
+        "Unread": "未読",
+        "Mark as read": "既読にする",
+        "Mark as unread": "未読にする",
+        "Compose email": "メールを作成",
+        "Reply": "返信",
+        "Copy": "コピー",
+        "Translate": "翻訳",
+        "Cancel": "キャンセル",
+        "Close": "閉じる",
+        "Save": "保存",
+        "Help": "ヘルプ",
+        "Check for updates": "更新を確認",
+        "Power Accessible Mail Guide": "Power Accessible Mail ガイド",
+    },
+    "de": {
+        "Arabic": "Arabisch",
+        "English": "Englisch",
+        "French": "Französisch",
+        "Spanish": "Spanisch",
+        "Turkish": "Türkisch",
+        "Hindi": "Hindi",
+        "Simplified Chinese": "Chinesisch (vereinfacht)",
+        "Russian": "Russisch",
+        "Japanese": "Japanisch",
+        "German": "Deutsch",
+        "Settings": "Einstellungen",
+        "Application language": "Anwendungssprache",
+        "Application language:": "Anwendungssprache:",
+        "Inbox": "Posteingang",
+        "Spam": "Spam",
+        "Sent": "Gesendet",
+        "All Mail": "Alle Nachrichten",
+        "Trash": "Papierkorb",
+        "Read": "Gelesen",
+        "Unread": "Ungelesen",
+        "Mark as read": "Als gelesen markieren",
+        "Mark as unread": "Als ungelesen markieren",
+        "Compose email": "E-Mail verfassen",
+        "Reply": "Antworten",
+        "Copy": "Kopieren",
+        "Translate": "Übersetzen",
+        "Cancel": "Abbrechen",
+        "Close": "Schließen",
+        "Save": "Speichern",
+        "Help": "Hilfe",
+        "Check for updates": "Nach Updates suchen",
+        "Power Accessible Mail Guide": "Power Accessible Mail-Handbuch",
+    },
 }
 
 
@@ -189,7 +345,7 @@ def catalog_batches(values: list[str]) -> list[list[str]]:
         protected, _tokens = protected_value(value)
         added_length = len(protected) + (separator_length if current else 0)
         if current and (
-            len(current) >= 8
+            len(current) >= 20
             or current_length + added_length > MAX_BATCH_CHARACTERS
         ):
             batches.append(current)
@@ -250,13 +406,22 @@ def translate_catalog(
         )
     batches = catalog_batches(pending_values)
     for batch_index, batch in enumerate(batches, start=1):
-        for attempt in range(6):
+        for attempt in range(12):
             try:
                 translations.update(translate_batch(language, batch))
                 save_cache(cache_path, translations)
                 break
+            except TranslationRateLimitError:
+                if attempt == 11:
+                    raise
+                print(
+                    f"{language}: translation service rate limited; "
+                    "waiting 70 seconds before resuming",
+                    flush=True,
+                )
+                time.sleep(70)
             except Exception:
-                if attempt == 5:
+                if attempt == 11:
                     raise
                 time.sleep(10 + attempt * 5)
         print(

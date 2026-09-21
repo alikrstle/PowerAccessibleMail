@@ -2,11 +2,14 @@ from __future__ import annotations
 
 import re
 import threading
+import time
+import webbrowser
+from collections.abc import Callable
 from dataclasses import replace
 
 import wx
 
-from .accessibility import announce_to_screen_reader, set_accessible
+from .accessibility import announce_to_screen_reader, restore_control_focus, set_accessible
 from .config import load_oauth_clients
 from .error_logging import record_handled_exception
 from .i18n import tr
@@ -164,7 +167,7 @@ class SignInResultDialog(wx.Dialog):
             if copied
             else tr("تعذر نسخ نتيجة تسجيل الدخول إلى الحافظة.")
         )
-        announce_to_screen_reader(message)
+        announce_to_screen_reader(self.copy_button, message)
         if copied:
             self.copy_button.SetLabel(tr("تم النسخ"))
             set_accessible(self.copy_button, tr("تم النسخ"), message)
@@ -182,6 +185,330 @@ def show_sign_in_result_dialog(
         dialog.Destroy()
 
 
+class GoogleAppPasswordWizard(wx.Dialog):
+    STEP_TITLES = (
+        "مرحبا بك في معالج كلمة مرور التطبيق",
+        "حماية الحساب والتحقق بخطوتين",
+        "إنشاء كلمة مرور التطبيق",
+        "إدخال بيانات Gmail",
+        "مراجعة الإعداد وإنهاؤه",
+    )
+    STEP_DESCRIPTIONS = (
+        (
+            "اقرأ الشرح بالأسهم، ثم اضغط Tab للوصول إلى التالي.\n"
+            "سنضيف حساب Gmail بخطوات بسيطة.\n"
+            "ستحتاج إلى بريدك وكلمة مرور تطبيق تنشئها من Google.\n"
+            "لا تستخدم كلمة مرور حسابك العادية."
+        ),
+        (
+            "يجب تفعيل التحقق بخطوتين في حساب Google أولا.\n"
+            "تجده في إعدادات أمان حسابك. إذا كان مفعلا، اضغط التالي.\n"
+            "قد لا تتوفر كلمات مرور التطبيقات لبعض حسابات العمل أو الدراسة أو الحماية المتقدمة."
+        ),
+        (
+            "اضغط زر فتح صفحة Google الموجود بعد هذا الشرح.\n"
+            "اختر حسابك، واكتب Power Accessible Mail اسما للتطبيق، ثم أنشئ كلمة المرور.\n"
+            "انسخ كلمة المرور، وارجع إلى هذا المعالج واضغط التالي.\n"
+            "لا تشارك كلمة المرور مع أحد.\n\n"
+            "لدي كلمة مرور تطبيق لكنني نسيتها:\n"
+            "لا تعرض Google كلمة مرور التطبيق مرة أخرى بعد إنشائها. "
+            "افتح الصفحة بزر فتح صفحة إنشاء كلمة مرور التطبيق في Google وأنشئ كلمة مرور تطبيق جديدة، ثم انسخها واستخدمها في الخطوة القادمة.\n"
+            "إذا كان حسابك يعمل بالفعل بكلمة مرور محفوظة في البرنامج، فلا تحتاج إلى تغييرها لمجرد نسيانها.\n"
+            "لا تلغ كلمة المرور القديمة قبل التأكد من عدم استخدامها في برنامج أو جهاز آخر."
+        ),
+        (
+            "اضغط Tab واكتب عنوان Gmail.\n"
+            "اضغط Tab مرة أخرى والصق كلمة مرور التطبيق المكونة من 16 رمزا.\n"
+            "لا تستخدم كلمة مرور حسابك العادية. لا تحتاج إلى إزالة المسافات.\n"
+            "ثم اكتب الاسم الأول واسم العائلة، أو اتركهما فارغين لعرض البريد وحده.\n"
+            "بعد إدخال البيانات، اضغط التالي."
+        ),
+        (
+            "اضغط Tab لقراءة عنوان البريد ومراجعته. لن تظهر كلمة المرور هنا.\n"
+            "إذا كان العنوان صحيحا، اضغط إنهاء لمتابعة إضافة الحساب.\n"
+            "إذا أردت تصحيحه، اضغط السابق. يضبط البرنامج إعدادات الاتصال تلقائيا."
+        ),
+    )
+
+    def __init__(
+        self,
+        parent: wx.Window,
+        source_account: Account,
+        account_builder: Callable[[Account, str, str], Account],
+    ) -> None:
+        super().__init__(
+            parent, title=tr("معالج كلمة مرور تطبيق Google"), size=(680, 680),
+            style=wx.DEFAULT_DIALOG_STYLE | wx.RESIZE_BORDER,
+        )
+        self.source_account = replace(source_account)
+        self.account_builder = account_builder
+        self.account: Account | None = None
+        self.current_step = 0
+        self.page_focus_targets: list[wx.Window] = []
+
+        root = wx.BoxSizer(wx.VERTICAL)
+        self.step_status = wx.StaticText(self)
+        set_accessible(self.step_status, "تقدم معالج كلمة مرور التطبيق")
+        root.Add(self.step_status, 0, wx.EXPAND | wx.ALL, 12)
+
+        self.book = wx.Simplebook(self)
+        for index, (title, description) in enumerate(
+            zip(self.STEP_TITLES, self.STEP_DESCRIPTIONS, strict=True)
+        ):
+            page = wx.Panel(self.book)
+            page_sizer = wx.BoxSizer(wx.VERTICAL)
+            heading = wx.StaticText(page, label=tr(title))
+            heading_font = heading.GetFont()
+            heading_font.SetPointSize(15)
+            heading_font.SetWeight(wx.FONTWEIGHT_BOLD)
+            heading.SetFont(heading_font)
+            set_accessible(heading, title)
+            page_sizer.Add(heading, 0, wx.EXPAND | wx.ALL, 12)
+
+            explanation = wx.TextCtrl(
+                page,
+                value=tr(description),
+                style=wx.TE_MULTILINE | wx.TE_READONLY | wx.TE_RICH2,
+                size=(-1, 135),
+            )
+            set_accessible(explanation, title)
+            page_sizer.Add(explanation, 0, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM, 12)
+            focus_target: wx.Window = explanation
+
+            if index == 2:
+                self.open_google_button = wx.Button(
+                    page,
+                    label=tr("فتح صفحة إنشاء كلمة مرور التطبيق في Google"),
+                )
+                set_accessible(
+                    self.open_google_button,
+                    "فتح صفحة إنشاء كلمة مرور التطبيق في Google",
+                    "يفتح صفحة Google الرسمية في المتصفح الافتراضي.",
+                )
+                self.open_google_button.Bind(
+                    wx.EVT_BUTTON,
+                    self.on_open_google_app_passwords,
+                )
+                page_sizer.Add(
+                    self.open_google_button,
+                    0,
+                    wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM,
+                    12,
+                )
+            elif index == 3:
+                page_sizer.Add(
+                    wx.StaticText(page, label=tr("عنوان Gmail:")),
+                    0,
+                    wx.LEFT | wx.RIGHT | wx.TOP,
+                    12,
+                )
+                self.email_control = wx.TextCtrl(page, style=wx.TE_PROCESS_ENTER)
+                set_accessible(self.email_control, "عنوان Gmail")
+                self.email_control.Bind(
+                    wx.EVT_TEXT_ENTER,
+                    lambda _event: self.password_control.SetFocus(),
+                )
+                page_sizer.Add(
+                    self.email_control,
+                    0,
+                    wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM,
+                    12,
+                )
+                page_sizer.Add(
+                    wx.StaticText(page, label=tr("كلمة مرور التطبيق:")),
+                    0,
+                    wx.LEFT | wx.RIGHT,
+                    12,
+                )
+                self.password_control = wx.TextCtrl(
+                    page,
+                    style=wx.TE_PASSWORD | wx.TE_PROCESS_ENTER,
+                )
+                set_accessible(
+                    self.password_control,
+                    "كلمة مرور التطبيق",
+                    "يمكن لصق كلمة مرور التطبيق مع المسافات وسيزيلها البرنامج تلقائيا.",
+                )
+                self.password_control.Bind(
+                    wx.EVT_TEXT_ENTER,
+                    lambda _event: self.first_name_control.SetFocus(),
+                )
+                page_sizer.Add(
+                    self.password_control,
+                    0,
+                    wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM,
+                    12,
+                )
+                page_sizer.Add(
+                    wx.StaticText(page, label=tr("الاسم الأول:")),
+                    0, wx.LEFT | wx.RIGHT, 12,
+                )
+                self.first_name_control = wx.TextCtrl(
+                    page, value=self.source_account.display_name,
+                    style=wx.TE_PROCESS_ENTER,
+                )
+                set_accessible(self.first_name_control, "الاسم الأول:")
+                self.first_name_control.Bind(
+                    wx.EVT_TEXT_ENTER, lambda _event: self.last_name_control.SetFocus(),
+                )
+                page_sizer.Add(
+                    self.first_name_control, 0,
+                    wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM, 12,
+                )
+                # Existing display names are unstructured; do not guess how a
+                # compound personal name should be split into family names.
+                page_sizer.Add(
+                    wx.StaticText(page, label=tr("اسم العائلة:")),
+                    0, wx.LEFT | wx.RIGHT, 12,
+                )
+                self.last_name_control = wx.TextCtrl(page, style=wx.TE_PROCESS_ENTER)
+                set_accessible(self.last_name_control, "اسم العائلة:")
+                self.last_name_control.Bind(wx.EVT_TEXT_ENTER, self.on_next)
+                page_sizer.Add(
+                    self.last_name_control, 0,
+                    wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM, 12,
+                )
+            elif index == 4:
+                self.review_text = wx.TextCtrl(
+                    page,
+                    style=wx.TE_MULTILINE | wx.TE_READONLY,
+                    size=(-1, 80),
+                )
+                set_accessible(
+                    self.review_text,
+                    "ملخص إعداد حساب Gmail",
+                    "يعرض عنوان الحساب وطريقة الاتصال دون عرض كلمة مرور التطبيق.",
+                )
+                page_sizer.Add(
+                    self.review_text,
+                    0,
+                    wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM,
+                    12,
+                )
+
+            page.SetSizer(page_sizer)
+            self.book.AddPage(page, tr(title))
+            self.page_focus_targets.append(focus_target)
+
+        root.Add(self.book, 1, wx.EXPAND | wx.LEFT | wx.RIGHT, 12)
+
+        navigation = wx.BoxSizer(wx.HORIZONTAL)
+        navigation.AddStretchSpacer(1)
+        self.back_button = wx.Button(self, label=tr("السابق"))
+        set_accessible(self.back_button, "الخطوة السابقة")
+        self.back_button.Bind(wx.EVT_BUTTON, self.on_back)
+        navigation.Add(self.back_button, 0, wx.ALL, 6)
+        self.next_button = wx.Button(self, label=tr("التالي"))
+        self.next_button.SetDefault()
+        set_accessible(self.next_button, "الخطوة التالية")
+        self.next_button.Bind(wx.EVT_BUTTON, self.on_next)
+        navigation.Add(self.next_button, 0, wx.ALL, 6)
+        cancel_button = wx.Button(self, id=wx.ID_CANCEL, label=tr("إلغاء"))
+        set_accessible(cancel_button, "إلغاء معالج كلمة مرور التطبيق")
+        navigation.Add(cancel_button, 0, wx.ALL, 6)
+        root.Add(navigation, 0, wx.EXPAND | wx.ALL, 6)
+
+        self.SetSizer(root)
+        apply_layout_direction(self)
+        localize_window(self)
+        self.show_step(0)
+
+    def show_step(self, step: int) -> None:
+        self.current_step = max(0, min(step, len(self.STEP_TITLES) - 1))
+        self.book.SetSelection(self.current_step)
+        title = tr(self.STEP_TITLES[self.current_step])
+        self.step_status.SetLabel(
+            tr("الخطوة {0} من {1}: {2}").format(
+                self.current_step + 1,
+                len(self.STEP_TITLES),
+                title,
+            )
+        )
+        self.back_button.Enable(self.current_step > 0)
+        self.next_button.SetLabel(
+            tr("إنهاء")
+            if self.current_step == len(self.STEP_TITLES) - 1
+            else tr("التالي")
+        )
+        set_accessible(
+            self.next_button,
+            "إنهاء إعداد حساب Gmail"
+            if self.current_step == len(self.STEP_TITLES) - 1
+            else "الخطوة التالية",
+        )
+        self.Layout()
+        # Focus the native reading area instead of interrupting its speech with
+        # a separate announcement or skipping ahead to an action button.
+        self.page_focus_targets[self.current_step].SetInsertionPoint(0)
+        wx.CallAfter(self.focus_step_description, self.current_step)
+
+    def focus_step_description(self, step: int) -> None:
+        if self and not self.IsBeingDeleted() and self.current_step == step:
+            self.page_focus_targets[step].SetFocus()
+
+    def on_back(self, _event: wx.CommandEvent) -> None:
+        if self.current_step > 0:
+            self.show_step(self.current_step - 1)
+
+    def on_next(self, _event: wx.CommandEvent) -> None:
+        if self.current_step == 3:
+            try:
+                self.account = self.account_builder(
+                    self.source_account,
+                    self.email_control.GetValue(),
+                    self.password_control.GetValue(),
+                )
+                self.account.display_name = " ".join(
+                    part for part in (
+                        self.first_name_control.GetValue().strip(),
+                        self.last_name_control.GetValue().strip(),
+                    ) if part
+                )
+            except ValueError as exc:
+                wx.MessageBox(
+                    str(exc),
+                    tr("بيانات غير مكتملة"),
+                    wx.OK | wx.ICON_WARNING,
+                    self,
+                )
+                message = str(exc)
+                wx.CallAfter(
+                    self.email_control.SetFocus
+                    if "Gmail" in message or "البريد" in message
+                    else self.password_control.SetFocus
+                )
+                return
+            self.review_text.SetValue(
+                tr(
+                    "عنوان Gmail: {0}\nطريقة الاتصال: IMAP وSMTP الآمنان\n"
+                    "كلمة مرور التطبيق: محفوظة ولن تُعرض"
+                ).format(self.account.email_address)
+            )
+        if self.current_step == len(self.STEP_TITLES) - 1:
+            self.EndModal(wx.ID_OK)
+            return
+        self.show_step(self.current_step + 1)
+
+    def on_open_google_app_passwords(self, _event: wx.CommandEvent) -> None:
+        if not webbrowser.open("https://myaccount.google.com/apppasswords"):
+            wx.MessageBox(
+                tr("تعذر فتح صفحة كلمات مرور التطبيقات في المتصفح."),
+                tr("تعذر فتح الرابط"),
+                wx.OK | wx.ICON_ERROR,
+                self,
+            )
+
+
+class FocusableSignInNotice(wx.StaticText):
+    """Informational text that can receive keyboard focus without edit state."""
+
+    def AcceptsFocus(self) -> bool:
+        return True
+
+    def AcceptsFocusFromKeyboard(self) -> bool:
+        return True
+
+
 class AccountDialog(wx.Dialog):
     def __init__(
         self,
@@ -190,7 +517,8 @@ class AccountDialog(wx.Dialog):
         startup: bool = False,
     ) -> None:
         title = "تسجيل الدخول" if startup else "إضافة حساب بريد"
-        super().__init__(parent, title=title, size=(780, 620))
+        super().__init__(parent, title=title, size=(780, 620), style=wx.DEFAULT_DIALOG_STYLE | wx.RESIZE_BORDER)
+        self.SetSize(self.FromDIP(wx.Size(820, 680)))
         self.account = replace(account) if account else Account()
         self.startup = startup
         self.mode = ""
@@ -227,50 +555,48 @@ class AccountDialog(wx.Dialog):
         localize_window(self)
         self.panel.Layout()
         self.Layout()
-        wx.CallAfter(focus.SetFocus)
+        if self.mode == "startup":
+            # Keep all four native actions reachable when the dialog is resized.
+            self.SetMinClientSize(root.GetMinSize() + self.FromDIP(wx.Size(24, 24)))
+        wx.CallAfter(restore_control_focus, focus)
 
     def show_startup_view(self) -> None:
         self.mode = "startup"
         root = self.clear_panel()
         content_panel = wx.Panel(self.panel)
+        content_panel.visual_card = True
         content_background = wx.Colour(20, 27, 36)
         content_panel.SetBackgroundColour(content_background)
         center = wx.BoxSizer(wx.VERTICAL)
 
-        heading = wx.StaticText(
+        google_notice = tr("تسجيل الدخول عبر Google محدود حاليا بـ100 مستخدم. إذا تعذر تسجيل الدخول، يرجى استخدام المتابعة لحساب Google بكلمة مرور التطبيق.")
+        self.welcome_heading = wx.StaticText(
             content_panel,
-            label="مرحبا بكم في برنامج Power Accessible Mail",
+            label=tr("مرحبا بكم في برنامج Power Accessible Mail"),
             style=wx.ALIGN_CENTER_HORIZONTAL,
         )
+        heading = self.welcome_heading
+        set_accessible(heading, "مرحبا بكم في برنامج Power Accessible Mail")
         heading_font = heading.GetFont()
-        heading_font.SetPointSize(19)
+        heading_font.SetPointSize(18)
         heading_font.SetWeight(wx.FONTWEIGHT_BOLD)
         heading.SetFont(heading_font)
         heading.SetForegroundColour(wx.WHITE)
-        center.Add(heading, 0, wx.ALIGN_CENTER | wx.BOTTOM, 10)
+        heading.SetBackgroundColour(content_background)
+        center.Add(heading, 0, wx.EXPAND | wx.BOTTOM, 10)
 
         logo_path = app_logo_path()
         if logo_path:
             logo_bitmap = wx.Bitmap(str(logo_path), wx.BITMAP_TYPE_ANY)
             if logo_bitmap.IsOk():
+                logo_size = self.FromDIP(72)
+                logo_image = logo_bitmap.ConvertToImage()
+                ratio = logo_size / max(logo_image.GetWidth(), logo_image.GetHeight())
+                logo_bitmap = wx.Bitmap(logo_image.Scale(max(1, round(logo_image.GetWidth() * ratio)), max(1, round(logo_image.GetHeight() * ratio)), wx.IMAGE_QUALITY_HIGH))
                 logo = wx.StaticBitmap(content_panel, bitmap=logo_bitmap)
                 logo.SetBackgroundColour(content_background)
                 set_accessible(logo, "شعار Power Accessible Mail")
                 center.Add(logo, 0, wx.ALIGN_CENTER | wx.BOTTOM, 14)
-
-        self.continue_google_button = wx.Button(
-            content_panel,
-            label="الاستمرار مع Google",
-            size=(360, 44),
-        )
-        self.continue_google_button.SetDefault()
-        set_accessible(
-            self.continue_google_button,
-            "الاستمرار مع Google",
-            "فتح تسجيل الدخول إلى Google",
-        )
-        self.continue_google_button.Bind(wx.EVT_BUTTON, self.on_continue_with_google)
-        center.Add(self.continue_google_button, 0, wx.EXPAND | wx.BOTTOM, 10)
 
         self.continue_microsoft_button = wx.Button(
             content_panel,
@@ -286,63 +612,43 @@ class AccountDialog(wx.Dialog):
             wx.EVT_BUTTON,
             self.on_continue_with_microsoft,
         )
+        self.continue_microsoft_button.SetDefault()
         center.Add(self.continue_microsoft_button, 0, wx.EXPAND | wx.BOTTOM, 10)
 
-        self.classic_login_button = wx.Button(
+        self.app_password_wizard_button = wx.Button(
             content_panel,
-            label="تسجيل الدخول الكلاسيكي",
+            label="المتابعة لحساب Google بكلمة مرور التطبيق (موصى بها)",
             size=(360, 44),
         )
         set_accessible(
-            self.classic_login_button,
-            "تسجيل الدخول الكلاسيكي",
-            "إظهار حقلي البريد الإلكتروني وكلمة المرور",
+            self.app_password_wizard_button,
+            "المتابعة لحساب Google بكلمة مرور التطبيق (موصى بها)",
+            "فتح معالج تفاعلي يشرح إعداد كلمة مرور التطبيق خطوة بخطوة",
         )
-        self.classic_login_button.Bind(wx.EVT_BUTTON, self.on_toggle_classic_login)
-        center.Add(self.classic_login_button, 0, wx.EXPAND | wx.BOTTOM, 10)
+        self.app_password_wizard_button.Bind(
+            wx.EVT_BUTTON,
+            self.on_google_app_password_wizard,
+        )
+        self.app_password_wizard_button.visual_recommended = True
+        center.Add(
+            self.app_password_wizard_button,
+            0,
+            wx.EXPAND | wx.BOTTOM,
+            10,
+        )
 
-        self.classic_login_panel = wx.Panel(content_panel)
-        self.classic_login_panel.SetBackgroundColour(content_background)
-        classic = wx.BoxSizer(wx.VERTICAL)
-        email_label = wx.StaticText(
-            self.classic_login_panel,
-            label="عنوان البريد الإلكتروني:",
-        )
-        email_label.SetForegroundColour(wx.WHITE)
-        classic.Add(email_label, 0, wx.EXPAND | wx.BOTTOM, 4)
-        self.startup_email = wx.TextCtrl(
-            self.classic_login_panel,
-            size=(360, 34),
-            style=wx.TE_PROCESS_ENTER,
-        )
-        set_accessible(self.startup_email, "عنوان البريد الإلكتروني")
-        self.startup_email.Bind(
-            wx.EVT_TEXT_ENTER,
-            lambda _event: self.startup_password.SetFocus(),
-        )
-        classic.Add(self.startup_email, 0, wx.EXPAND | wx.BOTTOM, 9)
-        password_label = wx.StaticText(self.classic_login_panel, label="كلمة المرور:")
-        password_label.SetForegroundColour(wx.WHITE)
-        classic.Add(password_label, 0, wx.EXPAND | wx.BOTTOM, 4)
-        self.startup_password = wx.TextCtrl(
-            self.classic_login_panel,
-            size=(360, 34),
-            style=wx.TE_PASSWORD | wx.TE_PROCESS_ENTER,
-        )
-        set_accessible(self.startup_password, "كلمة المرور")
-        self.startup_password.Bind(wx.EVT_TEXT_ENTER, self.on_startup_manual_login)
-        classic.Add(self.startup_password, 0, wx.EXPAND | wx.BOTTOM, 10)
-        self.sign_in_button = wx.Button(
-            self.classic_login_panel,
-            label="تسجيل الدخول",
+        self.continue_google_button = wx.Button(
+            content_panel,
+            label="تسجيل الدخول عبر Google (محدود بـ100 مستخدم)",
             size=(360, 44),
         )
-        set_accessible(self.sign_in_button, "تسجيل الدخول بالبريد وكلمة المرور")
-        self.sign_in_button.Bind(wx.EVT_BUTTON, self.on_startup_manual_login)
-        classic.Add(self.sign_in_button, 0, wx.EXPAND | wx.BOTTOM, 10)
-        self.classic_login_panel.SetSizer(classic)
-        self.classic_login_panel.Hide()
-        center.Add(self.classic_login_panel, 0, wx.EXPAND)
+        set_accessible(
+            self.continue_google_button,
+            "تسجيل الدخول عبر Google (محدود بـ100 مستخدم)",
+            google_notice,
+        )
+        self.continue_google_button.Bind(wx.EVT_BUTTON, self.on_continue_with_google)
+        center.Add(self.continue_google_button, 0, wx.EXPAND | wx.BOTTOM, 10)
 
         self.continue_without_account_button = wx.Button(
             content_panel,
@@ -358,58 +664,54 @@ class AccountDialog(wx.Dialog):
             wx.EVT_BUTTON,
             self.on_continue_without_account,
         )
+        center.Add(wx.StaticLine(content_panel), 0, wx.EXPAND | wx.TOP | wx.BOTTOM, self.FromDIP(10))
         center.Add(self.continue_without_account_button, 0, wx.EXPAND)
 
+        for button in (self.continue_microsoft_button, self.app_password_wizard_button,
+                       self.continue_google_button, self.continue_without_account_button):
+            button.SetMinSize(self.FromDIP(wx.Size(460, 44)))
+
         content_root = wx.BoxSizer(wx.VERTICAL)
-        content_root.Add(center, 1, wx.EXPAND | wx.ALL, 20)
+        content_root.Add(center, 1, wx.EXPAND | wx.ALL, self.FromDIP(28))
         content_panel.SetSizer(content_root)
         root.Add(content_panel, 0, wx.ALIGN_CENTER)
-        self.finish_panel(root, self.continue_google_button)
+        self.finish_panel(root, self.continue_microsoft_button)
+        wx.CallAfter(self.announce_startup_welcome)
 
-    def on_toggle_classic_login(self, _event: wx.CommandEvent) -> None:
-        show = not self.classic_login_panel.IsShown()
-        self.classic_login_panel.Show(show)
-        self.classic_login_button.SetLabel(
-            tr("إخفاء تسجيل الدخول الكلاسيكي")
-            if show
-            else tr("تسجيل الدخول الكلاسيكي")
-        )
-        self.panel.Layout()
-        self.Layout()
-        wx.CallAfter(
-            self.startup_email.SetFocus
-            if show
-            else self.classic_login_button.SetFocus
-        )
-
-    def on_startup_manual_login(self, _event: wx.CommandEvent) -> None:
-        email_address = self.startup_email.GetValue().strip()
-        password = self.startup_password.GetValue()
-        if not email_address or "@" not in email_address:
-            wx.MessageBox(
-                "يرجى كتابة عنوان البريد.",
-                "بيانات غير مكتملة",
-                wx.OK | wx.ICON_WARNING,
-                self,
-            )
-            wx.CallAfter(self.startup_email.SetFocus)
+    def announce_startup_welcome(self) -> None:
+        if (getattr(self, "_destroyed", False) or self.mode != "startup"
+                or getattr(self, "_welcome_announced", False)):
             return
-        if not password:
-            wx.MessageBox(
-                "يرجى كتابة كلمة المرور.",
-                "بيانات غير مكتملة",
-                wx.OK | wx.ICON_WARNING,
-                self,
-            )
-            wx.CallAfter(self.startup_password.SetFocus)
-            return
+        self._welcome_announced = True
+        announce_to_screen_reader(self, "مرحبا بكم في برنامج Power Accessible Mail")
 
-        account = self.account
-        account.display_name = email_address.split("@", 1)[0]
-        account.email_address = email_address
-        account.username = email_address
+    @staticmethod
+    def google_app_password_account(
+        source_account: Account,
+        email_address: str,
+        password: str,
+    ) -> Account:
+        normalized_email = email_address.strip()
+        if not normalized_email or "@" not in normalized_email:
+            raise ValueError("يرجى كتابة عنوان Gmail.")
+        if not normalized_email.lower().endswith(("@gmail.com", "@googlemail.com")):
+            raise ValueError("تسجيل كلمة مرور التطبيق مخصص لحسابات Gmail فقط.")
+        normalized_password = "".join(password.split())
+        if len(normalized_password) != 16:
+            raise ValueError("يرجى كتابة كلمة مرور تطبيق Google المكونة من 16 رمزا.")
+
+        account = replace(source_account)
+        # App-password authentication does not provide an OAuth profile name.
+        # Never invent one from the address or carry it to a different account.
+        account.display_name = (
+            source_account.display_name
+            if source_account.email_address.strip().casefold() == normalized_email.casefold()
+            else ""
+        )
+        account.email_address = normalized_email
+        account.username = normalized_email
         account.auth_method = "password"
-        account.password = password
+        account.password = normalized_password
         account.save_password = True
         account.oauth_provider = ""
         account.oauth_client_id = ""
@@ -418,13 +720,8 @@ class AccountDialog(wx.Dialog):
         account.oauth_refresh_token = ""
         account.oauth_token_expiry = 0.0
         account.save_oauth_tokens = False
-
-        if self.configure_known_manual_provider(account):
-            self.EndModal(wx.ID_OK)
-            return
-
-        self.show_manual_view()
-        wx.CallAfter(self.imap_server.SetFocus)
+        AccountDialog.configure_known_manual_provider(account)
+        return account
 
     @staticmethod
     def configure_known_manual_provider(account: Account) -> bool:
@@ -478,7 +775,7 @@ class AccountDialog(wx.Dialog):
                 tr("تسجيل الدخول عبر المتصفح"),
                 tr("تسجيل الدخول اليدوي"),
             ],
-            size=(360, 110),
+            size=(420, 135),
             style=wx.LB_SINGLE,
         )
         self.account_method_list.SetSelection(0)
@@ -537,6 +834,23 @@ class AccountDialog(wx.Dialog):
     def on_manual_method(self, _event: wx.CommandEvent) -> None:
         self.show_manual_view()
 
+    def on_google_app_password_wizard(
+        self,
+        _event: wx.CommandEvent | None = None,
+    ) -> None:
+        wizard = GoogleAppPasswordWizard(
+            self,
+            self.account,
+            self.google_app_password_account,
+        )
+        try:
+            if wizard.ShowModal() != wx.ID_OK or wizard.account is None:
+                return
+            self.account = wizard.account
+        finally:
+            wizard.Destroy()
+        self.EndModal(wx.ID_OK)
+
     def show_oauth_provider_view(self) -> None:
         self.mode = "oauth2"
         root = self.clear_panel()
@@ -548,9 +862,20 @@ class AccountDialog(wx.Dialog):
             provider_id_from_name(provider_name)
             for provider_name in provider_names
         ]
+        provider_names.append("المتابعة لحساب Google بكلمة مرور التطبيق (موصى بها)")
+        self.oauth_provider_ids.append("google_app_password")
         self.oauth_provider_list = wx.ListBox(
             self.panel,
-            choices=[tr(provider_name) for provider_name in provider_names],
+            choices=[
+                tr(provider_name) + " — " + tr("محدودة بـ100 مستخدم فقط")
+                if provider_id.startswith("google") and provider_id != "google_app_password"
+                else tr(provider_name)
+                for provider_name, provider_id in zip(
+                    provider_names,
+                    self.oauth_provider_ids,
+                    strict=True,
+                )
+            ],
             size=(360, 120),
             style=wx.LB_SINGLE,
         )
@@ -574,6 +899,7 @@ class AccountDialog(wx.Dialog):
             self.on_oauth_provider_context,
         )
         center.Add(self.oauth_provider_list, 0, wx.EXPAND | wx.BOTTOM, 10)
+        self.add_google_sign_in_notice(center)
 
         buttons = wx.BoxSizer(wx.HORIZONTAL)
         ok_button = wx.Button(self.panel, label="موافق")
@@ -592,13 +918,38 @@ class AccountDialog(wx.Dialog):
         root.Add(center, 0, wx.ALIGN_CENTER)
         self.finish_panel(
             root,
-            self.oauth_provider_list if provider_names else back_button,
+            self.google_limit_notice,
         )
+
+    def on_browser_notice_focus(self, event: wx.FocusEvent) -> None:
+        self._browser_notice_arrow_until = time.monotonic() + 3.0
+        event.Skip()
+
+    def on_browser_notice_key(self, event: wx.KeyEvent) -> None:
+        if (event.GetKeyCode() == wx.WXK_DOWN
+                and self.mode == "oauth2"
+                and time.monotonic() <= getattr(self, "_browser_notice_arrow_until", 0.0)):
+            self.oauth_provider_list.SetFocus()
+            return
+        event.Skip()
+
+    def add_google_sign_in_notice(self, sizer: wx.BoxSizer) -> None:
+        notice = FocusableSignInNotice(self.panel, label=tr("تسجيل الدخول عبر Google محدود حاليا بـ100 مستخدم. إذا تعذر تسجيل الدخول، يرجى استخدام المتابعة لحساب Google بكلمة مرور التطبيق."))
+        notice.Wrap(self.FromDIP(420))
+        notice.Bind(wx.EVT_SET_FOCUS, self.on_browser_notice_focus)
+        notice.Bind(wx.EVT_KEY_DOWN, self.on_browser_notice_key)
+        self.oauth_provider_list.MoveAfterInTabOrder(notice)
+        sizer.Add(notice, 0, wx.EXPAND | wx.BOTTOM, 12)
+        self.google_limit_notice = notice
 
     def on_oauth_provider_activate(self, _event: wx.Event | None = None) -> None:
         selection = self.oauth_provider_list.GetSelection()
         if 0 <= selection < len(self.oauth_provider_ids):
-            self.start_oauth_login(self.oauth_provider_ids[selection])
+            provider_id = self.oauth_provider_ids[selection]
+            if provider_id == "google_app_password":
+                self.on_google_app_password_wizard()
+            else:
+                self.start_oauth_login(provider_id)
 
     def on_oauth_provider_key(self, event: wx.KeyEvent) -> None:
         if event.GetKeyCode() in {wx.WXK_RETURN, wx.WXK_NUMPAD_ENTER}:

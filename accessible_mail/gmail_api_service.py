@@ -187,6 +187,30 @@ class GmailApiService:
         )
         self.cache.delete_message_by_uid(account, summary.uid)
 
+    def archive_message(self, account: Account, summary: MessageSummary) -> None:
+        self._modify_message_labels(account, summary.uid, remove=["INBOX"])
+        self.cache.delete_message(account, "INBOX", summary.uid)
+
+    def resolve_archive_mailbox(self, account: Account) -> str:
+        return "ARCHIVE"
+
+    def list_archived_messages(self, account: Account, mailbox: str, limit: int = 50) -> list[MessageSummary]:
+        messages: list[MessageSummary] = []
+        token = ""
+        while len(messages) < limit:
+            batch, next_token, _ = self._list_summary_page(account, "ARCHIVE", min(100, limit - len(messages)), token)
+            messages.extend(batch)
+            if not next_token or next_token == token:
+                break
+            token = next_token
+        if messages:
+            self.cache.upsert_summaries(account, messages)
+        return messages[:limit]
+
+    def restore_archived_message(self, account: Account, summary: MessageSummary) -> None:
+        self._modify_message_labels(account, summary.uid, add=["INBOX"])
+        self.cache.delete_message(account, "ARCHIVE", summary.uid)
+
     def cached_messages(
         self,
         account: Account,
@@ -328,7 +352,9 @@ class GmailApiService:
         query: dict[str, str] = {
             "maxResults": str(max(1, max_results)),
         }
-        if label_id != "ALL":
+        if label_id == "ARCHIVE":
+            query["q"] = "-in:inbox -in:spam -in:trash -in:drafts"
+        elif label_id != "ALL":
             query["labelIds"] = label_id
         if label_id in {"SPAM", "TRASH"}:
             query["includeSpamTrash"] = "true"

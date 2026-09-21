@@ -40,6 +40,18 @@ class OAuthClientConfigTests(unittest.TestCase):
 
         self.assertEqual(settings.message_read_mode, config.MESSAGE_READ_MANUAL)
 
+    def test_search_mode_round_trip_and_invalid_value_fallback(self) -> None:
+        settings = config.ProgramSettings(search_mode=config.SEARCH_MODE_FIELD)
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "settings.json"
+            with patch("accessible_mail.config.settings_path", return_value=path):
+                config.save_settings(settings)
+                loaded = config.load_settings()
+
+        self.assertEqual(loaded.search_mode, config.SEARCH_MODE_FIELD)
+        invalid = config.normalize_settings(config.ProgramSettings(search_mode="invalid"))
+        self.assertEqual(invalid.search_mode, config.SEARCH_MODE_SHORTCUT)
+
     def test_notification_preferences_round_trip_in_settings(self) -> None:
         settings = config.ProgramSettings(
             spoken_notification_level=NOTIFICATION_LEVEL_SOME,
@@ -103,12 +115,20 @@ class OAuthClientConfigTests(unittest.TestCase):
             "installer_info_es.txt",
             "installer_info_tr.txt",
             "installer_info_hi.txt",
+            "installer_info_zh-CN.txt",
+            "installer_info_ru.txt",
+            "installer_info_ja.txt",
+            "installer_info_de.txt",
             "installer_readme_ar.txt",
             "installer_readme_en.txt",
             "installer_readme_fr.txt",
             "installer_readme_es.txt",
             "installer_readme_tr.txt",
             "installer_readme_hi.txt",
+            "installer_readme_zh-CN.txt",
+            "installer_readme_ru.txt",
+            "installer_readme_ja.txt",
+            "installer_readme_de.txt",
         ):
             release_text = (project_root / release_text_name).read_text(
                 encoding="utf-8-sig"
@@ -145,6 +165,14 @@ class OAuthClientConfigTests(unittest.TestCase):
             "spanish": (r"compiler:Languages\Spanish.isl", "ES", "Spanish"),
             "turkish": (r"compiler:Languages\Turkish.isl", "TR", "Turkish"),
             "hindi": (r"installer_languages\Hindi.islu", "HI", "Hindi"),
+            "chinesesimplified": (
+                r"installer_languages\ChineseSimplified.islu",
+                "ZH_CN",
+                "SimplifiedChinese",
+            ),
+            "russian": (r"compiler:Languages\Russian.isl", "RU", "Russian"),
+            "japanese": (r"compiler:Languages\Japanese.isl", "JA", "Japanese"),
+            "german": (r"compiler:Languages\German.isl", "DE", "German"),
         }
         for language, (messages_file, code, variable_name) in expected.items():
             with self.subTest(language=language):
@@ -168,6 +196,10 @@ class OAuthClientConfigTests(unittest.TestCase):
             "installer_readme_es.txt",
             "installer_readme_tr.txt",
             "installer_readme_hi.txt",
+            "installer_readme_zh-CN.txt",
+            "installer_readme_ru.txt",
+            "installer_readme_ja.txt",
+            "installer_readme_de.txt",
         ):
             self.assertIn(guide_name, build_script)
 
@@ -305,7 +337,9 @@ class OAuthClientConfigTests(unittest.TestCase):
         self.assertIn("Push-Location $ProjectRoot", release_build)
         self.assertIn("[System.IO.Path]::IsPathRooted($PythonPath)", release_build)
         self.assertIn("Pre-release", readme)
-        self.assertIn("PowerAccessibleMailSetup-1.4.0-win-x64-UNSIGNED.exe", readme)
+        self.assertIn(
+            f"PowerAccessibleMailSetup-{__version__}-win-x64-UNSIGNED.exe", readme
+        )
 
     def test_release_pipeline_avoids_opaque_update_behavior(self) -> None:
         project_root = Path(__file__).resolve().parents[1]

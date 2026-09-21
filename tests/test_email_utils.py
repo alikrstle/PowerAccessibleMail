@@ -67,7 +67,7 @@ class EmailUtilsTests(unittest.TestCase):
             """
         )
 
-        self.assertEqual(text, "الفقرة الأولى.\nالفقرة الثانية.")
+        self.assertEqual(text, "الفقرة الأولى.\n\nالفقرة الثانية.")
         self.assertNotIn("alert", text)
         self.assertNotIn("مخفي", text)
 
@@ -100,7 +100,7 @@ class EmailUtilsTests(unittest.TestCase):
             """
         )
 
-        self.assertEqual(text, "Name Ali\nCountry Iraq\n• One\n• Two")
+        self.assertEqual(text, "Name Ali\nCountry Iraq\n\n• One\n• Two")
 
     def test_clean_message_text_preserves_prose_quotes_and_unicode_words(self) -> None:
         text = clean_message_text_for_display(
@@ -146,14 +146,14 @@ class EmailUtilsTests(unittest.TestCase):
     def test_arabic_empty_body_message_is_treated_as_a_refetchable_placeholder(self) -> None:
         self.assertTrue(is_plain_text_placeholder("لا يوجد نص قابل للعرض داخل هذه الرسالة."))
 
-    def test_normalize_message_text_removes_empty_lines_and_unwraps_paragraphs(self) -> None:
+    def test_normalize_message_text_preserves_lines_and_paragraphs(self) -> None:
         text = normalize_message_text(
             "مرحبا\n\n\nهذا سطر أول\n   وهذا استمرار لنفس الفقرة\n\n\n- عنصر أول\n\n- عنصر ثاني\n"
         )
 
         self.assertEqual(
             text,
-            "مرحبا\nهذا سطر أول وهذا استمرار لنفس الفقرة\n- عنصر أول\n- عنصر ثاني",
+            "مرحبا\n\nهذا سطر أول\nوهذا استمرار لنفس الفقرة\n\n- عنصر أول\n\n- عنصر ثاني",
         )
 
     def test_extract_body_includes_links_and_attachments(self) -> None:
@@ -453,7 +453,7 @@ class EmailUtilsTests(unittest.TestCase):
 
         text, resources = extract_body(message)
 
-        self.assertEqual(text, "عرض خاص اليوم.\nاحفظ الآن")
+        self.assertEqual(text, "عرض خاص اليوم.\n\nاحفظ الآن")
         self.assertNotIn("FWb4C6", text)
         self.assertEqual(resources[0].text, "احفظ الآن")
         self.assertEqual(resources[0].url, "https://www.udemy.com/")

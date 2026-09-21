@@ -1,13 +1,19 @@
 Power Accessible Mail
-Version 1.4.0
+Version 1.5.0
 Developed by Soljan.AlSharq.
 Soljan.AlSharq. is owned by Ali Al-Amir
+
+Search messages
+
+Choose your preferred search method in Settings. On-demand search opens a complete window with Ctrl+F, which appears as Ctrl+ب on an Arabic keyboard layout. You can instead show a button next to the category or a permanent field that filters the current section while you type.
+
+The search window contains the result list, message viewer, and item viewer. It searches messages already loaded or synchronized by the application and matches the sender name, email address, subject, date, and status.
 
 Welcome to your email
 
 Power Accessible Mail is built to make reading writing organizing and updating email comfortable from the keyboard
 
-Version 1.4.0 improves update reliability by using the native Windows certificate store and provides a clear message for device time Windows update or security software certificate problems without disabling secure verification
+Version 1.5.0 improves update reliability by using the native Windows certificate store and provides a clear message for device time Windows update or security software certificate problems without disabling secure verification
 
 Native Windows lists and fields give screen readers predictable controls while messages are arranged vertically so moving through your mail feels direct and familiar
 
@@ -17,9 +23,9 @@ When the application starts without an account you can continue with Google cont
 
 Open Account options and management and select Add account
 
-The sign in methods appear as a real list
+The three sign-in methods appear as a real list
 
-Select browser sign in or manual sign in then press Enter right click the selected item or use the OK button beside Cancel
+Select browser sign in, Google app password sign in, or advanced manual sign in, then press Enter, right-click the selected item, or use the OK button beside Cancel
 
 Browser sign in opens the official Google or Microsoft consent page and never asks the application to read your browser password
 
@@ -29,7 +35,7 @@ Manual sign in begins with an Email service choice
 
 Select Google or Microsoft and the application fills the matching IMAP and SMTP settings while keeping the fields available for review
 
-Gmail manual sign in normally requires an app password
+Google app password sign in is a secondary option for Gmail accounts. It requires 2-Step Verification and an app password created on the official Google page. Enter the 16-character code; the application removes spaces automatically and stores it with Windows encryption. Never enter your regular Google Account password in this field
 
 For Microsoft browser sign in is recommended because password based IMAP access may be restricted by the account policy
 
@@ -101,17 +107,17 @@ Use Shift+F10 or the Application key for the message context menu and use the It
 
 Translation in place or in a separate window
 
-Ctrl+T translates the current message into the application language
+Ctrl+T translates the current message into your selected translation language
 
 In Settings choose whether translation replaces the content inside the HTML or easy viewer or opens in a separate window
 
 Translation becomes available only while you are inside the message viewer
 
-It requires an internet connection and sends the selected message text to the official Google Translate service only when you request it. Before the first translation, the app explains this transfer and provides Allow and Cancel choices. After you choose Allow, the choice is saved and the notice is not shown again
+It requires an internet connection and sends the selected message text to the official Google Translate service only when you request it. Before the first translation, the app explains this transfer and provides Allow and Cancel choices. After you choose Allow, the language list opens with 20 common languages first and all remaining languages afterward. Choose by clicking a language or using the arrow keys and Enter. The consent and language are saved
 
 Make the application yours
 
-Settings lets you choose Arabic English French Spanish Turkish or Hindi the HTML or easy message viewer translation inside the page or in a separate window and light or dark appearance
+Settings lets you choose Arabic English French Spanish Turkish Hindi Simplified Chinese Russian Japanese or German the HTML or easy message viewer translation inside the page or in a separate window and light or dark appearance
 
 You can also control how many application actions the NVDA library announces with four levels: none some most or all. The Customize and manage action announcements button beside the level opens categories containing native Windows checkboxes. Use Tab to move between them hear their state and Space to change it then save. The default level does not announce read or unread state changes or server-save confirmations unless the user enables that category in customization. Settings also includes Choose PowerAccessibleMail as the default email app which opens the application's page in Windows Settings; press Space on MAILTO to open the app picker if Enter does not respond
 
@@ -233,6 +239,11 @@ In the message list commands adapt to the focused message and its current state.
 
 Useful keyboard commands
 
+Alt+1 moves to the message list in the current category
+Alt+2 returns to the viewer of the last message you actually opened; if none was opened, the application notifies you
+Alt+3 moves to the mail sections
+Alt+4 moves to the application command list
+Alt+D opens the application shortcut guide
 Ctrl+A opens account options and management
 Ctrl+N composes a new message
 Ctrl+R replies to the focused message

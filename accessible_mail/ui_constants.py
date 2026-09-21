@@ -5,10 +5,17 @@ from .config import (
     LANGUAGE_ENGLISH,
     LANGUAGE_FRENCH,
     LANGUAGE_HINDI,
+    LANGUAGE_JAPANESE,
+    LANGUAGE_GERMAN,
+    LANGUAGE_RUSSIAN,
+    LANGUAGE_SIMPLIFIED_CHINESE,
     LANGUAGE_SPANISH,
     LANGUAGE_TURKISH,
     MESSAGE_READ_MANUAL,
     MESSAGE_READ_ON_VIEWER_ENTER,
+    SEARCH_MODE_BUTTON,
+    SEARCH_MODE_FIELD,
+    SEARCH_MODE_SHORTCUT,
     THEME_DARK,
     THEME_LIGHT,
     TRANSLATION_DIALOG,
@@ -35,7 +42,7 @@ FILTER_STARRED = "الرسائل المميزة بنجمة"
 FILTER_UNREAD = "غير مقروءة"
 FILTER_READ = "مقروءة"
 FILTER_TRASH = "سلة المحذوفات"
-FILTER_CHOICES = [FILTER_ALL, FILTER_STARRED, FILTER_UNREAD, FILTER_READ, FILTER_TRASH]
+FILTER_CHOICES = [FILTER_ALL, FILTER_STARRED, FILTER_UNREAD, FILTER_READ, FILTER_TRASH, "الرسائل المؤرشفة"]
 
 ITEM_FILTER_ALL = "عرض كل العناصر"
 ITEM_FILTER_LINKS = "عرض الروابط فقط"
@@ -63,6 +70,10 @@ LANGUAGE_CHOICES = {
     "الإسبانية": LANGUAGE_SPANISH,
     "التركية": LANGUAGE_TURKISH,
     "الهندية": LANGUAGE_HINDI,
+    "الصينية المبسطة": LANGUAGE_SIMPLIFIED_CHINESE,
+    "الروسية": LANGUAGE_RUSSIAN,
+    "اليابانية": LANGUAGE_JAPANESE,
+    "الألمانية": LANGUAGE_GERMAN,
 }
 VIEWER_CHOICES = {
     "مستعرض HTML": VIEWER_HTML,
@@ -79,6 +90,11 @@ THEME_CHOICES = {
 TRANSLATION_MODE_CHOICES = {
     "ترجمة داخل مستعرض الرسالة": TRANSLATION_INLINE,
     "ترجمة في نافذة مستقلة": TRANSLATION_DIALOG,
+}
+SEARCH_MODE_CHOICES = {
+    "بحث مستدعى عبر Ctrl+F أو Ctrl+ب": SEARCH_MODE_SHORTCUT,
+    "زر البحث مع الفلاتر": SEARCH_MODE_BUTTON,
+    "حقل بحث دائم بجوار التصنيف": SEARCH_MODE_FIELD,
 }
 SPOKEN_NOTIFICATION_LEVEL_CHOICES = {
     "عدم نطق إجراءات البرنامج مطلقًا": NOTIFICATION_LEVEL_NONE,

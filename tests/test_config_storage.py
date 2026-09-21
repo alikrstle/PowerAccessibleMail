@@ -11,7 +11,11 @@ from accessible_mail import config
 from accessible_mail.config import (
     LANGUAGE_ENGLISH,
     LANGUAGE_FRENCH,
+    LANGUAGE_GERMAN,
     LANGUAGE_HINDI,
+    LANGUAGE_JAPANESE,
+    LANGUAGE_RUSSIAN,
+    LANGUAGE_SIMPLIFIED_CHINESE,
     LANGUAGE_SPANISH,
     LANGUAGE_TURKISH,
     MESSAGE_READ_ON_VIEWER_ENTER,
@@ -26,6 +30,26 @@ from accessible_mail.models import Account
 
 
 class ConfigStorageTests(unittest.TestCase):
+    def test_incomplete_account_records_do_not_hide_first_run_sign_in(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "accounts.json"
+            path.write_text(
+                json.dumps(
+                    [
+                        {},
+                        {"display_name": "Incomplete account"},
+                        {"email_address": "person@example.com"},
+                    ]
+                ),
+                encoding="utf-8",
+            )
+
+            with patch("accessible_mail.config.accounts_path", return_value=path):
+                accounts = load_accounts()
+
+        self.assertEqual(len(accounts), 1)
+        self.assertEqual(accounts[0].email_address, "person@example.com")
+
     def test_legacy_full_google_account_requires_gmail_api_reauthentication(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "accounts.json"
@@ -124,6 +148,8 @@ class ConfigStorageTests(unittest.TestCase):
                 language=LANGUAGE_ENGLISH,
                 translation_mode=TRANSLATION_INLINE,
                 translation_data_notice_accepted=True,
+                message_translation_language="bn",
+                message_translation_language_selected=True,
             )
 
             with patch("accessible_mail.config.settings_path", return_value=path):
@@ -133,6 +159,27 @@ class ConfigStorageTests(unittest.TestCase):
         self.assertEqual(loaded.language, LANGUAGE_ENGLISH)
         self.assertEqual(loaded.translation_mode, TRANSLATION_INLINE)
         self.assertTrue(loaded.translation_data_notice_accepted)
+        self.assertEqual(loaded.message_translation_language, "bn")
+        self.assertTrue(loaded.message_translation_language_selected)
+
+    def test_existing_translation_consent_prompts_once_for_a_language_choice(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "settings.json"
+            path.write_text(
+                json.dumps(
+                    {
+                        "language": LANGUAGE_ENGLISH,
+                        "message_translation_language": LANGUAGE_ENGLISH,
+                        "translation_data_notice_accepted": True,
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            with patch("accessible_mail.config.settings_path", return_value=path):
+                loaded = load_settings()
+
+        self.assertFalse(loaded.message_translation_language_selected)
 
     def test_message_read_mode_is_saved(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -175,7 +222,14 @@ class ConfigStorageTests(unittest.TestCase):
         self.assertEqual(config.system_language(["es_ES"]), LANGUAGE_SPANISH)
         self.assertEqual(config.system_language(["tr-TR"]), LANGUAGE_TURKISH)
         self.assertEqual(config.system_language(["hi_IN"]), LANGUAGE_HINDI)
-        self.assertEqual(config.system_language(["de_DE"]), LANGUAGE_ENGLISH)
+        self.assertEqual(
+            config.system_language(["zh_CN"]),
+            LANGUAGE_SIMPLIFIED_CHINESE,
+        )
+        self.assertEqual(config.system_language(["zh_TW"]), LANGUAGE_ENGLISH)
+        self.assertEqual(config.system_language(["ru_RU"]), LANGUAGE_RUSSIAN)
+        self.assertEqual(config.system_language(["ja_JP"]), LANGUAGE_JAPANESE)
+        self.assertEqual(config.system_language(["de_DE"]), LANGUAGE_GERMAN)
 
     def test_first_run_uses_system_language(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

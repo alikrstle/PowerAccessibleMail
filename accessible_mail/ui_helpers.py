@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 
 import wx
+import wx.html2
 
 from .config import app_dir
 from .i18n import is_rtl, tr
@@ -42,6 +43,48 @@ def localize_window(window: wx.Window) -> None:
         pass
     for child in window.GetChildren():
         localize_window(child)
+    if isinstance(window, wx.TopLevelWindow):
+        apply_window_style(window)
+
+
+def theme_palette(theme: str) -> tuple[wx.Colour, wx.Colour, wx.Colour]:
+    """Background, foreground and field/card surface, shared by native windows."""
+    if theme == "dark":
+        return wx.Colour("#17202D"), wx.Colour("#F2F5FA"), wx.Colour("#233044")
+    return wx.Colour("#F3F5F8"), wx.Colour("#182235"), wx.Colour("#FFFFFF")
+
+
+def apply_window_style(window: wx.Window) -> None:
+    """Keep native widgets and their accessibility while sharing a palette."""
+    owner = window
+    settings = None
+    while owner is not None:
+        settings = getattr(owner, "settings", None)
+        if settings is not None:
+            break
+        owner = owner.GetParent()
+    dark = getattr(settings, "theme", "dark") == "dark"
+    background, text, surface = theme_palette("dark" if dark else "light")
+
+    def apply(control):
+        # Embedded browser rendering is managed by the message renderer.
+        if isinstance(control, wx.html2.WebView):
+            return
+        if isinstance(control, (wx.Panel, wx.Dialog, wx.Frame, wx.StaticText, wx.TextCtrl, wx.ListBox, wx.ListCtrl, wx.CheckBox, wx.Choice, wx.RadioBox, wx.RadioButton, wx.StaticBox)):
+            field = isinstance(control, (wx.TextCtrl, wx.ListBox, wx.ListCtrl, wx.Choice))
+            card = getattr(control, "visual_card", False)
+            inherited = control.GetParent().GetBackgroundColour() if isinstance(control, (wx.StaticText, wx.CheckBox)) and control.GetParent() else background
+            control.SetBackgroundColour(surface if field or card else inherited)
+            control.SetForegroundColour(text)
+        if isinstance(control, wx.Button):
+            size = control.GetMinSize()
+            control.SetMinSize(wx.Size(size.width, max(size.height, control.FromDIP(32))))
+            if getattr(control, "visual_recommended", False):
+                control.SetBackgroundColour(wx.Colour("#C9E8FF"))
+                control.SetForegroundColour(wx.Colour("#12354E"))
+        for child in control.GetChildren():
+            apply(child)
+    apply(window)
 
 
 def set_localized_items(control: wx.Choice | wx.ListBox | wx.RadioBox, labels: list[str]) -> None:
@@ -111,6 +154,8 @@ class BackgroundPanel(wx.Panel):
     def __init__(self, parent: wx.Window, image_path: Path | None) -> None:
         super().__init__(parent)
         self.bitmap = wx.NullBitmap
+        self._scaled_bitmap = wx.NullBitmap
+        self._scaled_size = None
         if image_path and image_path.exists():
             bitmap = wx.Bitmap(str(image_path), wx.BITMAP_TYPE_ANY)
             if bitmap.IsOk():
@@ -130,8 +175,11 @@ class BackgroundPanel(wx.Panel):
         width, height = self.GetClientSize()
         if width <= 0 or height <= 0 or not self.bitmap.IsOk():
             return
-        image = self.bitmap.ConvertToImage()
-        if not image.IsOk():
-            return
-        scaled = image.Scale(width, height, wx.IMAGE_QUALITY_HIGH)
-        dc.DrawBitmap(wx.Bitmap(scaled), 0, 0)
+        if self._scaled_size != (width, height):
+            image = self.bitmap.ConvertToImage()
+            ratio = max(width / image.GetWidth(), height / image.GetHeight())
+            scaled = image.Scale(max(width, round(image.GetWidth() * ratio)), max(height, round(image.GetHeight() * ratio)), wx.IMAGE_QUALITY_HIGH)
+            cropped = scaled.GetSubImage(wx.Rect((scaled.GetWidth() - width) // 2, (scaled.GetHeight() - height) // 2, width, height))
+            self._scaled_bitmap = wx.Bitmap(cropped)
+            self._scaled_size = (width, height)
+        dc.DrawBitmap(self._scaled_bitmap, 0, 0)

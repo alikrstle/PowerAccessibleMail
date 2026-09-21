@@ -22,6 +22,9 @@ from accessible_mail.notification_preferences import (
     EVENT_RECEIVED_ATTACHMENT_PROGRESS,
     EVENT_RECEIVED_ATTACHMENT_STARTED,
     EVENT_READY,
+    EVENT_SEARCH_NO_RESULTS,
+    EVENT_SEARCH_RESULTS,
+    EVENT_SEARCH_STARTED,
     EVENT_SEND,
     EVENT_SYNC,
     EVENT_TRANSLATION,
@@ -106,6 +109,9 @@ class NotificationPreferenceTests(unittest.TestCase):
             "جار تنزيل المرفق report.pdf: 50%": EVENT_RECEIVED_ATTACHMENT_PROGRESS,
             "اكتمل تنزيل المرفق وحفظه: report.pdf": EVENT_RECEIVED_ATTACHMENT_COMPLETED,
             "فشل تنزيل المرفق: report.pdf": EVENT_RECEIVED_ATTACHMENT_ERRORS,
+            "تم فتح نافذة البحث في الرسائل.": EVENT_SEARCH_STARTED,
+            "عدد نتائج البحث: 4.": EVENT_SEARCH_RESULTS,
+            "لم يتم العثور على نتائج للبحث.": EVENT_SEARCH_NO_RESULTS,
         }
 
         for message, event_id in expected.items():
@@ -145,6 +151,22 @@ class NotificationPreferenceTests(unittest.TestCase):
                 EVENT_RECEIVED_ATTACHMENT_COMPLETED,
                 EVENT_RECEIVED_ATTACHMENT_ERRORS,
             }.issubset(set(content_group.event_ids))
+        )
+
+    def test_search_has_its_own_category_and_individual_options(self) -> None:
+        search_group = next(
+            group
+            for group in SPOKEN_NOTIFICATION_GROUPS
+            if group.label == "البحث في الرسائل"
+        )
+
+        self.assertEqual(
+            set(search_group.event_ids),
+            {
+                EVENT_SEARCH_STARTED,
+                EVENT_SEARCH_RESULTS,
+                EVENT_SEARCH_NO_RESULTS,
+            },
         )
 
     def test_legacy_attachment_choice_enables_new_attachment_options(self) -> None:

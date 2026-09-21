@@ -24,8 +24,6 @@ CSS_PROPERTY_PATTERN = re.compile(
     r"(?:^|[;{\s])(?:margin(?:-[\w-]+)?|padding(?:-[\w-]+)?|border(?:-[\w-]+)?|outline(?:-[\w-]+)?|font(?:-[\w-]+)?|background(?:-[\w-]+)?|color|width|height|display|position|visibility|opacity|line-height|text-align|vertical-align|overflow|float|max-width|min-width|max-height|min-height|mso-[\w-]+|-webkit-[\w-]+|-ms-[\w-]+)\s*:",
     re.IGNORECASE,
 )
-LIST_LINE_PATTERN = re.compile(r"^\s*(?:[-*+•●○]|\d+[.)]|[اأإآبتثجحخدذرزسشصضطظعغفقكلمنهوي][.)])\s+")
-QUOTED_LINE_PATTERN = re.compile(r"^\s*(?:>|--\s*$)")
 HTML_COMMENT_PATTERN = re.compile(r"<!--[\s\S]*?-->")
 STYLE_OR_SCRIPT_BLOCK_PATTERN = re.compile(
     r"<(style|script|noscript|template|svg|xml)\b[^>]*>[\s\S]*?</\1\s*>",
@@ -207,7 +205,7 @@ class _HtmlToTextParser(HTMLParser):
             self.parts.append("\n• ")
         elif tag in {"td", "th"}:
             self.parts.append(" ")
-        elif tag in {"p", "div", "tr", "section", "article", "header", "footer", "main", "blockquote", "ul", "ol", "h1", "h2", "h3", "h4", "h5", "h6"}:
+        elif tag in {"p", "div", "section", "article", "header", "footer", "main", "blockquote", "ul", "ol", "h1", "h2", "h3", "h4", "h5", "h6"}:
             self.parts.append("\n\n")
         if tag == "form":
             self._form_actions.append(attrs_dict.get("action", ""))
@@ -325,13 +323,18 @@ class _HtmlToTextParser(HTMLParser):
             self._current_button_marker = ""
         if tag == "form" and self._form_actions:
             self._form_actions.pop()
-        if tag == "li":
+        if tag == "tr":
             self.parts.append("\n")
-        elif tag in {"p", "div", "tr", "section", "article", "header", "footer", "main", "blockquote", "ul", "ol", "h1", "h2", "h3", "h4", "h5", "h6"}:
+        elif tag in {"p", "div", "section", "article", "header", "footer", "main", "blockquote", "ul", "ol", "h1", "h2", "h3", "h4", "h5", "h6"}:
             self.parts.append("\n\n")
 
     def handle_data(self, data: str) -> None:
         if self._ignored_depth or self._hidden_element_stack:
+            return
+        # Pretty-printed HTML often places indentation on its own line after a
+        # structural separator. Keeping that whitespace would create an extra
+        # empty paragraph, while a plain inline space must still be preserved.
+        if not data.strip() and "\n" in data and "".join(self.parts).endswith("\n"):
             return
         if data:
             self.parts.append(data)
@@ -775,29 +778,19 @@ def normalize_message_text(text: str) -> str:
         .replace("\u2060", "")
         .replace("\ufeff", "")
     )
-    blocks: list[list[str]] = []
-    current: list[str] = []
+    lines: list[str] = []
+    blank_line_pending = False
     for raw_line in text.split("\n"):
         line = " ".join(raw_line.split())
         if not line:
-            if current:
-                blocks.append(current)
-                current = []
+            if lines:
+                blank_line_pending = True
             continue
-        current.append(line)
-    if current:
-        blocks.append(current)
-
-    cleaned_blocks: list[str] = []
-    for lines in blocks:
-        if any(
-            LIST_LINE_PATTERN.match(line) or QUOTED_LINE_PATTERN.match(line)
-            for line in lines
-        ):
-            cleaned_blocks.append("\n".join(lines))
-        else:
-            cleaned_blocks.append(" ".join(lines))
-    return "\n".join(block for block in cleaned_blocks if block).strip()
+        if blank_line_pending and lines:
+            lines.append("")
+        lines.append(line)
+        blank_line_pending = False
+    return "\n".join(lines).strip()
 
 
 def looks_like_visual_markup_dump(text: str) -> bool:

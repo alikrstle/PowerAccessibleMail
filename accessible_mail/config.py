@@ -7,12 +7,14 @@ import os
 import shutil
 import sys
 import threading
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from uuid import uuid4
 
 from .models import Account
 from .notification_preferences import (
+    EVENT_SEARCH_RESULTS,
+    EVENT_SEARCH_NO_RESULTS,
     NOTIFICATION_LEVEL_MOST,
     NOTIFICATION_LEVELS,
     normalize_event_ids,
@@ -21,7 +23,7 @@ from .notification_preferences import (
 
 APP_NAME = os.environ.get("POWER_ACCESSIBLE_MAIL_APP_NAME", "PowerAccessibleMail")
 APP_TITLE = os.environ.get("POWER_ACCESSIBLE_MAIL_APP_TITLE", "Power Accessible Mail")
-APP_VERSION = "1.4.0"
+APP_VERSION = "1.5.0"
 PASSWORD_PREFIX = "dpapi:"
 LEGACY_PROFILE_NAMES = ("PowerAccessibleMailGmailApiLimited",)
 LANGUAGE_ARABIC = "ar"
@@ -30,6 +32,10 @@ LANGUAGE_FRENCH = "fr"
 LANGUAGE_SPANISH = "es"
 LANGUAGE_TURKISH = "tr"
 LANGUAGE_HINDI = "hi"
+LANGUAGE_SIMPLIFIED_CHINESE = "zh-CN"
+LANGUAGE_RUSSIAN = "ru"
+LANGUAGE_JAPANESE = "ja"
+LANGUAGE_GERMAN = "de"
 SUPPORTED_LANGUAGES = {
     LANGUAGE_ARABIC,
     LANGUAGE_ENGLISH,
@@ -37,6 +43,10 @@ SUPPORTED_LANGUAGES = {
     LANGUAGE_SPANISH,
     LANGUAGE_TURKISH,
     LANGUAGE_HINDI,
+    LANGUAGE_SIMPLIFIED_CHINESE,
+    LANGUAGE_RUSSIAN,
+    LANGUAGE_JAPANESE,
+    LANGUAGE_GERMAN,
 }
 VIEWER_HTML = "html"
 VIEWER_SIMPLE = "simple"
@@ -46,6 +56,9 @@ THEME_LIGHT = "light"
 THEME_DARK = "dark"
 TRANSLATION_INLINE = "inline"
 TRANSLATION_DIALOG = "dialog"
+SEARCH_MODE_SHORTCUT = "shortcut"
+SEARCH_MODE_BUTTON = "button"
+SEARCH_MODE_FIELD = "field"
 _CONFIG_WRITE_LOCK = threading.RLock()
 _PROFILE_MIGRATION_LOCK = threading.Lock()
 _MIGRATED_PROFILE_ROOTS: set[Path] = set()
@@ -58,10 +71,14 @@ class ProgramSettings:
     message_read_mode: str = MESSAGE_READ_MANUAL
     theme: str = THEME_DARK
     translation_mode: str = TRANSLATION_INLINE
+    message_translation_language: str = ""
+    message_translation_language_selected: bool = False
     translation_data_notice_accepted: bool = False
+    search_mode: str = SEARCH_MODE_SHORTCUT
     spoken_notification_level: str = NOTIFICATION_LEVEL_MOST
     spoken_notification_events: list[str] | None = None
     last_selected_account_id: str = ""
+    compose_translation_languages: list[str] = field(default_factory=list)
 
 
 def system_language(locale_names: list[str] | tuple[str, ...] | None = None) -> str:
@@ -87,7 +104,10 @@ def system_language(locale_names: list[str] | tuple[str, ...] | None = None) -> 
             detected_locale_names.append(current_locale)
 
     for locale_name in detected_locale_names:
-        language = locale_name.lower().replace("-", "_").split("_", 1)[0]
+        normalized = locale_name.lower().replace("-", "_")
+        language = normalized.split("_", 1)[0]
+        if language == "zh" and normalized.startswith(("zh_cn", "zh_sg", "zh_hans")):
+            language = LANGUAGE_SIMPLIFIED_CHINESE
         if language in SUPPORTED_LANGUAGES:
             return language
     return LANGUAGE_ENGLISH
@@ -295,6 +315,11 @@ def load_accounts() -> list[Account]:
     for item in payload:
         if isinstance(item, dict):
             account = Account.from_dict(item)
+            # A partially written or migrated record must not suppress the
+            # first-run sign-in screen. Every usable mail account has either
+            # an email address or an explicit login name.
+            if not (account.email_address.strip() or account.username.strip()):
+                continue
             if account.id in account_ids:
                 account.id = str(uuid4())
             account_ids.add(account.id)
@@ -359,6 +384,17 @@ def load_settings() -> ProgramSettings:
             ),
             theme=str(payload.get("theme", THEME_DARK)),
             translation_mode=str(payload.get("translation_mode", TRANSLATION_INLINE)),
+            message_translation_language=str(payload.get("message_translation_language", "")),
+            message_translation_language_selected=(
+                payload.get("message_translation_language_selected", False)
+                if isinstance(
+                    payload.get("message_translation_language_selected", False),
+                    bool,
+                )
+                else False
+            ),
+            search_mode=str(payload.get("search_mode", SEARCH_MODE_SHORTCUT)),
+            compose_translation_languages=payload.get("compose_translation_languages", []),
             translation_data_notice_accepted=(
                 payload.get("translation_data_notice_accepted", False)
                 if isinstance(
@@ -433,11 +469,31 @@ def normalize_settings(settings: ProgramSettings) -> ProgramSettings:
         settings.theme = THEME_DARK
     if settings.translation_mode not in {TRANSLATION_INLINE, TRANSLATION_DIALOG}:
         settings.translation_mode = TRANSLATION_INLINE
+    if not isinstance(settings.message_translation_language_selected, bool):
+        settings.message_translation_language_selected = False
+    if settings.search_mode not in {
+        SEARCH_MODE_SHORTCUT,
+        SEARCH_MODE_BUTTON,
+        SEARCH_MODE_FIELD,
+    }:
+        settings.search_mode = SEARCH_MODE_SHORTCUT
+    from .translation_languages import TRANSLATION_LANGUAGES
+    if settings.message_translation_language not in TRANSLATION_LANGUAGES:
+        settings.message_translation_language = settings.language
+    values = settings.compose_translation_languages
+    settings.compose_translation_languages = list(dict.fromkeys(
+        code for code in (values if isinstance(values, list) else [])
+        if isinstance(code, str) and code in TRANSLATION_LANGUAGES
+    ))
     if settings.spoken_notification_level not in NOTIFICATION_LEVELS:
         settings.spoken_notification_level = NOTIFICATION_LEVEL_MOST
     settings.spoken_notification_events = normalize_event_ids(
         settings.spoken_notification_events
     )
+    if settings.spoken_notification_level == NOTIFICATION_LEVEL_MOST and settings.spoken_notification_events is not None:
+        settings.spoken_notification_events = normalize_event_ids(
+            set(settings.spoken_notification_events) | {EVENT_SEARCH_RESULTS, EVENT_SEARCH_NO_RESULTS}
+        )
     return settings
 
 

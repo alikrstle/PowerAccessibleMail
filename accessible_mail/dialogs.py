@@ -23,6 +23,7 @@ from .notification_preferences import (
 from .ui_constants import (
     LANGUAGE_CHOICES,
     MESSAGE_READ_MODE_CHOICES,
+    SEARCH_MODE_CHOICES,
     SPOKEN_NOTIFICATION_LEVEL_CHOICES,
     THEME_CHOICES,
     TRANSLATION_MODE_CHOICES,
@@ -30,9 +31,79 @@ from .ui_constants import (
 )
 from .ui_helpers import apply_layout_direction, localize_window
 from .update_checker import UpdateCheckResult
+from .compose_translation import ComposeTranslationMixin
 
 
-class ComposeDialog(wx.Dialog):
+class MessageTranslationLanguageDialog(wx.Dialog):
+    """Choose the default message-translation language after first consent."""
+
+    def __init__(self, parent: wx.Window, selected_code: str = "") -> None:
+        super().__init__(
+            parent,
+            title=tr("اختيار لغة ترجمة الرسائل"),
+            size=(520, 600),
+        )
+        from .translation_languages import language_name, message_language_codes
+
+        root = wx.BoxSizer(wx.VERTICAL)
+        root.Add(
+            wx.StaticText(
+                self,
+                label=tr(
+                    "اختر اللغة التي تريد ترجمة الرسائل إليها. "
+                    "تظهر اللغات العشرون الأكثر شيوعا أولا، ثم بقية اللغات."
+                ),
+            ),
+            0,
+            wx.EXPAND | wx.ALL,
+            10,
+        )
+        self.codes = message_language_codes()
+        self.languages = wx.ListBox(
+            self,
+            choices=[language_name(code) for code in self.codes],
+        )
+        set_accessible(
+            self.languages,
+            "قائمة لغات ترجمة الرسائل",
+            "استخدم الأسهم ثم اضغط Enter، أو انقر على اللغة بزر الفأرة.",
+        )
+        root.Add(self.languages, 1, wx.EXPAND | wx.ALL, 10)
+        buttons = self.CreateSeparatedButtonSizer(wx.OK | wx.CANCEL)
+        if buttons:
+            root.Add(buttons, 0, wx.EXPAND | wx.ALL, 10)
+        self.SetSizer(root)
+        localize_window(self)
+        selection = self.codes.index(selected_code) if selected_code in self.codes else 0
+        self.languages.SetSelection(selection)
+        self.languages.Bind(wx.EVT_CHAR_HOOK, self.on_key)
+        self.languages.Bind(wx.EVT_LEFT_UP, self.on_mouse_select)
+        self.CentreOnParent()
+        wx.CallAfter(self.languages.SetFocus)
+
+    def on_key(self, event: wx.KeyEvent) -> None:
+        if (
+            event.GetKeyCode() in {wx.WXK_RETURN, wx.WXK_NUMPAD_ENTER}
+            and self.languages.GetSelection() != wx.NOT_FOUND
+        ):
+            self.EndModal(wx.ID_OK)
+            return
+        event.Skip()
+
+    def on_mouse_select(self, event: wx.MouseEvent) -> None:
+        selection = self.languages.HitTest(event.GetPosition())
+        if selection != wx.NOT_FOUND:
+            self.languages.SetSelection(selection)
+            self.EndModal(wx.ID_OK)
+            return
+        event.Skip()
+
+    def selected_code(self) -> str:
+        selection = self.languages.GetSelection()
+        return self.codes[selection] if 0 <= selection < len(self.codes) else ""
+
+
+class ComposeDialog(ComposeTranslationMixin, wx.Dialog):
     def __init__(
         self,
         parent: wx.Window,
@@ -41,6 +112,8 @@ class ComposeDialog(wx.Dialog):
         subject: str = "",
         body: str = "",
         attachment_paths: Sequence[Path] = (),
+        forward_comment: bool = False,
+        practice: bool = False,
     ) -> None:
         super().__init__(parent, title=title, size=(720, 680))
         self.attachment_paths = [
@@ -53,11 +126,19 @@ class ComposeDialog(wx.Dialog):
 
         self.to_address = self._recipient_row(panel, root, to_address)
         self.subject = self._row(panel, root, "الموضوع:", subject)
+        self.forward_comment = None
+        if forward_comment:
+            root.Add(wx.StaticText(panel, label=tr("تعليق مع إعادة التوجيه:")), 0, wx.LEFT | wx.RIGHT | wx.TOP, 8)
+            self.forward_comment = wx.TextCtrl(panel, style=wx.TE_MULTILINE, size=(-1, 70))
+            set_accessible(self.forward_comment, "تعليق مع إعادة التوجيه", "اختياري. يظهر تعليقك قبل محتوى الرسالة المعاد توجيهها.")
+            root.Add(self.forward_comment, 0, wx.EXPAND | wx.ALL, 8)
 
         root.Add(wx.StaticText(panel, label="المحتوى:"), 0, wx.LEFT | wx.RIGHT | wx.TOP, 8)
         self.body = wx.TextCtrl(panel, value=body, style=wx.TE_MULTILINE)
         set_accessible(self.body, "محتوى الرسالة", "اكتب محتوى البريد الإلكتروني هنا")
         root.Add(self.body, 1, wx.EXPAND | wx.ALL, 8)
+        if not practice:
+            self.install_text_translation()
 
         self.add_attachment_button = wx.Button(panel, label="إضافة مرفق")
         set_accessible(
@@ -103,7 +184,14 @@ class ComposeDialog(wx.Dialog):
 
         send_button = wx.Button(panel, id=wx.ID_OK, label="إرسال")
         cancel_button = wx.Button(panel, id=wx.ID_CANCEL, label="إلغاء")
+        if practice:
+            send_button.SetLabel(tr("تأكيد إعادة التوجيه التجريبي"))
+            self.add_address_button.Disable()
+            self.to_address.Unbind(wx.EVT_KEY_DOWN)
+            self.add_attachment_button.Disable()
         set_accessible(send_button, "إرسال الرسالة")
+        if practice:
+            set_accessible(send_button, "تأكيد إعادة التوجيه التجريبي")
         set_accessible(cancel_button, "إلغاء")
         buttons = wx.BoxSizer(wx.HORIZONTAL)
         buttons.AddStretchSpacer(1)
@@ -163,10 +251,16 @@ class ComposeDialog(wx.Dialog):
         return control
 
     def values(self) -> tuple[str, str, str, list[Path]]:
+        body = self.body.GetValue()
+        comment_control = getattr(self, "forward_comment", None)
+        if comment_control is not None:
+            comment = comment_control.GetValue().strip()
+            if comment:
+                body = comment + "\n\n" + body
         return (
             self.to_address.GetValue().strip(),
             self.subject.GetValue().strip(),
-            self.body.GetValue(),
+            body,
             list(self.attachment_paths),
         )
 
@@ -585,6 +679,29 @@ class SettingsDialog(wx.Dialog):
         )
         root.Add(self.message_read_mode_box, 0, wx.EXPAND | wx.ALL, 10)
 
+        root.Add(
+            wx.StaticText(self, label="طريقة البحث في الرسائل:"),
+            0,
+            wx.LEFT | wx.RIGHT | wx.TOP,
+            10,
+        )
+        self.search_mode_box = wx.Choice(
+            self,
+            choices=[tr(label) for label in SEARCH_MODE_CHOICES],
+        )
+        self.search_mode_box.SetSelection(
+            self.index_for_value(SEARCH_MODE_CHOICES, self.settings.search_mode)
+        )
+        set_accessible(
+            self.search_mode_box,
+            "طريقة البحث في الرسائل",
+            (
+                "اختر استدعاء نافذة البحث بالاختصار، أو إظهار زر البحث، "
+                "أو إظهار حقل دائم يفلتر رسائل القسم الحالي أثناء الكتابة."
+            ),
+        )
+        root.Add(self.search_mode_box, 0, wx.EXPAND | wx.ALL, 10)
+
         root.Add(wx.StaticText(self, label="نمط الترجمة:"), 0, wx.LEFT | wx.RIGHT | wx.TOP, 10)
         self.translation_mode_box = wx.Choice(
             self,
@@ -595,6 +712,20 @@ class SettingsDialog(wx.Dialog):
         )
         set_accessible(self.translation_mode_box, "نمط الترجمة")
         root.Add(self.translation_mode_box, 0, wx.EXPAND | wx.ALL, 10)
+        from .translation_languages import message_language_codes, language_name
+        self.message_language_codes = message_language_codes()
+        translation_label = "اختر اللغة التي سيتم ترجمة رسائل البريد إليها"
+        root.Add(wx.StaticText(self, label=tr(translation_label)), 0, wx.LEFT | wx.RIGHT | wx.TOP, 10)
+        self.message_translation_language_box = wx.Choice(
+            self, choices=[language_name(code) for code in self.message_language_codes],
+        )
+        selected_language = self.settings.message_translation_language or self.settings.language
+        self.message_translation_language_box.SetSelection(
+            self.message_language_codes.index(selected_language)
+            if selected_language in self.message_language_codes else 0
+        )
+        set_accessible(self.message_translation_language_box, translation_label)
+        root.Add(self.message_translation_language_box, 0, wx.EXPAND | wx.ALL, 10)
 
         root.Add(
             wx.StaticText(self, label="نطق إجراءات البرنامج:"),
@@ -671,6 +802,23 @@ class SettingsDialog(wx.Dialog):
         set_accessible(self.theme_box, "الوضع الشكلي")
         root.Add(self.theme_box, 0, wx.EXPAND | wx.ALL, 10)
 
+        self.restore_defaults_button = wx.Button(
+            self,
+            label=tr("إرجاع الإعدادات إلى الوضع الافتراضي"),
+        )
+        set_accessible(
+            self.restore_defaults_button,
+            "إرجاع الإعدادات إلى الوضع الافتراضي",
+            "يعيد إعدادات البرنامج إلى قيمها الافتراضية مع الاحتفاظ بلغة البرنامج والحسابات.",
+        )
+        self.restore_defaults_button.Bind(wx.EVT_BUTTON, self.on_restore_defaults)
+        root.Add(
+            self.restore_defaults_button,
+            0,
+            wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM,
+            10,
+        )
+
         buttons = self.CreateSeparatedButtonSizer(wx.OK | wx.CANCEL)
         if buttons:
             root.Add(buttons, 0, wx.EXPAND | wx.ALL, 10)
@@ -678,9 +826,16 @@ class SettingsDialog(wx.Dialog):
         localize_window(self)
         wx.CallAfter(self.focus_intro.SetFocus)
 
+    def selected_message_translation_language(self) -> str:
+        selection = self.message_translation_language_box.GetSelection()
+        if 0 <= selection < len(self.message_language_codes):
+            return self.message_language_codes[selection]
+        return self.settings.message_translation_language or self.settings.language
+
     def selected_settings(self) -> ProgramSettings:
         selected_events = normalize_event_ids(self.notification_event_ids)
         return ProgramSettings(
+            message_translation_language=self.selected_message_translation_language(),
             language=self.value_for_index(self.language_box, LANGUAGE_CHOICES, self.settings.language),
             message_viewer=self.value_for_index(self.viewer_box, VIEWER_CHOICES, self.settings.message_viewer),
             message_read_mode=self.value_for_index(
@@ -694,9 +849,15 @@ class SettingsDialog(wx.Dialog):
                 TRANSLATION_MODE_CHOICES,
                 self.settings.translation_mode,
             ),
+            search_mode=self.value_for_index(
+                getattr(self, "search_mode_box", None),
+                SEARCH_MODE_CHOICES,
+                self.settings.search_mode,
+            ),
             translation_data_notice_accepted=(
                 self.settings.translation_data_notice_accepted
             ),
+            message_translation_language_selected=True,
             spoken_notification_level=self.value_for_index(
                 self.notification_level_box,
                 SPOKEN_NOTIFICATION_LEVEL_CHOICES,
@@ -704,6 +865,7 @@ class SettingsDialog(wx.Dialog):
             ),
             spoken_notification_events=selected_events or [],
             last_selected_account_id=self.settings.last_selected_account_id,
+            compose_translation_languages=list(self.settings.compose_translation_languages),
         )
 
     def on_notification_level_changed(self, _event: wx.Event) -> None:
@@ -740,7 +902,70 @@ class SettingsDialog(wx.Dialog):
         if callable(handler):
             handler(event)
 
-    def value_for_index(self, choice: wx.Choice, mapping: dict[str, str], fallback: str) -> str:
+    def on_restore_defaults(self, _event: wx.Event) -> None:
+        dialog = wx.MessageDialog(
+            self,
+            tr(
+                "سيتم إرجاع جميع إعدادات البرنامج إلى الوضع الافتراضي مع الاحتفاظ "
+                "بلغة البرنامج الحالية وحسابات البريد. هل تريد المتابعة؟"
+            ),
+            tr("استعادة الإعدادات الافتراضية"),
+            wx.YES_NO | wx.NO_DEFAULT | wx.ICON_WARNING,
+        )
+        if hasattr(dialog, "SetYesNoLabels"):
+            dialog.SetYesNoLabels(tr("أوافق"), tr("كلا"))
+        try:
+            confirmed = dialog.ShowModal() == wx.ID_YES
+        finally:
+            dialog.Destroy()
+        if not confirmed:
+            self.restore_defaults_button.SetFocus()
+            return
+
+        defaults = ProgramSettings()
+        self.viewer_box.SetSelection(
+            self.index_for_value(VIEWER_CHOICES, defaults.message_viewer)
+        )
+        self.message_read_mode_box.SetSelection(
+            self.index_for_value(
+                MESSAGE_READ_MODE_CHOICES,
+                defaults.message_read_mode,
+            )
+        )
+        self.translation_mode_box.SetSelection(
+            self.index_for_value(
+                TRANSLATION_MODE_CHOICES,
+                defaults.translation_mode,
+            )
+        )
+        if hasattr(self, "search_mode_box"):
+            self.search_mode_box.SetSelection(
+                self.index_for_value(SEARCH_MODE_CHOICES, defaults.search_mode)
+            )
+        if hasattr(self, "message_translation_language_box"):
+            language = self.value_for_index(self.language_box, LANGUAGE_CHOICES, self.settings.language)
+            self.message_translation_language_box.SetSelection(self.message_language_codes.index(language))
+        self.notification_level_box.SetSelection(
+            self.index_for_value(
+                SPOKEN_NOTIFICATION_LEVEL_CHOICES,
+                defaults.spoken_notification_level,
+            )
+        )
+        self.notification_event_ids = preset_event_ids(
+            defaults.spoken_notification_level
+        )
+        self.theme_box.SetSelection(1 if defaults.theme == THEME_DARK else 0)
+        self.settings.translation_data_notice_accepted = (
+            defaults.translation_data_notice_accepted
+        )
+        self.settings.message_translation_language_selected = (
+            defaults.message_translation_language_selected
+        )
+        self.restore_defaults_button.SetFocus()
+
+    def value_for_index(self, choice: wx.Choice | None, mapping: dict[str, str], fallback: str) -> str:
+        if choice is None:
+            return fallback
         values = list(mapping.values())
         index = choice.GetSelection()
         return values[index] if 0 <= index < len(values) else fallback

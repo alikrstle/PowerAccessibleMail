@@ -1,6 +1,6 @@
 ﻿Información sobre Power Accessible Mail
 
-Versión 1.4.0
+Versión 1.5.0
 Desarrollado por Soljan.AlSharq.
 
 Soljan.AlSharq.Propiedad de Ali Al-Amir.

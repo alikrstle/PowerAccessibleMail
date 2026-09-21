@@ -80,6 +80,18 @@ class MailServiceRouter:
     def move_message_to_trash(self, account: Account, summary: MessageSummary) -> None:
         self.service_for(account).move_message_to_trash(account, summary)
 
+    def archive_message(self, account: Account, summary: MessageSummary) -> None:
+        self.service_for(account).archive_message(account, summary)
+
+    def resolve_archive_mailbox(self, account: Account) -> str:
+        return self.service_for(account).resolve_archive_mailbox(account)
+
+    def list_archived_messages(self, account: Account, mailbox: str, limit: int = 50) -> list[MessageSummary]:
+        return self.service_for(account).list_archived_messages(account, mailbox, limit)
+
+    def restore_archived_message(self, account: Account, summary: MessageSummary) -> None:
+        self.service_for(account).restore_archived_message(account, summary)
+
     def cached_messages(
         self,
         account: Account,

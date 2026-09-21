@@ -23,7 +23,7 @@ param(
 
 $ErrorActionPreference = "Stop"
 $ProjectRoot = $PSScriptRoot
-$Version = "1.4.0"
+$Version = "1.5.0"
 $AppName = "Power Accessible Mail"
 $ProductName = "Power Accessible Mail"
 $LockFile = Join-Path $ProjectRoot "requirements-release.lock"
@@ -58,12 +58,20 @@ $InstallerResources = @(
     (Join-Path $ProjectRoot "installer_info_es.txt"),
     (Join-Path $ProjectRoot "installer_info_tr.txt"),
     (Join-Path $ProjectRoot "installer_info_hi.txt"),
+    (Join-Path $ProjectRoot "installer_info_zh-CN.txt"),
+    (Join-Path $ProjectRoot "installer_info_ru.txt"),
+    (Join-Path $ProjectRoot "installer_info_ja.txt"),
+    (Join-Path $ProjectRoot "installer_info_de.txt"),
     (Join-Path $ProjectRoot "installer_readme_ar.txt"),
     (Join-Path $ProjectRoot "installer_readme_en.txt"),
     (Join-Path $ProjectRoot "installer_readme_fr.txt"),
     (Join-Path $ProjectRoot "installer_readme_es.txt"),
     (Join-Path $ProjectRoot "installer_readme_tr.txt"),
-    (Join-Path $ProjectRoot "installer_readme_hi.txt")
+    (Join-Path $ProjectRoot "installer_readme_hi.txt"),
+    (Join-Path $ProjectRoot "installer_readme_zh-CN.txt"),
+    (Join-Path $ProjectRoot "installer_readme_ru.txt"),
+    (Join-Path $ProjectRoot "installer_readme_ja.txt"),
+    (Join-Path $ProjectRoot "installer_readme_de.txt")
 )
 $ReleaseRoot = Join-Path $ProjectRoot "release"
 $AppDir = Join-Path $ReleaseRoot "win-$Architecture\$AppName"
@@ -76,20 +84,27 @@ $FrenchReadme = Join-Path $ProjectRoot "installer_readme_fr.txt"
 $SpanishReadme = Join-Path $ProjectRoot "installer_readme_es.txt"
 $TurkishReadme = Join-Path $ProjectRoot "installer_readme_tr.txt"
 $HindiReadme = Join-Path $ProjectRoot "installer_readme_hi.txt"
+$SimplifiedChineseReadme = Join-Path $ProjectRoot "installer_readme_zh-CN.txt"
+$RussianReadme = Join-Path $ProjectRoot "installer_readme_ru.txt"
+$JapaneseReadme = Join-Path $ProjectRoot "installer_readme_ja.txt"
+$GermanReadme = Join-Path $ProjectRoot "installer_readme_de.txt"
 $PackageArabicReadme = Join-Path $PackageAppDir "README_AR.txt"
 $PackageEnglishReadme = Join-Path $PackageAppDir "README_EN.txt"
 $PackageFrenchReadme = Join-Path $PackageAppDir "README_FR.txt"
 $PackageSpanishReadme = Join-Path $PackageAppDir "README_ES.txt"
 $PackageTurkishReadme = Join-Path $PackageAppDir "README_TR.txt"
 $PackageHindiReadme = Join-Path $PackageAppDir "README_HI.txt"
+$PackageSimplifiedChineseReadme = Join-Path $PackageAppDir "README_ZH_CN.txt"
+$PackageRussianReadme = Join-Path $PackageAppDir "README_RU.txt"
+$PackageJapaneseReadme = Join-Path $PackageAppDir "README_JA.txt"
+$PackageGermanReadme = Join-Path $PackageAppDir "README_DE.txt"
 $InstallerDir = Join-Path $ReleaseRoot "installer"
 $isSigned = -not [string]::IsNullOrWhiteSpace($CertificateThumbprint)
 if (-not $isSigned -and -not $AllowUnsigned) {
     throw (
-        "Public releases must be Authenticode-signed. Set " +
-        "POWER_ACCESSIBLE_MAIL_SIGNING_CERT_THUMBPRINT or pass " +
-        "-AllowUnsigned for a clearly labeled tester-only GitHub pre-release. " +
-        "Never publish an unsigned build as a stable release."
+        "Set POWER_ACCESSIBLE_MAIL_SIGNING_CERT_THUMBPRINT for a signed build, " +
+        "or pass -AllowUnsigned after explicit maintainer approval. Unsigned " +
+        "artifacts retain the UNSIGNED suffix and include SHA-256 manifests."
     )
 }
 $buildKind = if ($isSigned) { "SIGNED" } else { "UNSIGNED" }
@@ -333,13 +348,21 @@ Copy-Item -LiteralPath $FrenchReadme -Destination $PackageFrenchReadme -Force
 Copy-Item -LiteralPath $SpanishReadme -Destination $PackageSpanishReadme -Force
 Copy-Item -LiteralPath $TurkishReadme -Destination $PackageTurkishReadme -Force
 Copy-Item -LiteralPath $HindiReadme -Destination $PackageHindiReadme -Force
+Copy-Item -LiteralPath $SimplifiedChineseReadme -Destination $PackageSimplifiedChineseReadme -Force
+Copy-Item -LiteralPath $RussianReadme -Destination $PackageRussianReadme -Force
+Copy-Item -LiteralPath $JapaneseReadme -Destination $PackageJapaneseReadme -Force
+Copy-Item -LiteralPath $GermanReadme -Destination $PackageGermanReadme -Force
 foreach ($readmePair in @(
     @($ArabicReadme, $PackageArabicReadme),
     @($EnglishReadme, $PackageEnglishReadme),
     @($FrenchReadme, $PackageFrenchReadme),
     @($SpanishReadme, $PackageSpanishReadme),
     @($TurkishReadme, $PackageTurkishReadme),
-    @($HindiReadme, $PackageHindiReadme)
+    @($HindiReadme, $PackageHindiReadme),
+    @($SimplifiedChineseReadme, $PackageSimplifiedChineseReadme),
+    @($RussianReadme, $PackageRussianReadme),
+    @($JapaneseReadme, $PackageJapaneseReadme),
+    @($GermanReadme, $PackageGermanReadme)
 )) {
     $sourceReadmeHash = (
         Get-FileHash -LiteralPath $readmePair[0] -Algorithm SHA256

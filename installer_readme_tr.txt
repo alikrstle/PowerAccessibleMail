@@ -1,5 +1,5 @@
 ﻿Güçlü Erişilebilir E-posta
-Sürüm 1.4.0
+Sürüm 1.5.0
 Geliştiren: Soljan.AlSharq.
 
 Soljan.AlSharq. Ali Al-Amir'e aittir.
@@ -8,7 +8,7 @@ E-postanıza hoş geldiniz
 
 Power Accessible Mail, e-postalarınızı klavyeden rahatça okumanızı, yazmanızı, düzenlemenizi ve güncellemenizi sağlamak için tasarlanmıştır.
 
-Sürüm 1.4.0, yerel Windows sertifika deposunu kullanarak güncelleme güvenilirliğini artırır ve güvenli doğrulamayı devre dışı bırakmadan cihaz zamanı Windows güncellemesi veya güvenlik yazılımı sertifika sorunları için net bir mesaj sağlar.
+Sürüm 1.5.0, yerel Windows sertifika deposunu kullanarak güncelleme güvenilirliğini artırır ve güvenli doğrulamayı devre dışı bırakmadan cihaz zamanı Windows güncellemesi veya güvenlik yazılımı sertifika sorunları için net bir mesaj sağlar.
 
 Yerel Windows listeleri ve alanları, ekran okuyuculara tahmin edilebilir kontroller sağlarken, mesajlar dikey olarak düzenlenir, böylece e-postalarınızda gezinmek doğrudan ve tanıdık gelir.
 
@@ -18,9 +18,9 @@ Uygulama hesap olmadan başladığında, Google ile devam edebilir, Microsoft il
 
 Hesap seçeneklerini ve yönetimini açın ve Hesap ekle'yi seçin.
 
-Oturum açma yöntemleri gerçek bir liste olarak görünür.
+Üç oturum açma yöntemi gerçek bir liste olarak görünür.
 
-Tarayıcı oturum açma veya manuel oturum açmayı seçin, ardından Enter tuşuna basın, seçilen öğeye sağ tıklayın veya İptal'in yanındaki Tamam düğmesini kullanın.
+Tarayıcı oturum açmayı, Google uygulama şifresiyle oturum açmayı veya gelişmiş manuel oturum açmayı seçin; ardından Enter tuşuna basın, seçilen öğeye sağ tıklayın veya İptal'in yanındaki Tamam düğmesini kullanın.
 
 Tarayıcı oturum açma, resmi Google veya Microsoft onay sayfasını açar ve uygulamadan tarayıcı şifrenizi okumasını asla istemez.
 
@@ -30,7 +30,7 @@ Manuel oturum açma, bir E-posta hizmeti seçimiyle başlar.
 
 Google veya Microsoft'u seçin ve uygulama, inceleme için kullanılabilir alanları korurken eşleşen IMAP ve SMTP ayarlarını doldurur.
 
-Gmail manuel oturum açma normalde bir uygulama şifresi gerektirir.
+Google uygulama şifresiyle oturum açma, Gmail hesapları için ikincil bir seçenektir. 2 Adımlı Doğrulamanın etkinleştirilmesini ve resmî Google sayfasında oluşturulan bir uygulama şifresini gerektirir. 16 karakterli kodu girin; uygulama boşlukları otomatik olarak kaldırır ve kodu Windows şifrelemesiyle saklar. Bu alana normal Google Hesabı şifrenizi kesinlikle girmeyin.
 
 Microsoft için tarayıcı oturum açma önerilir, çünkü şifre tabanlı IMAP erişimi hesap politikası tarafından kısıtlanabilir.
 
@@ -101,17 +101,17 @@ Mesaj bağlam menüsü için Shift+F10 veya Uygulama tuşunu, ekler, resimler ve
 
 Çeviri yerinde veya ayrı bir pencerede
 
-Ctrl+T, geçerli mesajı uygulama diline çevirir.
+Ctrl+T, geçerli mesajı seçtiğiniz çeviri diline çevirir.
 
 Ayarlar'da, çevirinin HTML veya kolay görüntüleyici içindeki içeriği mi değiştireceğini yoksa ayrı bir pencerede mi açılacağını seçin.
 
 Çeviri yalnızca mesaj görüntüleyici içindeyken kullanılabilir.
 
-İnternet bağlantısı gerektirir ve yalnızca talep ettiğinizde seçilen mesaj metnini resmi Google Translate servisine gönderir. İlk çeviriden önce uygulama bu aktarımı açıklar ve İzin Ver ve İptal seçeneklerini sunar. İzin Ver'i seçtikten sonra seçim kaydedilir ve bildirim tekrar gösterilmez.
+İnternet bağlantısı gerektirir ve yalnızca talep ettiğinizde seçilen mesaj metnini resmi Google Translate servisine gönderir. İlk çeviriden önce uygulama bu aktarımı açıklar ve İzin Ver ile İptal seçeneklerini sunar. İzin Ver'den sonra listede önce 20 yaygın dil, ardından diğer tüm diller görünür. Fareyle tıklayarak veya ok tuşları ve Enter ile seçin. İzin ve dil kaydedilir.
 
 Uygulamayı kendinize göre özelleştirin
 
-Ayarlar; Arapça, İngilizce, Fransızca, İspanyolca, Türkçe veya Hintçe dilini, HTML ya da kolay mesaj görüntüleyiciyi, sayfa içinde veya ayrı pencerede çeviriyi ve açık ya da koyu görünümü seçmenize olanak tanır.
+Ayarlar; Arapça, İngilizce, Fransızca, İspanyolca, Türkçe, Hintçe, Basitleştirilmiş Çince, Rusça, Japonca veya Almanca dilini, HTML ya da kolay mesaj görüntüleyiciyi, sayfa içinde veya ayrı pencerede çeviriyi ve açık ya da koyu görünümü seçmenize olanak tanır.
 
 Ayrıca, NVDA kütüphanesinin kaç uygulama işlemi duyuracağını dört seviyeyle kontrol edebilirsiniz: hiçbiri, bazıları, çoğu veya tümü. Düzeyin yanındaki "Özelleştir ve işlem duyurularını yönet" düğmesi, yerel Windows onay kutularını içeren kategorileri açar. Bunlar arasında geçiş yapmak, durumlarını duymak için Sekme tuşunu, değiştirmek ve kaydetmek için ise Boşluk tuşunu kullanın. Varsayılan düzey, kullanıcı özelleştirmede bu kategoriyi etkinleştirmediği sürece okundu veya okunmadı durum değişikliklerini veya sunucu kaydetme onaylarını duyurmaz. Ayarlar ayrıca, Windows Ayarlarında uygulamanın sayfasını açan "Varsayılan e-posta uygulaması olarak PowerAccessibleMail'i seç" seçeneğini de içerir; Enter tuşu yanıt vermezse, MAILTO'da Boşluk tuşuna basarak uygulama seçiciyi açabilirsiniz.
 
@@ -256,3 +256,9 @@ Güçlü Erişilebilir E-posta
 Soljan.AlSharq. tarafından geliştirilen erişilebilir bir e-posta deneyimi.
 
 Soljan.AlSharq., Ali Al-Amir'e aittir.
+
+Mesajlarda arama
+
+Ayarlar bölümünden arama yönteminizi seçin. İsteğe bağlı arama Ctrl+F ile tam bir pencere açar; Arapça klavye düzeninde aynı tuş Ctrl+ب olarak görünür. Bunun yerine kategorinin yanında bir düğme ya da yazarken geçerli bölümü filtreleyen kalıcı bir alan gösterebilirsiniz.
+
+Arama penceresinde sonuç listesi, mesaj görüntüleyici ve öğe görüntüleyici bulunur. Uygulamanın yüklediği veya eşitlediği mesajlarda gönderen adı, e-posta adresi, konu, tarih ve durum eşleştirilir.

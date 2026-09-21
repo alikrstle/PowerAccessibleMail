@@ -1,6 +1,6 @@
 ﻿Power Accessible Mail Bilgileri
 
-Sürüm 1.4.0
+Sürüm 1.5.0
 Geliştiren: Soljan.AlSharq.
 
 Soljan.AlSharq., Ali Al-Amir'e aittir.

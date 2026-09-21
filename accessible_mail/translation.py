@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import time
 import urllib.error
 import urllib.parse
@@ -12,6 +13,20 @@ from .network_security import friendly_https_error, trusted_https_context
 TRANSLATION_ATTEMPTS = 2
 TRANSIENT_HTTP_STATUS_CODES = {408, 429, 500, 502, 503, 504}
 MAX_TRANSLATION_RESPONSE_BYTES = 2 * 1024 * 1024
+_rate_limit_until = 0.0
+LOGGER = logging.getLogger("power_accessible_mail.translation")
+
+
+class TranslationRateLimitError(MailError):
+    """Google asked this process to pause translation requests."""
+
+
+def check_translation_rate_limit() -> None:
+    if time.monotonic() < _rate_limit_until:
+        raise TranslationRateLimitError(
+            "قيّدت Google طلبات الترجمة مؤقتاً بسبب كثرتها (429). "
+            "انتظر بضع دقائق قبل المحاولة مجدداً."
+        )
 
 
 def text_chunks(text: str, max_length: int = 4500) -> list[str]:
@@ -47,8 +62,10 @@ def translate_text_with_google(text: str, target_language: str = "ar") -> str:
 
 
 def translate_chunk_with_google(chunk: str, target_language: str) -> str:
+    global _rate_limit_until
     last_error: Exception | None = None
     for attempt in range(TRANSLATION_ATTEMPTS):
+        check_translation_rate_limit()
         data = urllib.parse.urlencode(
             {
                 "client": "gtx",
@@ -82,6 +99,17 @@ def translate_chunk_with_google(chunk: str, target_language: str) -> str:
                 raise MailError("تعذر الحصول على ترجمة من Google.")
             return translated
         except urllib.error.HTTPError as exc:
+            if exc.code == 429:
+                retry_after = exc.headers.get("Retry-After", "60") if exc.headers else "60"
+                try:
+                    delay = max(60, min(3600, int(retry_after)))
+                except (TypeError, ValueError):
+                    delay = 60
+                _rate_limit_until = max(_rate_limit_until, time.monotonic() + delay)
+                LOGGER.warning("Google translation rate limited (HTTP 429); requests paused")
+                # Do not retry after 0.6 seconds or continue translating every
+                # item description when the service explicitly limits requests.
+                check_translation_rate_limit()
             if exc.code not in TRANSIENT_HTTP_STATUS_CODES:
                 raise MailError("تعذر الحصول على ترجمة من Google.") from exc
             last_error = exc

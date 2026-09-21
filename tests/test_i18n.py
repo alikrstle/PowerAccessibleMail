@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import ast
 import re
 import unittest
 from pathlib import Path
@@ -10,7 +11,11 @@ from accessible_mail.i18n import (
     LANGUAGE_ARABIC,
     LANGUAGE_ENGLISH,
     LANGUAGE_FRENCH,
+    LANGUAGE_GERMAN,
     LANGUAGE_HINDI,
+    LANGUAGE_JAPANESE,
+    LANGUAGE_RUSSIAN,
+    LANGUAGE_SIMPLIFIED_CHINESE,
     LANGUAGE_SPANISH,
     LANGUAGE_TURKISH,
     _DYNAMIC_ENGLISH,
@@ -24,6 +29,13 @@ from accessible_mail.i18n_fr import (
 from accessible_mail.i18n_hi import HINDI_DYNAMIC_TEMPLATES, HINDI_TRANSLATIONS
 from accessible_mail.i18n_es import SPANISH_DYNAMIC_TEMPLATES, SPANISH_TRANSLATIONS
 from accessible_mail.i18n_tr import TURKISH_DYNAMIC_TEMPLATES, TURKISH_TRANSLATIONS
+from accessible_mail.i18n_zh_cn import (
+    SIMPLIFIED_CHINESE_DYNAMIC_TEMPLATES,
+    SIMPLIFIED_CHINESE_TRANSLATIONS,
+)
+from accessible_mail.i18n_ru import RUSSIAN_DYNAMIC_TEMPLATES, RUSSIAN_TRANSLATIONS
+from accessible_mail.i18n_ja import JAPANESE_DYNAMIC_TEMPLATES, JAPANESE_TRANSLATIONS
+from accessible_mail.i18n_de import GERMAN_DYNAMIC_TEMPLATES, GERMAN_TRANSLATIONS
 
 
 class TranslationTests(unittest.TestCase):
@@ -135,6 +147,26 @@ class TranslationTests(unittest.TestCase):
                 "3 नए मैसेज इनबॉक्स में आए।",
                 "अपठित चिह्नित करें",
             ),
+            LANGUAGE_SIMPLIFIED_CHINESE: (
+                "设置",
+                "3 新邮件到达收件箱。",
+                "标记为未读",
+            ),
+            LANGUAGE_RUSSIAN: (
+                "Настройки",
+                "В папку «Входящие» поступило 3 новых сообщений.",
+                "Отметить как непрочитанное",
+            ),
+            LANGUAGE_JAPANESE: (
+                "設定",
+                "3 件の新しいメッセージが受信トレイに到着しました。",
+                "未読にする",
+            ),
+            LANGUAGE_GERMAN: (
+                "Einstellungen",
+                "Im Posteingang sind 3 neue Nachrichten eingegangen.",
+                "Als ungelesen markieren",
+            ),
         }
         for language, phrases in expected.items():
             with self.subTest(language=language):
@@ -148,8 +180,12 @@ class TranslationTests(unittest.TestCase):
             (SPANISH_TRANSLATIONS, SPANISH_DYNAMIC_TEMPLATES),
             (TURKISH_TRANSLATIONS, TURKISH_DYNAMIC_TEMPLATES),
             (HINDI_TRANSLATIONS, HINDI_DYNAMIC_TEMPLATES),
+            (SIMPLIFIED_CHINESE_TRANSLATIONS, SIMPLIFIED_CHINESE_DYNAMIC_TEMPLATES),
+            (RUSSIAN_TRANSLATIONS, RUSSIAN_DYNAMIC_TEMPLATES),
+            (JAPANESE_TRANSLATIONS, JAPANESE_DYNAMIC_TEMPLATES),
+            (GERMAN_TRANSLATIONS, GERMAN_DYNAMIC_TEMPLATES),
         ):
-            self.assertEqual(set(exact_catalog), set(ENGLISH_TRANSLATIONS))
+            self.assertLessEqual(set(exact_catalog), set(ENGLISH_TRANSLATIONS))
             self.assertEqual(len(dynamic_catalog), len(_DYNAMIC_ENGLISH))
 
     def test_new_language_catalogs_preserve_placeholders_and_have_no_generator_artifacts(self) -> None:
@@ -159,15 +195,20 @@ class TranslationTests(unittest.TestCase):
             (SPANISH_TRANSLATIONS, SPANISH_DYNAMIC_TEMPLATES),
             (TURKISH_TRANSLATIONS, TURKISH_DYNAMIC_TEMPLATES),
             (HINDI_TRANSLATIONS, HINDI_DYNAMIC_TEMPLATES),
+            (SIMPLIFIED_CHINESE_TRANSLATIONS, SIMPLIFIED_CHINESE_DYNAMIC_TEMPLATES),
+            (RUSSIAN_TRANSLATIONS, RUSSIAN_DYNAMIC_TEMPLATES),
+            (JAPANESE_TRANSLATIONS, JAPANESE_DYNAMIC_TEMPLATES),
+            (GERMAN_TRANSLATIONS, GERMAN_DYNAMIC_TEMPLATES),
         ):
             for arabic, english in ENGLISH_TRANSLATIONS.items():
-                translated = exact_catalog[arabic]
+                translated = exact_catalog.get(arabic, english)
                 self.assertTrue(translated.strip())
                 self.assertEqual(
                     sorted(placeholder_pattern.findall(translated)),
                     sorted(placeholder_pattern.findall(english)),
                 )
                 self.assertNotIn("PAM_CATALOG_SEPARATOR", translated)
+                self.assertNotIn("ZXQTOKEN", translated)
                 self.assertNotIn("translation reset", translated.lower())
             for english, translated in zip(
                 english_dynamic,
@@ -180,16 +221,42 @@ class TranslationTests(unittest.TestCase):
                 )
                 self.assertNotIn("PAM_CATALOG_SEPARATOR", translated)
 
-    def test_french_catalog_covers_the_full_english_catalog(self) -> None:
-        self.assertEqual(set(FRENCH_TRANSLATIONS), set(ENGLISH_TRANSLATIONS))
+    def test_french_catalog_keys_belong_to_the_english_catalog(self) -> None:
+        self.assertLessEqual(set(FRENCH_TRANSLATIONS), set(ENGLISH_TRANSLATIONS))
         self.assertEqual(len(FRENCH_DYNAMIC_TEMPLATES), len(_DYNAMIC_ENGLISH))
+
+    def test_literal_interface_translations_have_an_english_fallback(self) -> None:
+        package = Path(__file__).resolve().parents[1] / "accessible_mail"
+        missing: list[tuple[str, int, str]] = []
+        for path in package.glob("*.py"):
+            tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+            for node in ast.walk(tree):
+                if (
+                    isinstance(node, ast.Call)
+                    and isinstance(node.func, ast.Name)
+                    and node.func.id == "tr"
+                    and node.args
+                    and isinstance(node.args[0], ast.Constant)
+                    and isinstance(node.args[0].value, str)
+                    and any(
+                        "\u0600" <= character <= "\u06ff"
+                        for character in node.args[0].value
+                    )
+                    and node.args[0].value not in ENGLISH_TRANSLATIONS
+                ):
+                    missing.append((path.name, node.lineno, node.args[0].value))
+        self.assertEqual(missing, [])
 
     def test_french_program_guide_uses_requested_version(self) -> None:
         project_root = Path(__file__).resolve().parents[1]
         guide = load_program_guide(LANGUAGE_FRENCH, "9.8.7", project_root)
 
         self.assertIn("Version 9.8.7", guide)
-        self.assertIn("l'arabe l'anglais le français l'espagnol le turc ou l'hindi", guide)
+        self.assertIn(
+            "l'arabe l'anglais le français l'espagnol le turc l'hindi "
+            "le chinois simplifié le russe le japonais ou l'allemand",
+            guide,
+        )
         self.assertIn("Utiliser la visionneuse des éléments étape par étape", guide)
         self.assertIn("Ajouter une pièce jointe", guide)
         self.assertNotIn("Version 1.2.14", guide)
@@ -226,6 +293,26 @@ class TranslationTests(unittest.TestCase):
                 "आइटम व्यूअर का स्टेप बाय स्टेप इस्तेमाल करें",
                 "एक मैसेज लिखें और आउटगोइंग अटैचमेंट जोड़ें",
                 "एड्रेस बुक का इस्तेमाल करें",
+            ),
+            LANGUAGE_SIMPLIFIED_CHINESE: (
+                "逐步使用项目查看器",
+                "撰写消息并添加传出附件",
+                "使用地址簿",
+            ),
+            LANGUAGE_RUSSIAN: (
+                "Используйте средство просмотра элементов шаг за шагом",
+                "Напишите сообщение и добавьте исходящие вложения",
+                "Используйте адресную книгу",
+            ),
+            LANGUAGE_JAPANESE: (
+                "アイテムビューアを段階的に使用する",
+                "メッセージを作成し、送信添付ファイルを追加する",
+                "アドレス帳を使用する",
+            ),
+            LANGUAGE_GERMAN: (
+                "Schritt für Schritt zur Verwendung der Elementansicht",
+                "E-Mail verfassen und ausgehende Anhänge hinzufügen",
+                "Adressbuch verwenden",
             ),
         }
 

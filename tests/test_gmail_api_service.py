@@ -570,7 +570,7 @@ class GmailApiServiceTests(unittest.TestCase):
 
         self.assertEqual(
             content.text,
-            "ASUS invitation\nPriority access is now open.",
+            "ASUS invitation\n\nPriority access is now open.",
         )
         self.assertNotIn("=3D", content.text)
 

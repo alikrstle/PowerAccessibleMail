@@ -1,6 +1,6 @@
 ﻿Información sobre Power Accessible Mail
 
-Versión 1.4.0
+Versión 1.5.0
 Desarrollado por Soljan.AlSharq.
 
 Soljan.AlSharq.Propiedad de Ali Al-Amir.
@@ -32,7 +32,7 @@ Soljan.AlSharq.Es propiedad de Ali Al-Amir.
 
 Lea este resumen y, a continuación, marque la casilla «Acepto los términos de privacidad» al final de la página para activar el botón «Siguiente».
 Correo electrónico accesible y potente
-Versión 1.4.0
+Versión 1.5.0
 Desarrollado por Soljan.AlSharq.
 Soljan.AlSharq.Propiedad de Ali Al-Amir
 
@@ -40,7 +40,7 @@ Bienvenido a tu correo electrónico
 
 Power Accessible Mail está diseñado para que leer, escribir, organizar y actualizar tu correo electrónico sea cómodo desde el teclado.
 
-La versión 1.4.0 mejora la fiabilidad de las actualizaciones al usar el almacén de certificados nativo de Windows y proporciona un mensaje claro sobre la hora del dispositivo, la actualización de Windows o los problemas con los certificados del software de seguridad, sin desactivar la verificación segura.
+La versión 1.5.0 mejora la fiabilidad de las actualizaciones al usar el almacén de certificados nativo de Windows y proporciona un mensaje claro sobre la hora del dispositivo, la actualización de Windows o los problemas con los certificados del software de seguridad, sin desactivar la verificación segura.
 
 Las listas y los campos nativos de Windows ofrecen a los lectores de pantalla controles predecibles, mientras que los mensajes se organizan verticalmente para que navegar por tu correo sea directo y familiar.
 
@@ -50,9 +50,9 @@ Cuando la aplicación se inicia sin una cuenta, puedes continuar con Google, con
 
 Abre Opciones y administración de la cuenta y selecciona Añadir cuenta.
 
-Los métodos de inicio de sesión aparecen en una lista.
+Los tres métodos de inicio de sesión aparecen en una lista.
 
-Selecciona Iniciar sesión en el navegador o Iniciar sesión manualmente y pulsa Intro. Haz clic con el botón derecho en el elemento seleccionado o usa el botón Aceptar junto a Cancelar.
+Selecciona el inicio de sesión en el navegador, el inicio de sesión de Google con contraseña de aplicación o el inicio de sesión manual avanzado y pulsa Intro. Haz clic con el botón derecho en el elemento seleccionado o usa el botón Aceptar junto a Cancelar.
 
 Iniciar sesión en el navegador abre la página de consentimiento oficial de Google o Microsoft y nunca solicita a la aplicación que lea tu contraseña del navegador.
 
@@ -62,7 +62,7 @@ El inicio de sesión manual comienza con la selección de un servicio de correo 
 
 Seleccione Google o Microsoft y la aplicación completará la configuración IMAP y SMTP correspondiente, manteniendo los campos disponibles para su revisión.
 
-Normalmente, el inicio de sesión manual en Gmail requiere una contraseña de aplicación.
+El inicio de sesión de Google con contraseña de aplicación es una opción secundaria para las cuentas de Gmail. Requiere la verificación en dos pasos y una contraseña de aplicación creada en la página oficial de Google. Introduzca el código de 16 caracteres; la aplicación elimina los espacios automáticamente y lo guarda con el cifrado de Windows. No introduzca nunca la contraseña habitual de su cuenta de Google en este campo.
 
 Para Microsoft, se recomienda iniciar sesión mediante el navegador, ya que el acceso IMAP basado en contraseña puede estar restringido por la política de la cuenta.
 
@@ -133,17 +133,17 @@ Use Mayús+F10 o la tecla Aplicación para acceder al menú contextual del mensa
 
 Traducción en el mismo lugar o en una ventana aparte
 
-Ctrl+T traduce el mensaje actual al idioma de la aplicación.
+Ctrl+T traduce el mensaje actual al idioma de traducción seleccionado.
 
 En Configuración, elija si la traducción reemplaza el contenido dentro del visor HTML o de texto plano, o si se abre en una ventana aparte.
 
 La traducción solo está disponible dentro del visor de mensajes.
 
-Requiere conexión a internet y envía el texto del mensaje seleccionado al servicio oficial de Google Translate solo cuando usted lo solicita.Antes de la primera traducción, la aplicación explica esta transferencia y ofrece las opciones Permitir y Cancelar.Después de elegir Permitir, la elección se guarda y el aviso no vuelve a aparecer.
+Requiere conexión a internet y envía el texto del mensaje seleccionado al servicio oficial de Google Translate solo cuando usted lo solicita. Antes de la primera traducción, la aplicación explica esta transferencia y ofrece Permitir y Cancelar. Después de Permitir, la lista muestra primero 20 idiomas comunes y luego todos los demás. Elija un idioma con un clic o con las flechas y Enter. El consentimiento y el idioma se guardan.
 
 Personalice la aplicación
 
-En Configuración, puede elegir árabe, inglés, francés, español, turco o hindi; el visor HTML o el visor sencillo; la traducción dentro de la página o en una ventana aparte; y la apariencia clara u oscura.
+En Configuración, puede elegir árabe, inglés, francés, español, turco, hindi, chino simplificado, ruso, japonés o alemán; el visor HTML o el visor sencillo; la traducción dentro de la página o en una ventana aparte; y la apariencia clara u oscura.
 
 También puede controlar cuántas acciones de la aplicación anuncia la biblioteca NVDA con cuatro niveles: ninguna, algunas, la mayoría o todas.El botón "Personalizar y administrar anuncios de acciones" junto al nivel abre categorías que contienen casillas de verificación nativas de Windows.Use la tecla Tab para desplazarse entre ellas, escuchar su estado y la barra espaciadora para cambiarlo y guardar.El nivel predeterminado no anuncia los cambios de estado de lectura o no lectura ni las confirmaciones de guardado del servidor, a menos que el usuario habilite esa categoría en la personalización.La configuración también incluye la opción "Elegir PowerAccessibleMail como aplicación de correo electrónico predeterminada", que abre la página de la aplicación en la configuración de Windows;presione la barra espaciadora en MAILTO para abrir el selector de aplicaciones si la tecla Intro no responde.
 
@@ -267,3 +267,9 @@ Ctrl+A abre las opciones y la administración de la cuenta.
 Ctrl+N redacta un nuevo mensaje.
 Ctrl+R responde al mensaje seleccionado.
 Ctrl+T traduce el mensaje actual.
+
+Buscar mensajes
+
+Elige el método de búsqueda en Configuración. La búsqueda bajo demanda abre una ventana completa con Ctrl+F, que aparece como Ctrl+ب con un teclado árabe. También puedes mostrar un botón junto a la categoría o un campo permanente que filtre la sección actual mientras escribes.
+
+La ventana contiene la lista de resultados, el visor de mensajes y el visor de elementos. Busca en los mensajes ya cargados o sincronizados y compara el nombre y la dirección del remitente, el asunto, la fecha y el estado.

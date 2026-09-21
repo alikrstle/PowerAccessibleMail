@@ -110,7 +110,7 @@ class ForwardMessageDialog(wx.Dialog):
     ) -> None:
         super().__init__(parent, title=tr("إعادة توجيه رسالة"), size=(780, 620))
         self.entries = list(entries)
-        self.messages = list(messages)
+        self.messages = [initial_message] if initial_message is not None else list(messages)
         root = wx.BoxSizer(wx.VERTICAL)
 
         root.Add(
@@ -154,7 +154,7 @@ class ForwardMessageDialog(wx.Dialog):
         root.Add(
             wx.StaticText(
                 self,
-                label=tr("اختر رسالة مستلمة لإعادة توجيهها، مرتبة من الأحدث إلى الأقدم:"),
+                label=tr("الرسائل المختارة لإعادة التوجيه:"),
             ),
             0,
             wx.EXPAND | wx.LEFT | wx.RIGHT | wx.TOP,
@@ -166,7 +166,7 @@ class ForwardMessageDialog(wx.Dialog):
         )
         set_accessible(
             self.message_list,
-            "الرسائل المستلمة لإعادة التوجيه",
+            "الرسائل المختارة لإعادة التوجيه",
             "استخدم الأسهم لاختيار الرسالة ثم اضغط Enter أو انتقل إلى زر إعادة التوجيه.",
         )
         self.message_list.Bind(wx.EVT_LISTBOX_DCLICK, self.on_confirm)

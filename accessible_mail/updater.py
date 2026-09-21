@@ -189,6 +189,14 @@ def launch_update_installer(
     path = Path(installer_path).resolve()
     if not path.is_file() or not _has_windows_executable_header(path):
         raise UpdateInstallError("ملف تثبيت التحديث غير صالح.")
+    signature_status = authenticode_signature_status(path)
+    explicitly_unsigned = path.name.casefold().endswith("-unsigned.exe")
+    if signature_status != "Valid" and not (
+        explicitly_unsigned and signature_status == "NotSigned"
+    ):
+        raise UpdateInstallError(
+            "تعذر تشغيل التحديث لأن توقيع Authenticode غير صالح أو غير موثوق."
+        )
     installer_language = {
         "ar": "arabic",
         "fr": "french",
@@ -196,11 +204,14 @@ def launch_update_installer(
         "es": "spanish",
         "tr": "turkish",
         "hi": "hindi",
+        "zh-cn": "chinesesimplified",
+        "ru": "russian",
+        "ja": "japanese",
+        "de": "german",
     }.get(str(language or "").strip().lower(), "english")
     return subprocess.Popen(
         [
             str(path),
-            "/VERYSILENT",
             f"/LANG={installer_language}",
             "/NORESTART",
             "/CLOSEAPPLICATIONS",
@@ -208,6 +219,46 @@ def launch_update_installer(
         ],
         close_fds=True,
     )
+
+
+def authenticode_signature_status(path: Path) -> str:
+    """Return the Authenticode status reported by Windows."""
+    if os.name != "nt":
+        return "Unavailable"
+    script = (
+        "$signature = Get-AuthenticodeSignature -LiteralPath $args[0]; "
+        "Write-Output $signature.Status"
+    )
+    try:
+        completed = subprocess.run(
+            [
+                "powershell.exe",
+                "-NoLogo",
+                "-NoProfile",
+                "-NonInteractive",
+                "-Command",
+                script,
+                str(path),
+            ],
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+            check=False,
+            timeout=30,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+        )
+    except (OSError, subprocess.SubprocessError):
+        return "Unavailable"
+    if completed.returncode != 0:
+        return "Unavailable"
+    return completed.stdout.strip() or "Unavailable"
+
+
+def has_valid_authenticode_signature(path: Path) -> bool:
+    return authenticode_signature_status(path) == "Valid"
 
 
 def default_update_root(version: str) -> Path:

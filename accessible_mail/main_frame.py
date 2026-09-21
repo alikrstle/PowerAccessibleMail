@@ -13,6 +13,7 @@ from typing import Any
 import wx
 import wx.adv
 import wx.html2
+from .command_labels import COMMAND_LABELS
 
 from .attachment_storage import (
     cleanup_opened_attachment_session,
@@ -46,7 +47,7 @@ from .config import (
     APP_VERSION,
     LANGUAGE_ARABIC,
     LANGUAGE_FRENCH,
-    THEME_DARK,
+    SEARCH_MODE_FIELD,
     TRANSLATION_INLINE,
     load_accounts,
     load_oauth_clients,
@@ -57,6 +58,7 @@ from .config import (
 from .dialogs import (
     BulkDeleteDialog,
     ComposeDialog,
+    MessageTranslationLanguageDialog,
     SettingsDialog,
     UpdateAvailableDialog,
     UpdateDownloadDialog,
@@ -69,6 +71,7 @@ from .mail_page import MailPage
 from .mail_service_router import MailServiceRouter
 from .models import Account, LinkItem, MessageContent, MessageSummary
 from .notification_preferences import (
+    EVENT_SEARCH_STARTED,
     configure_spoken_notifications,
     notification_event_for_message,
 )
@@ -78,7 +81,7 @@ from .oauth import (
     apply_provider_settings,
     run_browser_oauth_flow,
 )
-from .translation import translate_text_with_google
+from .translation import TranslationRateLimitError, translate_text_with_google
 from .ui_constants import (
     BULK_ACTION_DELETE,
     BULK_ACTION_MARK_READ,
@@ -92,6 +95,7 @@ from .ui_constants import (
     MESSAGE_SELECTION_DELAY_MS,
 )
 from .ui_helpers import (
+    theme_palette,
     app_icon_path,
     apply_layout_direction,
     localize_menu_bar,
@@ -118,6 +122,73 @@ DEVELOPER_EMAIL = "support@soljan-alsharq.com"
 TELEGRAM_INTERNATIONAL_CHANNEL_URL = "https://t.me/SoljanAlSharq2"
 TELEGRAM_ARABIC_CHANNEL_URL = "https://t.me/SoljanAlSharq"
 DEVELOPER_TELEGRAM_URL = "https://t.me/AliIrass"
+QUICK_NAVIGATION_SHORTCUTS: tuple[tuple[str, str], ...] = (
+    ("Alt+1", "الوصول إلى قائمة الرسائل في التصنيف الحالي."),
+    ("Alt+2", "العودة إلى مستعرض آخر رسالة فُتحت."),
+    ("Alt+3", "الوصول إلى أقسام البريد."),
+    ("Alt+4", "الوصول إلى قائمة أوامر البرنامج."),
+)
+SHORTCUT_GUIDE_SECTIONS: tuple[tuple[str, tuple[tuple[str, str], ...]], ...] = (
+    ("التنقل السريع", QUICK_NAVIGATION_SHORTCUTS),
+    (
+        "الأوامر العامة",
+        (
+            ("Alt+H", "فتح المرشد التفاعلي."),
+            ("F1", "فتح دليل البرنامج."),
+            ("Alt+D", "فتح دليل اختصارات البرنامج."),
+            ("Ctrl+A", "فتح خيارات الحسابات وإدارتها."),
+            ("Ctrl+N", "إنشاء رسالة جديدة."),
+            ("Ctrl+F", "فتح البحث في الرسائل."),
+            ("Ctrl+R", "الرد على الرسالة المحددة."),
+            ("Ctrl+T", "ترجمة الرسالة الحالية."),
+            ("F5", "تحديث الرسائل."),
+            ("Alt+F4", "إغلاق البرنامج."),
+        ),
+    ),
+    (
+        "قائمة الرسائل",
+        (
+            ("Enter", "فتح مستعرض الرسالة المحددة."),
+            ("Tab", "دخول مستعرض HTML من قائمة الرسائل."),
+            ("Space", "تبديل حالة الرسالة بين مقروءة وغير مقروءة."),
+            ("Delete", "حذف الرسالة المحددة ونقلها إلى سلة المحذوفات."),
+            ("Ctrl+Shift+Space", "تشغيل وضع التحديد المتعدد أو إيقافه."),
+            ("Space أثناء التحديد المتعدد", "تحديد الرسالة الحالية أو إلغاء تحديدها."),
+            ("Control وحده أثناء التحديد المتعدد", "سماع عدد الرسائل المحددة."),
+            ("Escape أثناء التحديد المتعدد", "الخروج من وضع التحديد المتعدد."),
+            ("مفتاح التطبيقات أو Shift+F10", "فتح قائمة السياق للعنصر الحالي."),
+        ),
+    ),
+    (
+        "مستعرض الرسالة والعناصر",
+        (
+            ("Escape", "العودة إلى قائمة الرسائل."),
+            ("Ctrl+Enter", "التنقل بين مستعرض الرسالة ومستعرض العناصر."),
+            ("Alt+Enter", "تكبير مستعرض الرسالة أو إعادته إلى حجمه السابق."),
+            ("Ctrl+C", "نسخ نص الرسالة من المستعرض."),
+            ("Enter أو Space", "فتح الرابط أو الزر أو المرفق المحدد."),
+            ("مفتاح التطبيقات أو Shift+F10", "فتح قائمة سياق الرسالة أو أوامر العنصر."),
+        ),
+    ),
+    (
+        "البحث وقائمة الأوامر",
+        (
+            ("Escape داخل البحث", "إغلاق البحث والعودة إلى قائمة الرسائل."),
+            ("Enter أو Space في قائمة الأوامر", "تنفيذ الأمر المحدد."),
+        ),
+    ),
+    (
+        "إنشاء الرسالة وسجل العناوين",
+        (
+            ("السهم لأسفل في حقل المستلم", "فتح أسماء سجل العناوين."),
+            ("Delete في قائمة المرفقات", "إزالة المرفق المحدد من الرسالة."),
+            ("مفتاح التطبيقات أو Shift+F10", "فتح أوامر العنوان أو المرفق المحدد."),
+            ("Enter أو Space في سجل العناوين", "إنشاء رسالة إلى العنوان المحدد."),
+        ),
+    ),
+)
+
+
 def call_after_if_open(
     owner: object,
     callback: Callable[..., Any],
@@ -131,6 +202,100 @@ def call_after_if_open(
             callback(*args)
 
     wx.CallAfter(invoke)
+
+
+def page_operation_is_current(owner: object, page: object, account_id: str) -> bool:
+    if getattr(page, "_closed", False):
+        return False
+    if getattr(owner, "displayed_account_id", account_id) != account_id:
+        return False
+    selected_account = getattr(owner, "selected_account", None)
+    if callable(selected_account):
+        account = selected_account()
+        return account is not None and account.id == account_id
+    return True
+
+
+class MessageSearchDialog(wx.Dialog):
+    def __init__(
+        self,
+        parent: "MainFrame",
+        messages: list[MessageSummary],
+        initial_query: str = "",
+    ) -> None:
+        super().__init__(parent, title=tr("البحث في الرسائل"), size=(960, 720))
+        self.owner = parent
+        root = wx.BoxSizer(wx.VERTICAL)
+        self.page = MailPage(
+            self,
+            "نتائج البحث",
+            parent.on_message_selected,
+            parent.on_toggle_message_read,
+            parent.on_translate_current_message,
+            self.on_reply,
+            parent.on_toggle_star_current_message,
+            parent.on_toggle_pin_current_message,
+            parent.on_delete_current_message,
+            parent.on_bulk_message_action,
+            on_filter_changed=parent.on_mail_page_filter_changed,
+            on_viewer_enter=parent.on_message_viewer_enter,
+            on_attachment_transfer=parent.on_attachment_transfer,
+            on_forward=parent.on_forward_message,
+            on_archive=parent.on_archive_message,
+            on_toggle_expanded=parent.on_toggle_expanded_viewer,
+            on_html_focus_state=parent.on_html_focus_state_changed,
+        )
+        self.page.set_theme(parent.settings.theme)
+        self.page.set_viewer_mode(parent.settings.message_viewer)
+        self.page.set_message_read_mode(parent.settings.message_read_mode)
+        self.page.set_search_mode(SEARCH_MODE_FIELD)
+        self.page.close_search = self.Close
+        self.page.search_filters_panel.Show(parent.settings.search_mode == "button")
+        if parent.settings.search_mode == "button":
+            self.page.search_field.SetToolTip(tr("اكتب نص البحث ثم اختر المرسل والتاريخ واضغط ابحث لتطبيق القيم."))
+        self.page.set_messages(messages)
+        self.page.set_search_query(initial_query)
+        root.Add(self.page, 1, wx.EXPAND | wx.ALL, 8)
+        close_button = wx.Button(self, wx.ID_CLOSE, tr("إغلاق"))
+        set_accessible(close_button, "إغلاق نافذة البحث")
+        close_button.Bind(wx.EVT_BUTTON, lambda _event: self.Close())
+        root.Add(close_button, 0, wx.ALIGN_RIGHT | wx.LEFT | wx.RIGHT | wx.BOTTOM, 8)
+        self.SetSizer(root)
+        self.Bind(wx.EVT_CLOSE, self.on_close)
+        self.Bind(wx.EVT_CHAR_HOOK, self.on_char_hook)
+        self.Bind(wx.EVT_ACTIVATE, parent.on_frame_activation_for_html_hotkey)
+        localize_window(self)
+        self.CentreOnParent()
+        wx.CallAfter(self.page.focus_search_field)
+
+    def on_reply(self) -> None:
+        self.owner.on_reply(self.page)
+
+    def refresh_messages(self, messages: list[MessageSummary]) -> None:
+        self.page.set_messages(messages)
+
+    def on_close(self, event: wx.CloseEvent) -> None:
+        self.page._closed = True
+        timer = self.page._search_announcement_call
+        if timer is not None:
+            timer.Stop()
+        self.page.deactivate_html_viewer()
+        self.owner.cancel_pending_message_load()
+        self.owner._search_dialog = None
+        self.Destroy()
+        page = self.owner.current_page()
+        if page:
+            wx.CallAfter(page.focus_message_list)
+
+    def on_char_hook(self, event: wx.KeyEvent) -> None:
+        if MainFrame.is_search_shortcut(event):
+            self.page.focus_search_field()
+        elif event.ControlDown() and event.GetKeyCode() in (wx.WXK_RETURN, wx.WXK_NUMPAD_ENTER):
+            self.page.toggle_message_and_link_viewers()
+        elif event.GetKeyCode() == wx.WXK_ESCAPE:
+            self.Close()
+        else:
+            event.Skip()
 
 
 class MainFrame(wx.Frame):
@@ -178,6 +343,10 @@ class MainFrame(wx.Frame):
         self._html_escape_hotkey_registered = False
         self._active_worker_count = 0
         self._closing = False
+        self._search_dialog: MessageSearchDialog | None = None
+        self._last_opened_viewer_page_key: str | None = None
+        self._last_opened_viewer_message_key: tuple[str, str] | None = None
+        self._last_opened_viewer_account_id: str | None = None
         self.pages: dict[str, MailPage] = {}
         cleanup_stale_opened_attachments()
         self.Bind(wx.EVT_CLOSE, self.on_close)
@@ -201,6 +370,9 @@ class MainFrame(wx.Frame):
             event.Skip()
             return
         self._closing = True
+        if getattr(self, "_search_dialog", None) is not None:
+            self._search_dialog.Destroy()
+            self._search_dialog = None
         unregister_hotkey = getattr(self, "unregister_html_escape_hotkey", None)
         if unregister_hotkey:
             unregister_hotkey()
@@ -234,7 +406,7 @@ class MainFrame(wx.Frame):
         self.account_choice = wx.Choice(panel)
         self.account_choice.SetMinSize((360, -1))
         set_accessible(self.account_choice, "اختيار حساب البريد")
-        account_row.Add(self.account_choice, 1, wx.EXPAND | wx.ALL, 6)
+        account_row.Add(self.account_choice, 1, wx.ALIGN_CENTER_VERTICAL | wx.ALL, 6)
         top_row.Add(account_row, 1, wx.EXPAND)
 
         command_column = wx.BoxSizer(wx.VERTICAL)
@@ -273,12 +445,15 @@ class MainFrame(wx.Frame):
             self.on_delete_current_message,
             self.on_bulk_message_action,
             self.on_mail_page_filter_changed,
+            on_viewer_opened=self.on_message_viewer_opened,
             on_viewer_enter=self.on_message_viewer_enter,
             on_end_reached=self.on_message_list_end_reached,
             on_attachment_transfer=self.on_attachment_transfer,
             on_forward=self.on_forward_message,
+            on_archive=self.on_archive_message,
             on_toggle_expanded=self.on_toggle_expanded_viewer,
             on_html_focus_state=self.on_html_focus_state_changed,
+            on_search_request=self.on_search,
         )
         spam_page = MailPage(
             self.notebook,
@@ -292,12 +467,15 @@ class MainFrame(wx.Frame):
             self.on_delete_current_message,
             self.on_bulk_message_action,
             self.on_mail_page_filter_changed,
+            on_viewer_opened=self.on_message_viewer_opened,
             on_viewer_enter=self.on_message_viewer_enter,
             on_end_reached=self.on_message_list_end_reached,
             on_attachment_transfer=self.on_attachment_transfer,
             on_forward=self.on_forward_message,
+            on_archive=self.on_archive_message,
             on_toggle_expanded=self.on_toggle_expanded_viewer,
             on_html_focus_state=self.on_html_focus_state_changed,
+            on_search_request=self.on_search,
         )
         sent_page = MailPage(
             self.notebook,
@@ -311,12 +489,15 @@ class MainFrame(wx.Frame):
             self.on_delete_current_message,
             self.on_bulk_message_action,
             self.on_mail_page_filter_changed,
+            on_viewer_opened=self.on_message_viewer_opened,
             on_viewer_enter=self.on_message_viewer_enter,
             on_end_reached=self.on_message_list_end_reached,
             on_attachment_transfer=self.on_attachment_transfer,
             on_forward=self.on_forward_message,
+            on_archive=self.on_archive_message,
             on_toggle_expanded=self.on_toggle_expanded_viewer,
             on_html_focus_state=self.on_html_focus_state_changed,
+            on_search_request=self.on_search,
         )
         all_mail_page = MailPage(
             self.notebook,
@@ -330,12 +511,15 @@ class MainFrame(wx.Frame):
             self.on_delete_current_message,
             self.on_bulk_message_action,
             self.on_mail_page_filter_changed,
+            on_viewer_opened=self.on_message_viewer_opened,
             on_viewer_enter=self.on_message_viewer_enter,
             on_end_reached=self.on_message_list_end_reached,
             on_attachment_transfer=self.on_attachment_transfer,
             on_forward=self.on_forward_message,
+            on_archive=self.on_archive_message,
             on_toggle_expanded=self.on_toggle_expanded_viewer,
             on_html_focus_state=self.on_html_focus_state_changed,
+            on_search_request=self.on_search,
         )
         self.pages["inbox"] = inbox_page
         self.pages["spam"] = spam_page
@@ -384,15 +568,7 @@ class MainFrame(wx.Frame):
 
     @staticmethod
     def command_labels() -> list[str]:
-        return [
-            "تحديث المحتوى المعروض",
-            "مزامنة كل الرسائل",
-            "تحميل رسائل أقدم",
-            "خيارات الحسابات وإدارتها",
-            "إنشاء بريد إلكتروني",
-            "سجل العناوين",
-            "الإعدادات",
-        ]
+        return list(COMMAND_LABELS)
 
     def SetStatusText(self, text: str, number: int = 0) -> None:
         localized = tr(text)
@@ -426,7 +602,14 @@ class MainFrame(wx.Frame):
         menu_bar.Append(general_actions_menu, "الإجراءات العامة")
 
         help_menu = wx.Menu()
+        learning_item = help_menu.Append(wx.ID_ANY, "المرشد التفاعلي\tAlt+H")
+        self.learning_menu_id = learning_item.GetId()
         guide_item = help_menu.Append(wx.ID_ANY, "عرض دليل البرنامج\tF1")
+        shortcuts_guide_item = help_menu.Append(
+            wx.ID_ANY,
+            "دليل اختصارات البرنامج\tAlt+D",
+        )
+        help_menu.AppendSeparator()
         update_item = help_menu.Append(wx.ID_ANY, "تحديث البرنامج")
         contact_menu = wx.Menu()
         website_item = contact_menu.Append(wx.ID_ANY, "زيارة الموقع الرسمي")
@@ -463,6 +646,8 @@ class MainFrame(wx.Frame):
         self.Bind(wx.EVT_MENU, self.on_refresh, refresh_item)
         self.Bind(wx.EVT_MENU, lambda _event: self.Close(), exit_item)
         self.Bind(wx.EVT_MENU, self.on_show_guide, guide_item)
+        self.Bind(wx.EVT_MENU, self.on_show_shortcuts_guide, shortcuts_guide_item)
+        self.Bind(wx.EVT_MENU, self.on_interactive_learning, learning_item)
         self.Bind(wx.EVT_MENU, self.on_check_updates, update_item)
         self.Bind(
             wx.EVT_MENU,
@@ -496,6 +681,18 @@ class MainFrame(wx.Frame):
             developer_telegram_item,
         )
 
+    def on_interactive_learning(self, _event=None) -> None:
+        from .interactive_learning import InteractiveLearning
+        dialog = getattr(self, "_learning_dialog", None)
+        if dialog is None:
+            dialog = self._learning_dialog = InteractiveLearning(self)
+        if dialog.IsShown():
+            dialog.close()
+        else:
+            dialog.Show()
+            dialog.Raise()
+            dialog.explain()
+
     def _create_accelerators(self) -> None:
         self.accel_add = wx.NewIdRef()
         self.accel_compose = wx.NewIdRef()
@@ -508,7 +705,14 @@ class MainFrame(wx.Frame):
         self.accel_context_menu = wx.NewIdRef()
         self.accel_escape_message_viewer = wx.NewIdRef()
         self.accel_expand_message_viewer = wx.NewIdRef()
+        self.accel_search = wx.NewIdRef()
+        self.accel_message_list = wx.NewIdRef()
+        self.accel_message_viewer = wx.NewIdRef()
+        self.accel_mail_sections = wx.NewIdRef()
+        self.accel_command_list = wx.NewIdRef()
+        self.accel_shortcuts_guide = wx.NewIdRef()
         entries = [
+            wx.AcceleratorEntry(wx.ACCEL_ALT, ord("H"), self.learning_menu_id),
             wx.AcceleratorEntry(wx.ACCEL_CTRL, ord("A"), self.accel_add),
             wx.AcceleratorEntry(wx.ACCEL_CTRL, ord("N"), self.accel_compose),
             wx.AcceleratorEntry(wx.ACCEL_CTRL, ord("R"), self.accel_reply),
@@ -516,6 +720,12 @@ class MainFrame(wx.Frame):
             wx.AcceleratorEntry(wx.ACCEL_CTRL, ord("T"), self.accel_translate),
             wx.AcceleratorEntry(wx.ACCEL_ALT, wx.WXK_F4, self.accel_close),
             wx.AcceleratorEntry(wx.ACCEL_NORMAL, wx.WXK_F1, self.accel_guide),
+            wx.AcceleratorEntry(wx.ACCEL_CTRL, ord("F"), self.accel_search),
+            wx.AcceleratorEntry(wx.ACCEL_ALT, ord("1"), self.accel_message_list),
+            wx.AcceleratorEntry(wx.ACCEL_ALT, ord("2"), self.accel_message_viewer),
+            wx.AcceleratorEntry(wx.ACCEL_ALT, ord("3"), self.accel_mail_sections),
+            wx.AcceleratorEntry(wx.ACCEL_ALT, ord("4"), self.accel_command_list),
+            wx.AcceleratorEntry(wx.ACCEL_ALT, ord("D"), self.accel_shortcuts_guide),
             wx.AcceleratorEntry(wx.ACCEL_CTRL, wx.WXK_RETURN, self.accel_focus_items),
             wx.AcceleratorEntry(
                 wx.ACCEL_ALT,
@@ -543,6 +753,32 @@ class MainFrame(wx.Frame):
         self.Bind(wx.EVT_MENU, self.on_translate_current_message, id=self.accel_translate)
         self.Bind(wx.EVT_MENU, lambda _event: self.Close(), id=self.accel_close)
         self.Bind(wx.EVT_MENU, self.on_show_guide, id=self.accel_guide)
+        self.Bind(wx.EVT_MENU, self.on_search, id=self.accel_search)
+        self.Bind(
+            wx.EVT_MENU,
+            self.on_focus_message_list_shortcut,
+            id=self.accel_message_list,
+        )
+        self.Bind(
+            wx.EVT_MENU,
+            self.on_focus_message_viewer_shortcut,
+            id=self.accel_message_viewer,
+        )
+        self.Bind(
+            wx.EVT_MENU,
+            self.on_focus_mail_sections_shortcut,
+            id=self.accel_mail_sections,
+        )
+        self.Bind(
+            wx.EVT_MENU,
+            self.on_focus_command_list_shortcut,
+            id=self.accel_command_list,
+        )
+        self.Bind(
+            wx.EVT_MENU,
+            self.on_show_shortcuts_guide,
+            id=self.accel_shortcuts_guide,
+        )
         self.Bind(wx.EVT_MENU, self.on_focus_items_accelerator, id=self.accel_focus_items)
         self.Bind(
             wx.EVT_MENU,
@@ -562,7 +798,81 @@ class MainFrame(wx.Frame):
             return
         call_after_if_open(self, page.toggle_message_and_link_viewers)
 
+    def on_focus_message_list_shortcut(
+        self,
+        _event: wx.Event | None = None,
+    ) -> None:
+        page = self.current_page()
+        if page is not None:
+            call_after_if_open(self, page.focus_message_list)
+
+    def on_focus_message_viewer_shortcut(
+        self,
+        _event: wx.Event | None = None,
+    ) -> None:
+        page_key = self._last_opened_viewer_page_key
+        if self._last_opened_viewer_account_id != self.displayed_account_id:
+            self.SetStatusText("يجب فتح رسالة أولا.")
+            return
+        page = self.pages.get(page_key or "")
+        if page is None:
+            self.SetStatusText("يجب فتح رسالة أولا.")
+            return
+        page_keys = list(self.pages)
+        self.notebook.SetSelection(page_keys.index(page_key))
+        target_index = next(
+            (
+                index
+                for index, summary in enumerate(page.visible_messages)
+                if page.message_key(summary) == self._last_opened_viewer_message_key
+            ),
+            -1,
+        )
+        if target_index < 0:
+            self._last_opened_viewer_page_key = None
+            self._last_opened_viewer_message_key = None
+            self._last_opened_viewer_account_id = None
+            self.SetStatusText("يجب فتح رسالة أولا.")
+            return
+        page.focus_list_index(target_index)
+        call_after_if_open(self, page.focus_message_viewer_start)
+
+    def on_message_viewer_opened(
+        self,
+        page: MailPage,
+        summary: MessageSummary,
+    ) -> None:
+        page_key = next(
+            (key for key, candidate in self.pages.items() if candidate is page),
+            None,
+        )
+        if page_key is None:
+            return
+        self._last_opened_viewer_page_key = page_key
+        self._last_opened_viewer_message_key = page.message_key(summary)
+        self._last_opened_viewer_account_id = self.displayed_account_id
+
+    def on_focus_mail_sections_shortcut(
+        self,
+        _event: wx.Event | None = None,
+    ) -> None:
+        call_after_if_open(self, self.notebook.SetFocus)
+
+    def on_focus_command_list_shortcut(
+        self,
+        _event: wx.Event | None = None,
+    ) -> None:
+        if (
+            self.command_list.GetSelection() == wx.NOT_FOUND
+            and self.command_list.GetCount()
+        ):
+            self.command_list.SetSelection(0)
+        call_after_if_open(self, self.command_list.SetFocus)
+
     def on_frame_char_hook(self, event: wx.KeyEvent) -> None:
+        if MainFrame.is_search_shortcut(event):
+            self.on_search()
+            return
         if (
             event.GetKeyCode() == wx.WXK_ESCAPE
             and not event.ControlDown()
@@ -585,8 +895,23 @@ class MainFrame(wx.Frame):
                     return
         event.Skip()
 
+    @staticmethod
+    def is_search_shortcut(event: wx.KeyEvent) -> bool:
+        if not event.ControlDown() or event.AltDown() or event.ShiftDown():
+            return False
+        key_codes = {event.GetKeyCode()}
+        for getter_name in ("GetRawKeyCode", "GetUnicodeKey"):
+            getter = getattr(event, getter_name, None)
+            if callable(getter):
+                try:
+                    key_codes.add(getter())
+                except (RuntimeError, TypeError):
+                    pass
+        return bool(key_codes & {ord("F"), ord("f"), ord("ب")})
+
     def on_html_focus_state_changed(self, page: MailPage, active: bool) -> None:
-        if active and page is self.current_page() and self.IsActive():
+        dialog = getattr(self, "_search_dialog", None)
+        if active and page is self.current_page() and (self.IsActive() or (dialog and dialog.IsActive())):
             self.register_html_escape_hotkey()
             return
         self.unregister_html_escape_hotkey()
@@ -615,6 +940,8 @@ class MainFrame(wx.Frame):
 
     def on_html_escape_hotkey(self, _event: wx.Event | None = None) -> None:
         page = self.current_page()
+        if page and page.exit_search():
+            return
         if page and getattr(page, "_html_viewer_active", False):
             page.focus_message_list()
             return
@@ -631,6 +958,8 @@ class MainFrame(wx.Frame):
     def on_escape_message_viewer(self, _event: wx.Event | None = None) -> None:
         page = self.current_page()
         if not page:
+            return
+        if page.exit_search():
             return
         if getattr(self, "_viewer_expanded", False):
             self.on_toggle_expanded_viewer(page)
@@ -789,10 +1118,50 @@ class MainFrame(wx.Frame):
         return "INBOX"
 
     def on_mail_page_filter_changed(self, page: MailPage) -> None:
+        if page.selected_filter_key() == "archive":
+            self.load_archive_messages(page)
+            return
         if page.selected_filter_key() == "trash":
             self.load_trash_messages(page)
             return
         page.apply_filter()
+
+    def load_archive_messages(self, page: MailPage, older: bool = False) -> None:
+        account = self.selected_account()
+        if not account or not self.ensure_password(account) or getattr(page, "_archive_loading", False):
+            return
+        page._archive_loading = True
+        if not older:
+            page.archive_messages = []
+        page.apply_filter()
+        generation = getattr(page, "_archive_generation", 0) + 1
+        page._archive_generation = generation
+
+        def work() -> tuple[str, list[MessageSummary]]:
+            mailbox = self.service.resolve_archive_mailbox(account)
+            if not mailbox:
+                raise MailError("لم يتم العثور على مجلد أرشيف لهذا الحساب.")
+            limit = len(page.archive_messages) + 50 if older else INITIAL_MESSAGE_LIMIT
+            messages = self.service.list_archived_messages(account, mailbox, limit)
+            return mailbox, messages
+
+        def finished() -> bool:
+            if generation != getattr(page, "_archive_generation", 0):
+                return False
+            page._archive_loading = False
+            return page_operation_is_current(self, page, account.id) and page.selected_filter_key() == "archive"
+
+        def done(result: tuple[str, list[MessageSummary]]) -> None:
+            if not finished():
+                return
+            page.archive_mailbox, page.archive_messages = result
+            page.apply_filter()
+            self.SetStatusText(f"عدد الرسائل المؤرشفة المعروضة: {len(page.archive_messages)}")
+
+        def failed(_exc: Exception) -> bool:
+            return not finished()
+
+        self.run_worker("جار تحميل الرسائل المؤرشفة...", work, done, failed)
 
     def load_trash_messages(self, page: MailPage) -> None:
         account = self.selected_account()
@@ -866,13 +1235,13 @@ class MainFrame(wx.Frame):
     def on_command_activated(self, _event: wx.Event) -> None:
         command = self.command_list.GetSelection()
         if command == 0:
-            self.on_refresh()
-        elif command == 1:
-            self.on_sync_all_messages()
-        elif command == 2:
-            self.on_load_older()
-        elif command == 3:
             self.on_account_options()
+        elif command == 1:
+            self.on_refresh()
+        elif command == 2:
+            self.on_sync_all_messages()
+        elif command == 3:
+            self.on_load_older()
         elif command == 4:
             self.on_compose(wx.CommandEvent())
         elif command == 5:
@@ -1030,6 +1399,7 @@ class MainFrame(wx.Frame):
             page.set_theme(self.settings.theme)
             page.set_viewer_mode(self.settings.message_viewer)
             page.set_message_read_mode(self.settings.message_read_mode)
+            page.set_search_mode(self.settings.search_mode)
             page.localize_ui()
         localize_window(self)
         localize_menu_bar(self.GetMenuBar())
@@ -1054,13 +1424,7 @@ class MainFrame(wx.Frame):
             pass
 
     def theme_colours(self) -> tuple[wx.Colour, wx.Colour, wx.Colour]:
-        if self.settings.theme == THEME_DARK:
-            return wx.Colour(32, 33, 36), wx.Colour(245, 245, 245), wx.Colour(43, 44, 48)
-        return (
-            wx.SystemSettings.GetColour(wx.SYS_COLOUR_FRAMEBK),
-            wx.SystemSettings.GetColour(wx.SYS_COLOUR_WINDOWTEXT),
-            wx.SystemSettings.GetColour(wx.SYS_COLOUR_WINDOW),
-        )
+        return theme_palette(self.settings.theme)
 
     def is_field_control(self, window: wx.Window) -> bool:
         return isinstance(
@@ -1219,6 +1583,9 @@ class MainFrame(wx.Frame):
         )
 
     def on_remove_account(self, _event: wx.Event | None = None) -> None:
+        dialog = getattr(self, "_search_dialog", None)
+        if dialog is not None:
+            dialog.Close()
         account = self.selected_account()
         if not account:
             wx.MessageBox("اختر حسابا أولا.", "لا يوجد حساب", wx.OK | wx.ICON_INFORMATION, self)
@@ -1280,6 +1647,9 @@ class MainFrame(wx.Frame):
         self.refresh_all()
 
     def on_account_changed(self, _event: wx.Event | None = None) -> None:
+        dialog = getattr(self, "_search_dialog", None)
+        if dialog is not None:
+            dialog.Close()
         account = self.selected_account()
         if account:
             self.remember_selected_account(account)
@@ -1321,12 +1691,19 @@ class MainFrame(wx.Frame):
             return
         account_changed = self.displayed_account_id != account.id
         if account_changed:
+            dialog = getattr(self, "_search_dialog", None)
+            if dialog is not None:
+                dialog.Close()
             self.cancel_pending_message_load()
             self.displayed_account_id = account.id
             self.content_cache.clear()
             self.current_content = None
             for page in self.pages.values():
                 page.deactivate_html_viewer()
+                page.archive_messages = []
+                page.archive_mailbox = ""
+                page._archive_generation = getattr(page, "_archive_generation", 0) + 1
+                page._archive_loading = False
                 page.set_messages([])
                 page.set_trash_messages([])
 
@@ -1560,6 +1937,11 @@ class MainFrame(wx.Frame):
         if page.selected_filter_key() == "trash":
             return
         if not self.ensure_password(account):
+            return
+
+        if page.selected_filter_key() == "archive":
+            if not automatic:
+                self.load_archive_messages(page, older=True)
             return
 
         page_key = self.page_key_for_page(page)
@@ -1886,6 +2268,12 @@ class MainFrame(wx.Frame):
                 is_read,
                 preserve_open_message=preserve_message,
             )
+            if page not in self.pages.values():
+                for target_page in self.pages.values():
+                    target_page.update_message_flags_bulk(
+                        [summary],
+                        match_uid=account.oauth_provider == "google_gmail_api",
+                    )
             self.sync_gmail_message_flags(account, summary, source_page=page)
 
         update_local_state(new_state)
@@ -1901,7 +2289,7 @@ class MainFrame(wx.Frame):
             self.SetStatusText(f"تم حفظ حالة الرسالة كـ {state_label}.")
 
         def failed(_exc: Exception) -> None:
-            if self.displayed_account_id != account.id or summary.is_read != new_state:
+            if not page_operation_is_current(self, page, account.id) or summary.is_read != new_state:
                 return
             update_local_state(old_state, preserve_message=False)
 
@@ -1921,9 +2309,17 @@ class MainFrame(wx.Frame):
             return new_state
 
         def done(is_starred: bool) -> None:
+            if not page_operation_is_current(self, page, account.id):
+                return
             summary.is_starred = is_starred
             self.update_cached_summary_flags(account, summary)
             page.update_message_flags(summary)
+            if page not in self.pages.values():
+                for target_page in self.pages.values():
+                    target_page.update_message_flags_bulk(
+                        [summary],
+                        match_uid=account.oauth_provider == "google_gmail_api",
+                    )
             self.sync_gmail_message_flags(account, summary, source_page=page)
             state = "تم تمييز الرسالة بنجمة." if is_starred else "تمت إزالة النجمة من الرسالة."
             self.SetStatusText(state)
@@ -1942,6 +2338,12 @@ class MainFrame(wx.Frame):
             summary.is_pinned = is_pinned
             self.update_cached_summary_flags(account, summary)
             page.update_message_flags(summary)
+            if page not in self.pages.values():
+                for target_page in self.pages.values():
+                    target_page.update_message_flags_bulk(
+                        [summary],
+                        match_uid=account.oauth_provider == "google_gmail_api",
+                    )
             self.sync_gmail_message_flags(account, summary, source_page=page)
             page.focus_list_index(0)
 
@@ -1956,11 +2358,50 @@ class MainFrame(wx.Frame):
             self.SetStatusText(state)
 
         def failed(_exc: Exception) -> None:
-            if self.displayed_account_id != account.id or summary.is_pinned != new_state:
+            if not page_operation_is_current(self, page, account.id) or summary.is_pinned != new_state:
                 return
             update_local_state(old_state)
 
         self.run_worker("جار تحديث تثبيت الرسالة...", work, done, failed)
+
+    def on_archive_message(self, page: MailPage) -> None:
+        account = self.selected_account()
+        summary = page.selected_summary()
+        if not account or not summary:
+            return
+        if page.selected_filter_key() == "trash":
+            wx.MessageBox("استعد الرسالة من سلة المحذوفات قبل أرشفتها.", "الأرشفة", wx.OK | wx.ICON_INFORMATION, self)
+            return
+        restoring = page.selected_filter_key() == "archive"
+        prompt = "هل تريد إعادة الرسالة إلى الوارد؟" if restoring else "هل تريد أرشفة الرسالة؟ ستبقى محفوظة في الحساب ولن تُحذف."
+        if wx.MessageBox(prompt, "الأرشفة", wx.YES_NO | wx.NO_DEFAULT | wx.ICON_QUESTION, self) != wx.YES:
+            return
+
+        def done(_result: None) -> None:
+            if not page_operation_is_current(self, page, account.id):
+                return
+            targets = list(self.pages.values())
+            dialog = getattr(self, "_search_dialog", None)
+            if dialog:
+                targets.append(dialog.page)
+            for target in targets:
+                if restoring:
+                    target.archive_messages = [message for message in target.archive_messages if (message.mailbox, message.uid) != (summary.mailbox, summary.uid)]
+                    target.apply_filter()
+                    continue
+                if account.oauth_provider == "google_gmail_api":
+                    for message in list(target.messages):
+                        if message.uid == summary.uid and message.mailbox.upper() == "INBOX":
+                            target.remove_message(message)
+                else:
+                    target.remove_message(summary)
+            self.SetStatusText("تمت إعادة الرسالة إلى الوارد." if restoring else "تمت أرشفة الرسالة.")
+            if restoring:
+                self.refresh_all()
+            page.focus_message_list()
+
+        operation = self.service.restore_archived_message if restoring else self.service.archive_message
+        self.run_worker("جار إعادة الرسالة إلى الوارد..." if restoring else "جار أرشفة الرسالة...", lambda: operation(account, summary), done)
 
     def on_delete_current_message(self, page: MailPage) -> None:
         account = self.selected_account()
@@ -1994,13 +2435,20 @@ class MainFrame(wx.Frame):
             for cache_key in list(self.content_cache):
                 if cache_key[0] == account.id and cache_key[2] == summary.uid:
                     self.content_cache.pop(cache_key, None)
+            if not page_operation_is_current(self, page, account.id):
+                return
             if self.current_content and self.current_content.summary.uid == summary.uid:
                 self.current_content = None
             if account.oauth_provider == "google_gmail_api":
                 for target_page in self.pages.values():
                     target_page.remove_message_by_uid(summary.uid)
+                if page not in self.pages.values():
+                    page.remove_message_by_uid(summary.uid)
             else:
                 page.remove_message(summary)
+                if page not in self.pages.values():
+                    for target_page in self.pages.values():
+                        target_page.remove_message(summary)
             page.focus_list_index(page.previous_message_index(deleted_index))
             self.SetStatusText("تم نقل الرسالة إلى سلة المحذوفات.")
 
@@ -2098,6 +2546,8 @@ class MainFrame(wx.Frame):
             ],
         ) -> None:
             succeeded, failed = result
+            if not page_operation_is_current(self, page, account.id):
+                return
             for summary, _exc in failed:
                 old_read, old_starred, old_pinned = old_states[
                     page.message_key(summary)
@@ -2109,7 +2559,9 @@ class MainFrame(wx.Frame):
                 self.update_cached_summary_flags(account, summary)
 
             match_uid = account.oauth_provider == "google_gmail_api"
-            target_pages = self.pages.values() if match_uid else (page,)
+            target_pages = list(self.pages.values()) if match_uid else [page]
+            if page not in target_pages:
+                target_pages.append(page)
             for target_page in target_pages:
                 target_page.update_message_flags_bulk(
                     unique_summaries,
@@ -2179,6 +2631,8 @@ class MainFrame(wx.Frame):
             ],
         ) -> None:
             succeeded, failed = result
+            if not page_operation_is_current(self, page, account.id):
+                return
             if not succeeded:
                 wx.MessageBox(
                     f"تعذر نقل {len(failed)} رسالة إلى سلة المحذوفات. لم تُحذف أي رسالة من القائمة.",
@@ -2200,7 +2654,9 @@ class MainFrame(wx.Frame):
                 self.current_content = None
 
             match_uid = account.oauth_provider == "google_gmail_api"
-            target_pages = self.pages.values() if match_uid else (page,)
+            target_pages = list(self.pages.values()) if match_uid else [page]
+            if page not in target_pages:
+                target_pages.append(page)
             for target_page in target_pages:
                 target_page.remove_messages_bulk(
                     succeeded,
@@ -2271,6 +2727,7 @@ class MainFrame(wx.Frame):
         body: str = "",
         title: str = "إنشاء بريد إلكتروني",
         attachment_paths: list[Path] | None = None,
+        forward_comment: bool = False,
     ) -> None:
         account = self.selected_account()
         if not account:
@@ -2283,6 +2740,8 @@ class MainFrame(wx.Frame):
             "subject": subject,
             "body": body,
         }
+        if forward_comment:
+            dialog_arguments["forward_comment"] = True
         if title != "إنشاء بريد إلكتروني":
             dialog_arguments["title"] = title
         if attachment_paths:
@@ -2336,9 +2795,9 @@ class MainFrame(wx.Frame):
                 self,
             )
 
-    def on_reply(self, _event: wx.Event | None = None) -> None:
+    def on_reply(self, _event: wx.Event | MailPage | None = None) -> None:
         account = self.selected_account()
-        page = self.current_page()
+        page = _event if isinstance(_event, MailPage) else self.current_page()
         summary = page.selected_summary() if page else None
         if not account or not summary:
             wx.MessageBox("اختر رسالة للرد عليها.", "لا توجد رسالة", wx.OK | wx.ICON_INFORMATION, self)
@@ -2402,31 +2861,17 @@ class MainFrame(wx.Frame):
                 self,
             )
             return
-        messages = self.received_messages_for_forwarding()
-        if not messages:
+        page = source_page if isinstance(source_page, MailPage) else self.current_page()
+        initial_message = page.selected_summary() if page else None
+        if initial_message is None:
             wx.MessageBox(
-                tr("لا توجد رسائل مستلمة متاحة لإعادة توجيهها."),
+                tr("اختر رسالة لإعادة توجيهها أولا."),
                 tr("لا توجد رسالة"),
                 wx.OK | wx.ICON_INFORMATION,
                 self,
             )
             return
-        page = source_page if isinstance(source_page, MailPage) else self.current_page()
-        initial_message = page.selected_summary() if page else None
-        if initial_message is not None:
-            initial_message = next(
-                (
-                    candidate
-                    for candidate in messages
-                    if (
-                        candidate.uid == initial_message.uid
-                        if account.oauth_provider == "google_gmail_api"
-                        else (candidate.mailbox, candidate.uid)
-                        == (initial_message.mailbox, initial_message.uid)
-                    )
-                ),
-                initial_message,
-            )
+        messages = [initial_message]
         dialog = ForwardMessageDialog(
             self,
             load_address_book(),
@@ -2541,6 +2986,7 @@ class MainFrame(wx.Frame):
             body,
             title="إعادة توجيه رسالة",
             attachment_paths=attachments or [],
+            forward_comment=True,
         )
 
     def send_message(
@@ -2573,13 +3019,13 @@ class MainFrame(wx.Frame):
         self.run_worker("جار إرسال الرسالة...", work, done)
 
     def on_translate_current_message(self, _event: wx.Event | MailPage | None = None) -> None:
-        page = self.current_page()
+        page = _event if isinstance(_event, MailPage) else self.current_page()
         summary = page.selected_summary() if page else None
         if not isinstance(_event, MailPage) and not self.can_translate_current_message(page):
             self.SetStatusText("الترجمة متاحة فقط أثناء وجود التركيز داخل مستعرض الرسالة.")
             return
         text = ""
-        if self.current_content and summary and self.current_content.summary.uid == summary.uid:
+        if self.current_content and summary and self.current_content.summary.uid == summary.uid and getattr(self.current_content.summary, "mailbox", "") == getattr(summary, "mailbox", ""):
             text = self.current_content.text
         elif page:
             text = page.viewer.GetValue()
@@ -2589,24 +3035,38 @@ class MainFrame(wx.Frame):
             return
         if not self.confirm_translation_data_transfer():
             return
+        if not MainFrame.ensure_message_translation_language_selected(self):
+            return
         source_uid = summary.uid if summary else ""
+        source_mailbox = getattr(summary, "mailbox", "")
+        source_account_id = getattr(self, "displayed_account_id", "")
+        source_generation = getattr(self, "_message_load_generation", 0)
+
+        def translation_is_current() -> bool:
+            return (
+                page_operation_is_current(self, page, source_account_id)
+                and getattr(self, "_message_load_generation", 0) == source_generation
+            )
         item_descriptions = (
             page.translatable_item_descriptions()
             if page and self.settings.translation_mode == TRANSLATION_INLINE
             else []
         )
         return_control = page.take_translation_return_control() if isinstance(_event, MailPage) else wx.Window.FindFocus()
+        target_language = self.settings.message_translation_language or self.settings.language
 
         def work() -> str:
             return translate_text_with_google(
                 text,
-                target_language=self.settings.language,
+                target_language=target_language,
             )
 
         def done(translated: str) -> None:
+            if not translation_is_current():
+                return
             if self.settings.translation_mode == TRANSLATION_INLINE and page:
                 current_summary = page.selected_summary()
-                if not current_summary or current_summary.uid != source_uid:
+                if not current_summary or current_summary.uid != source_uid or getattr(current_summary, "mailbox", "") != source_mailbox:
                     self.SetStatusText("اكتملت ترجمة الرسالة السابقة دون تغيير الرسالة الحالية.")
                     return
                 translation_generation = page.show_translated_content(
@@ -2621,6 +3081,7 @@ class MainFrame(wx.Frame):
                         source_uid,
                         item_descriptions,
                         translation_generation,
+                        target_language=target_language,
                     )
                 else:
                     self.SetStatusText(tr("تمت ترجمة الرسالة داخل المستعرض."))
@@ -2631,7 +3092,7 @@ class MainFrame(wx.Frame):
                 call_after_if_open(self, page.restore_context_focus, return_control)
 
         def failed(_exc: Exception) -> None:
-            if page:
+            if page and translation_is_current():
                 call_after_if_open(self, page.restore_context_focus, return_control)
 
         self.run_worker("جار ترجمة الرسالة...", work, done, failed)
@@ -2642,7 +3103,12 @@ class MainFrame(wx.Frame):
         source_uid: str,
         descriptions: list[str],
         translation_generation: int,
+        target_language: str | None = None,
     ) -> None:
+        target_language = target_language or self.settings.message_translation_language or self.settings.language
+        source_account_id = getattr(self, "displayed_account_id", "")
+        source_generation = getattr(self, "_message_load_generation", 0)
+        source_mailbox = getattr(page.selected_summary(), "mailbox", "")
         def work() -> tuple[dict[str, str], bool]:
             translated_descriptions: dict[str, str] = {}
             translation_failed = False
@@ -2650,17 +3116,22 @@ class MainFrame(wx.Frame):
                 try:
                     translated_descriptions[description] = translate_text_with_google(
                         description,
-                        target_language=self.settings.language,
+                        target_language=target_language,
                     )
+                except TranslationRateLimitError:
+                    translation_failed = True
+                    break
                 except MailError:
                     translation_failed = True
                     translated_descriptions[description] = description
             return translated_descriptions, translation_failed
 
         def done(result: tuple[dict[str, str], bool]) -> None:
+            if not page_operation_is_current(self, page, source_account_id) or getattr(self, "_message_load_generation", 0) != source_generation:
+                return
             translated_descriptions, translation_failed = result
             current_summary = page.selected_summary()
-            if not current_summary or current_summary.uid != source_uid:
+            if not current_summary or current_summary.uid != source_uid or getattr(current_summary, "mailbox", "") != source_mailbox:
                 return
             if not page.show_translated_item_descriptions(
                 translated_descriptions,
@@ -2722,6 +3193,35 @@ class MainFrame(wx.Frame):
         focus = wx.Window.FindFocus()
         return focus in {page.viewer, page.html_viewer}
 
+    def ensure_message_translation_language_selected(self) -> bool:
+        if self.settings.message_translation_language_selected:
+            return True
+
+        dialog = MessageTranslationLanguageDialog(
+            self,
+            self.settings.message_translation_language or self.settings.language,
+        )
+        try:
+            if dialog.ShowModal() != wx.ID_OK:
+                self.SetStatusText(tr("ألغيت الترجمة قبل اختيار اللغة."))
+                return False
+            selected_code = dialog.selected_code()
+        finally:
+            dialog.Destroy()
+
+        if not selected_code:
+            self.SetStatusText(tr("اختر لغة لترجمة الرسائل إليها."))
+            return False
+        self.settings.message_translation_language = selected_code
+        self.settings.message_translation_language_selected = True
+        try:
+            save_settings(self.settings)
+        except OSError:
+            self.SetStatusText(
+                tr("تم اختيار لغة الترجمة، لكن تعذر حفظها للإغلاق القادم.")
+            )
+        return True
+
     def show_translation_dialog(self, translated_text: str) -> None:
         dialog = wx.Dialog(self, title="ترجمة الرسالة", size=(760, 620))
         root = wx.BoxSizer(wx.VERTICAL)
@@ -2751,6 +3251,44 @@ class MainFrame(wx.Frame):
             style=wx.TE_MULTILINE | wx.TE_READONLY | wx.TE_RICH2,
         )
         set_accessible(guide, "نص دليل البرنامج")
+        root.Add(guide, 1, wx.EXPAND | wx.ALL, 10)
+        buttons = dialog.CreateSeparatedButtonSizer(wx.OK)
+        if buttons:
+            root.Add(buttons, 0, wx.EXPAND | wx.ALL, 10)
+        dialog.SetSizer(root)
+        localize_window(dialog)
+        dialog.CentreOnParent()
+        call_after_if_open(self, guide.SetFocus)
+        dialog.ShowModal()
+        dialog.Destroy()
+
+    def shortcuts_guide_text(self) -> str:
+        lines = [tr("دليل اختصارات البرنامج"), ""]
+        for section, shortcuts in SHORTCUT_GUIDE_SECTIONS:
+            lines.append(tr(section))
+            lines.extend(
+                f"{shortcut}: {tr(description)}"
+                for shortcut, description in shortcuts
+            )
+            lines.append("")
+        return "\n".join(lines).rstrip()
+
+    def on_show_shortcuts_guide(
+        self,
+        _event: wx.Event | None = None,
+    ) -> None:
+        dialog = wx.Dialog(
+            self,
+            title=tr("دليل اختصارات البرنامج"),
+            size=(760, 620),
+        )
+        root = wx.BoxSizer(wx.VERTICAL)
+        guide = wx.TextCtrl(
+            dialog,
+            value=self.shortcuts_guide_text(),
+            style=wx.TE_MULTILINE | wx.TE_READONLY | wx.TE_RICH2,
+        )
+        set_accessible(guide, "نص دليل اختصارات البرنامج")
         root.Add(guide, 1, wx.EXPAND | wx.ALL, 10)
         buttons = dialog.CreateSeparatedButtonSizer(wx.OK)
         if buttons:
@@ -2806,15 +3344,20 @@ Write and act without leaving the keyboard
 Compose email opens a complete message window. Reply, Star, Translate, Pin to top, and move to the provider's Trash are available from the message context menu. Inside the item viewer, the context menu or the Item actions button displays link, attachment, and image commands directly without a submenu.
 
 Translation when you need it
-Ctrl+T translates the current message into the application language. In Settings, choose whether the translation replaces the content inside the HTML or easy viewer, or opens in a separate window. Translation becomes available only while you are inside the message viewer. It requires an internet connection and sends the selected message text and human-readable link, button, and image descriptions to the official Google Translate service only when you request it. The message text can contain visible web addresses, but attachment contents and sign-in tokens are not sent. Before the first translation, the app explains this transfer and provides Allow and Cancel choices. After you choose Allow, the choice is saved and the notice is not shown again.
+Ctrl+T translates the current message into your selected translation language. In Settings, choose whether the translation replaces the content inside the HTML or easy viewer, or opens in a separate window. Translation becomes available only while you are inside the message viewer. It requires an internet connection and sends the selected message text and human-readable link, button, and image descriptions to the official Google Translate service only when you request it. The message text can contain visible web addresses, but attachment contents and sign-in tokens are not sent. Before the first translation, the app explains this transfer and provides Allow and Cancel choices. After Allow, the language list shows 20 common languages first and all remaining languages afterward. Choose by clicking a language or using the arrow keys and Enter. The consent and language are saved.
 
 Make the application yours
-Settings lets you choose Arabic, English, French, Spanish, Turkish, or Hindi, the HTML or easy message viewer, translation inside the page or in a separate window, and light or dark appearance. Your choices are saved for the next launch.
+Settings lets you choose Arabic, English, French, Spanish, Turkish, Hindi, Simplified Chinese, Russian, Japanese, or German, the HTML or easy message viewer, translation inside the page or in a separate window, and light or dark appearance. Your choices are saved for the next launch.
 
 Updates without opening a browser
 The application checks GitHub Releases after startup, and you can check manually from Help, Check for updates. When a release is available, Update now opens an internal progress window showing its version, release date, progress bar, and percentage. The correct installer is downloaded, its SHA-256 digest is verified, and the direct update starts before the application restarts.
 
 Useful keyboard commands
+Alt+1 moves to the message list in the current category.
+Alt+2 returns to the viewer of the last message you actually opened. If no message has been opened yet, the application notifies you.
+Alt+3 moves to the mail sections.
+Alt+4 moves to the application command list.
+Alt+D opens the application shortcut guide.
 Ctrl+A opens account options and management.
 Ctrl+N composes a new message.
 Ctrl+R replies to the focused message.
@@ -2866,15 +3409,20 @@ Power Accessible Mail برنامج صمم ليجعل قراءة البريد و�
 إنشاء بريد إلكتروني يفتح نافذة كاملة لكتابة رسالتك. تتوفر أوامر الرد والتمييز بنجمة والترجمة والتثبيت في الأعلى والنقل إلى سلة مزود البريد من قائمة سياق الرسالة. داخل مستعرض العناصر تعرض قائمة السياق أو زر إجراءات العنصر أوامر الروابط والمرفقات والصور مباشرة من دون قائمة فرعية.
 
 ترجمة في مكانها أو في نافذة مستقلة
-يترجم Ctrl+T الرسالة الحالية إلى لغة البرنامج. ومن الإعدادات تستطيع اختيار عرض الترجمة مباشرة داخل مستعرض HTML أو المستعرض السهل، أو فتحها في نافذة مستقلة. لا تتفعل الترجمة إلا وأنت داخل مستعرض الرسالة. تحتاج الميزة إلى الإنترنت، وترسل نص الرسالة وأوصاف الروابط والأزرار والصور إلى خدمة Google Translate الرسمية فقط عندما تطلب الترجمة. قد يتضمن نص الرسالة عناوين روابط ظاهرة، لكن لا تُرسل محتويات المرفقات أو رموز تسجيل الدخول. عند أول ترجمة يعرض البرنامج تنبيها يشرح نقل النص مع خياري السماح وإلغاء. بعد اختيار السماح تُحفظ الموافقة ولا يظهر التنبيه مرة أخرى.
+يترجم Ctrl+T الرسالة الحالية إلى لغة الترجمة التي اخترتها. ومن الإعدادات تستطيع اختيار عرض الترجمة مباشرة داخل مستعرض HTML أو المستعرض السهل، أو فتحها في نافذة مستقلة. لا تتفعل الترجمة إلا وأنت داخل مستعرض الرسالة. تحتاج الميزة إلى الإنترنت، وترسل نص الرسالة وأوصاف الروابط والأزرار والصور إلى خدمة Google Translate الرسمية فقط عندما تطلب الترجمة. قد يتضمن نص الرسالة عناوين روابط ظاهرة، لكن لا تُرسل محتويات المرفقات أو رموز تسجيل الدخول. عند أول ترجمة يعرض البرنامج تنبيها يشرح نقل النص مع خياري السماح وإلغاء. بعد السماح تظهر قائمة اللغات؛ تعرض أول عشرين لغة شائعة ثم بقية اللغات، ويمكن اختيار اللغة بالنقر أو بالأسهم ثم Enter. تُحفظ الموافقة واللغة.
 
 اجعل البرنامج أقرب إلى طريقتك
-تتيح الإعدادات اختيار العربية أو الإنجليزية أو الفرنسية أو الإسبانية أو التركية أو الهندية، ومستعرض HTML أو المستعرض السهل، والترجمة داخل الصفحة أو في نافذة مستقلة، والوضع الفاتح أو المظلم. يحفظ البرنامج اختياراتك ليستخدمها عند التشغيل التالي.
+تتيح الإعدادات اختيار العربية أو الإنجليزية أو الفرنسية أو الإسبانية أو التركية أو الهندية أو الصينية المبسطة أو الروسية أو اليابانية أو الألمانية، ومستعرض HTML أو المستعرض السهل، والترجمة داخل الصفحة أو في نافذة مستقلة، والوضع الفاتح أو المظلم. يحفظ البرنامج اختياراتك ليستخدمها عند التشغيل التالي.
 
 تحديث من داخل البرنامج
 يفحص البرنامج GitHub Releases بعد التشغيل، ويمكنك الفحص يدويا من قائمة المساعدة ثم تحديث البرنامج. عند توفر إصدار جديد يفتح زر تحديث الآن نافذة تعرض الإصدار وتاريخ إطلاقه وشريط التقدم والنسبة المئوية. ينزل البرنامج المثبت الصحيح ويتحقق من بصمة SHA-256 ثم يبدأ التحديث المباشر ويعيد تشغيل التطبيق من دون فتح المتصفح.
 
 اختصارات مفيدة
+Alt+1 ينقل التركيز إلى قائمة الرسائل في التصنيف الحالي.
+Alt+2 يرجع إلى مستعرض آخر رسالة فتحتها فعليا. وإذا لم تفتح أي رسالة بعد، يظهر البرنامج إشعارا بذلك.
+Alt+3 ينقل التركيز إلى أقسام البريد.
+Alt+4 ينقل التركيز إلى قائمة أوامر البرنامج.
+Alt+D يفتح دليل اختصارات البرنامج.
 Ctrl+A يفتح خيارات الحسابات وإدارتها.
 Ctrl+N ينشئ رسالة جديدة.
 Ctrl+R يرد على الرسالة المحددة.
@@ -3052,10 +3600,68 @@ Power Accessible Mail
         wx.CallLater(500, self.Close)
 
     def current_page(self) -> MailPage | None:
+        dialog = getattr(self, "_search_dialog", None)
+        if dialog is not None and dialog.IsActive():
+            return dialog.page
         page = self.notebook.GetCurrentPage()
         if isinstance(page, MailPage):
             return page
         return None
+
+    def searchable_messages(self) -> list[MessageSummary]:
+        account = self.selected_account()
+        if account is None:
+            return []
+        messages: list[MessageSummary] = []
+        seen: set[tuple[str, ...]] = set()
+        for page_key in ("inbox", "sent", "spam", "all"):
+            for summary in self.pages[page_key].messages:
+                key = (
+                    (summary.uid,)
+                    if account.oauth_provider == "google_gmail_api"
+                    else (summary.mailbox, summary.uid)
+                )
+                if key in seen:
+                    continue
+                seen.add(key)
+                messages.append(summary)
+        return MailPage.sort_newest_first(messages)
+
+    def on_search(self, source: wx.Event | MailPage | None = None) -> None:
+        page = source if isinstance(source, MailPage) else self.current_page()
+        if self.settings.search_mode == SEARCH_MODE_FIELD and page is not None:
+            page.focus_search_field()
+            return
+        messages = self.searchable_messages()
+        if not messages:
+            wx.MessageBox(
+                tr("لا توجد رسائل محملة للبحث. حدّث الرسائل أو زامنها أولا."),
+                tr("البحث في الرسائل"),
+                wx.OK | wx.ICON_INFORMATION,
+                self,
+            )
+            return
+        if self._search_dialog is not None:
+            self._search_dialog.refresh_messages(messages)
+            self._search_dialog.Raise()
+            wx.CallAfter(self.focus_search_dialog)
+            return
+        self._search_dialog = MessageSearchDialog(self, messages)
+        self._search_dialog.Show()
+        announce_to_screen_reader(
+            self._search_dialog.page.search_field,
+            tr("تم فتح نافذة البحث في الرسائل."),
+            EVENT_SEARCH_STARTED,
+        )
+        wx.CallAfter(self.focus_search_dialog)
+
+    def focus_search_dialog(self) -> None:
+        dialog = self._search_dialog
+        if dialog is None or dialog.IsBeingDeleted():
+            return
+        dialog.Raise()
+        dialog.SetFocus()
+        dialog.page.focus_search_field()
 
     def ensure_password(self, account: Account) -> bool:
         if account.uses_oauth:

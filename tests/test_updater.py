@@ -55,7 +55,7 @@ class InternalUpdaterTests(unittest.TestCase):
             download_url=(
                 "https://github.com/alikrstle/PowerAccessibleMail/releases/"
                 "download/v1.2.11/"
-                f"PowerAccessibleMailSetup-1.2.11-win-{architecture}-UNSIGNED.exe"
+                f"PowerAccessibleMailSetup-1.2.11-win-{architecture}.exe"
             ),
             sha256=hashlib.sha256(payload).hexdigest(),
             release_date="2026-08-01T10:00:00Z",
@@ -64,11 +64,15 @@ class InternalUpdaterTests(unittest.TestCase):
     def test_direct_installer_requires_expected_product_name_and_https(self) -> None:
         valid = (
             "https://github.com/example/releases/download/v1/"
-            "PowerAccessibleMailSetup-1.2.11-win-x86-UNSIGNED.exe"
+            "PowerAccessibleMailSetup-1.2.11-win-x86.exe"
         )
 
         self.assertEqual(
             installer_name_from_url(valid),
+            "PowerAccessibleMailSetup-1.2.11-win-x86.exe",
+        )
+        self.assertEqual(
+            installer_name_from_url(valid.replace(".exe", "-UNSIGNED.exe")),
             "PowerAccessibleMailSetup-1.2.11-win-x86-UNSIGNED.exe",
         )
         self.assertEqual(installer_name_from_url(valid.replace("https:", "http:")), "")
@@ -206,8 +210,9 @@ class InternalUpdaterTests(unittest.TestCase):
             ),
         )
 
+    @patch("accessible_mail.updater.authenticode_signature_status", return_value="Valid")
     @patch("accessible_mail.updater.subprocess.Popen")
-    def test_launcher_uses_silent_internal_update_mode(self, popen) -> None:
+    def test_launcher_uses_visible_internal_update_mode(self, popen, _signature) -> None:
         with tempfile.TemporaryDirectory() as directory:
             installer = Path(directory) / "setup.exe"
             installer.write_bytes(b"MZinstaller")
@@ -217,13 +222,16 @@ class InternalUpdaterTests(unittest.TestCase):
         arguments = popen.call_args.args[0]
         self.assertIn("/UPDATEFROMAPP=1", arguments)
         self.assertIn("/CLOSEAPPLICATIONS", arguments)
-        self.assertIn("/VERYSILENT", arguments)
+        self.assertNotIn("/VERYSILENT", arguments)
         self.assertIn("/LANG=arabic", arguments)
         self.assertNotIn("/SUPPRESSMSGBOXES", arguments)
         self.assertNotIn("/RESTARTAPPLICATIONS", arguments)
 
+    @patch("accessible_mail.updater.authenticode_signature_status", return_value="Valid")
     @patch("accessible_mail.updater.subprocess.Popen")
-    def test_launcher_passes_every_supported_installer_language(self, popen) -> None:
+    def test_launcher_passes_every_supported_installer_language(
+        self, popen, _signature
+    ) -> None:
         expected = {
             "en": "english",
             "ar": "arabic",
@@ -231,6 +239,10 @@ class InternalUpdaterTests(unittest.TestCase):
             "es": "spanish",
             "tr": "turkish",
             "hi": "hindi",
+            "zh-CN": "chinesesimplified",
+            "ru": "russian",
+            "ja": "japanese",
+            "de": "german",
         }
         with tempfile.TemporaryDirectory() as directory:
             installer = Path(directory) / "setup.exe"
@@ -241,6 +253,44 @@ class InternalUpdaterTests(unittest.TestCase):
                     launch_update_installer(installer, language)
                     arguments = popen.call_args.args[0]
                     self.assertIn(f"/LANG={installer_language}", arguments)
+
+    @patch("accessible_mail.updater.authenticode_signature_status", return_value="HashMismatch")
+    @patch("accessible_mail.updater.subprocess.Popen")
+    def test_launcher_rejects_untrusted_authenticode_signature(
+        self, popen, _signature
+    ) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            installer = Path(directory) / "setup.exe"
+            installer.write_bytes(b"MZinstaller")
+            with self.assertRaisesRegex(UpdateInstallError, "Authenticode"):
+                launch_update_installer(installer, "ar")
+        popen.assert_not_called()
+
+    @patch("accessible_mail.updater.authenticode_signature_status", return_value="NotSigned")
+    @patch("accessible_mail.updater.subprocess.Popen")
+    def test_launcher_allows_explicitly_named_unsigned_installer(
+        self, popen, _signature
+    ) -> None:
+        architecture = current_architecture()
+        with tempfile.TemporaryDirectory() as directory:
+            installer = Path(directory) / (
+                f"PowerAccessibleMailSetup-1.2.11-win-{architecture}-UNSIGNED.exe"
+            )
+            installer.write_bytes(b"MZinstaller")
+            launch_update_installer(installer, "ar")
+        popen.assert_called_once()
+
+    @patch("accessible_mail.updater.authenticode_signature_status", return_value="NotSigned")
+    @patch("accessible_mail.updater.subprocess.Popen")
+    def test_launcher_rejects_unmarked_unsigned_installer(
+        self, popen, _signature
+    ) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            installer = Path(directory) / "setup.exe"
+            installer.write_bytes(b"MZinstaller")
+            with self.assertRaisesRegex(UpdateInstallError, "Authenticode"):
+                launch_update_installer(installer, "ar")
+        popen.assert_not_called()
 
 
 if __name__ == "__main__":

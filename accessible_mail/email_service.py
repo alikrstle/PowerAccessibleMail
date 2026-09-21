@@ -414,6 +414,68 @@ class EmailService:
                 raise MailError(IMAP_TRASH_CONFIRMATION_ERROR)
         self.cache.delete_message(account, summary.mailbox, summary.uid)
 
+    def resolve_archive_mailbox(self, account: Account) -> str:
+        with self._imap(account) as conn:
+            return self._find_special_mailbox(
+                self.list_mailboxes(conn), ("\\Archive", "\\All", "\\AllMail"),
+                ("Archive", "Archives", "[Gmail]/All Mail"), (),
+            )
+
+    def restore_archived_message(self, account: Account, summary: MessageSummary) -> None:
+        with self._imap(account) as conn:
+            capabilities = {item.decode().upper() if isinstance(item, bytes) else str(item).upper() for item in conn.capabilities}
+            if "MOVE" not in capabilities:
+                raise MailError("خادم البريد لا يدعم النقل الآمن إلى الوارد.")
+            self._select(conn, summary.mailbox, readonly=False)
+            status, _ = conn.uid("MOVE", summary.uid, "INBOX")
+            if status != "OK":
+                raise MailError("تعذرت إعادة الرسالة إلى الوارد.")
+        self.cache.delete_message(account, summary.mailbox, summary.uid)
+
+    def list_archived_messages(self, account: Account, mailbox: str, limit: int = 50) -> list[MessageSummary]:
+        with self._imap(account) as conn:
+            self._select(conn, mailbox, readonly=True)
+            capabilities = {item.decode().upper() if isinstance(item, bytes) else str(item).upper() for item in conn.capabilities}
+            if "X-GM-EXT-1" in capabilities:
+                status, data = conn.search(None, "X-GM-RAW", '"-in:inbox -in:spam -in:trash -in:drafts"')
+            else:
+                boxes = self.list_mailboxes(conn)
+                box = next((item for item in boxes if item.name == mailbox), None)
+                if box and any(flag.lower() in {"\\all", "\\allmail"} for flag in box.attributes):
+                    raise MailError("الخادم يعرض كل البريد ولا يوفر تصنيف أرشيف منفصلا.")
+                status, data = conn.search(None, "UNDELETED")
+            if status != "OK":
+                raise MailError("تعذر تحميل الرسائل المؤرشفة.")
+            numbers = data[0].split() if data and data[0] else []
+            numbers = numbers[-limit:]
+            messages: list[MessageSummary] = []
+            for start in range(0, len(numbers), 50):
+                messages.extend(self._fetch_summary_batch(conn, mailbox, b",".join(numbers[start:start + 50]).decode("ascii")))
+        if messages:
+            self.cache.upsert_summaries(account, messages)
+        return sorted(messages, key=lambda message: message.sort_timestamp, reverse=True)
+
+    def archive_message(self, account: Account, summary: MessageSummary) -> None:
+        with self._imap(account) as conn:
+            mailboxes = self.list_mailboxes(conn)
+            archive = self._find_special_mailbox(
+                mailboxes, ("\\Archive", "\\All", "\\AllMail"),
+                ("Archive", "Archives", "[Gmail]/All Mail"), (),
+            )
+            if not archive:
+                raise MailError("لم يتم العثور على مجلد أرشيف في هذا الحساب. لم تُنقل الرسالة.")
+            if archive == summary.mailbox:
+                return
+            capabilities = {item.decode().upper() if isinstance(item, bytes) else str(item).upper() for item in conn.capabilities}
+            if "MOVE" not in capabilities:
+                raise MailError("خادم البريد لا يدعم النقل الآمن للأرشيف. لم تُنقل الرسالة.")
+            self._select(conn, summary.mailbox, readonly=False)
+            target = '"' + archive.replace('\\', '\\\\').replace('"', '\\"') + '"'
+            status, _ = conn.uid("MOVE", summary.uid, target)
+            if status != "OK":
+                raise MailError("تعذرت أرشفة الرسالة.")
+        self.cache.delete_message(account, summary.mailbox, summary.uid)
+
     def cached_messages(
         self,
         account: Account,

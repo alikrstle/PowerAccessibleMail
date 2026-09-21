@@ -4,6 +4,7 @@ import base64
 import html
 import logging
 import os
+import re
 import threading
 import time
 import urllib.parse
@@ -15,6 +16,7 @@ from pathlib import Path
 
 import wx
 import wx.html2
+from .search_filters import DATE_FILTER_LABELS, date_cutoff, matches_filters
 
 from .attachment_storage import opened_attachment_session_dir
 from .accessibility import (
@@ -41,6 +43,10 @@ from .email_utils import (
 from .i18n import get_language, tr
 from .models import LinkItem, MessageContent, MessageSummary
 from .network_security import UnsafeRemoteUrl, public_http_opener, validate_public_http_url
+from .notification_preferences import (
+    EVENT_SEARCH_NO_RESULTS,
+    EVENT_SEARCH_RESULTS,
+)
 from .ui_constants import (
     BULK_ACTION_DELETE,
     BULK_ACTION_MARK_READ,
@@ -90,7 +96,7 @@ DANGEROUS_ATTACHMENT_EXTENSIONS = frozenset(
 )
 
 
-LOGGER = logging.getLogger(__name__)
+LOGGER = logging.getLogger("power_accessible_mail.viewer")
 HTML_LOAD_TIMEOUT_MS = 5000
 MAX_IMAGE_DOWNLOAD_BYTES = 25 * 1024 * 1024
 WINDOWS_RESERVED_FILENAMES = frozenset(
@@ -119,6 +125,7 @@ class MailPage(wx.Panel):
         on_delete: Callable[["MailPage"], None],
         on_bulk_action: Callable[["MailPage", str, list[MessageSummary]], None],
         on_filter_changed: Callable[["MailPage"], None] | None = None,
+        on_viewer_opened: Callable[["MailPage", MessageSummary], None] | None = None,
         on_viewer_enter: Callable[["MailPage", MessageSummary], None] | None = None,
         on_end_reached: Callable[["MailPage"], None] | None = None,
         on_attachment_transfer: Callable[
@@ -126,14 +133,18 @@ class MailPage(wx.Panel):
             Path,
         ] | None = None,
         on_forward: Callable[["MailPage"], None] | None = None,
+        on_archive: Callable[["MailPage"], None] | None = None,
         on_toggle_expanded: Callable[["MailPage"], None] | None = None,
         on_html_focus_state: Callable[["MailPage", bool], None] | None = None,
+        on_search_request: Callable[["MailPage"], None] | None = None,
     ) -> None:
         super().__init__(parent)
         self.title = title
         self.messages: list[MessageSummary] = []
         self.trash_messages: list[MessageSummary] = []
         self.trash_mailbox = ""
+        self.archive_messages: list[MessageSummary] = []
+        self.archive_mailbox = ""
         self.visible_messages: list[MessageSummary] = []
         self.links: list[LinkItem] = []
         self.visible_links: list[LinkItem] = []
@@ -170,6 +181,9 @@ class MailPage(wx.Panel):
         self._control_pressed_alone = False
         self._selection_count_announce_call: wx.CallLater | None = None
         self._multi_mode_notification_call: wx.CallLater | None = None
+        self._search_announcement_call: wx.CallLater | None = None
+        self.search_query = ""
+        self.search_mode = "shortcut"
         self.on_selected = on_selected
         self.on_toggle_read = on_toggle_read
         self.on_translate = on_translate
@@ -179,12 +193,15 @@ class MailPage(wx.Panel):
         self.on_delete = on_delete
         self.on_bulk_action = on_bulk_action
         self.on_filter_changed = on_filter_changed
+        self.on_viewer_opened = on_viewer_opened
         self.on_viewer_enter = on_viewer_enter
         self.on_end_reached = on_end_reached
         self.on_attachment_transfer = on_attachment_transfer
         self.on_forward = on_forward
+        self.on_archive = on_archive
         self.on_toggle_expanded = on_toggle_expanded
         self.on_html_focus_state = on_html_focus_state
+        self.on_search_request = on_search_request
         self._build()
 
     def _build(self) -> None:
@@ -196,8 +213,59 @@ class MailPage(wx.Panel):
         set_accessible(self.filter_choice, f"تصنيف {self.title}")
         self.filter_choice.Bind(wx.EVT_CHOICE, self.on_filter)
         filter_row.Add(self.filter_choice, 1, wx.EXPAND | wx.ALL, 6)
+        self.search_button = wx.Button(self, label="بحث في الرسائل")
+        set_accessible(
+            self.search_button,
+            "بحث في الرسائل",
+            "يفتح نافذة بحث مستقلة تضم النتائج ومستعرض الرسالة ومستعرض العناصر.",
+        )
+        self.search_button.Bind(wx.EVT_BUTTON, self.on_search_button)
+        self.search_button.Bind(wx.EVT_CHAR_HOOK, self.on_search_button_key)
+        filter_row.Add(self.search_button, 0, wx.EXPAND | wx.ALL, 6)
+        self.search_field_label = wx.StaticText(self, label="")
+        filter_row.Add(self.search_field_label, 0, wx.ALIGN_CENTER_VERTICAL | wx.ALL, 6)
+        self.search_field = wx.TextCtrl(self)
+        set_accessible(
+            self.search_field,
+            "نص البحث",
+            "اكتب جزءا من اسم المرسل أو عنوانه أو موضوع الرسالة لتصفية القائمة فوريا.",
+        )
+        self.search_field.Bind(wx.EVT_TEXT, self.on_search_text)
+        filter_row.Add(self.search_field, 1, wx.EXPAND | wx.ALL, 6)
+        self.search_button.Hide()
+        self.search_field.Hide()
+        self.search_field_label.Hide()
         self.filter_row_sizer_item = root.Add(filter_row, 0, wx.EXPAND)
 
+        self.search_filters_panel = wx.Panel(self)
+        search_filters_row = wx.BoxSizer(wx.HORIZONTAL)
+        sender_label = wx.StaticText(self.search_filters_panel, label=tr("اسم المرسل أو بريده:"))
+        self.sender_search_filter = wx.TextCtrl(self.search_filters_panel)
+        date_label = wx.StaticText(self.search_filters_panel, label=tr("تاريخ الرسائل:"))
+        self.date_search_filter = wx.Choice(self.search_filters_panel, choices=[tr(label) for label in DATE_FILTER_LABELS])
+        self.date_search_filter.SetSelection(0)
+        set_accessible(self.sender_search_filter, "اسم المرسل أو بريده", "اكتب اسم المرسل أو عنوان بريده. اترك الحقل فارغا لعرض كل المرسلين.")
+        set_accessible(self.date_search_filter, "تاريخ الرسائل", "يعرض الرسائل خلال المدة الأخيرة حتى الآن. خيار منذ أكثر من 5 أعوام يعرض الرسائل الأقدم من خمسة أعوام.")
+        for label, control in ((sender_label, self.sender_search_filter), (date_label, self.date_search_filter)):
+            search_filters_row.Add(label, 0, wx.ALIGN_CENTER_VERTICAL | wx.ALL, 6)
+            search_filters_row.Add(control, 1, wx.EXPAND | wx.ALL, 6)
+        self.apply_search_button = wx.Button(self.search_filters_panel, label=tr("ابحث"))
+        set_accessible(self.apply_search_button, "ابحث", "تطبيق نص البحث وفلتر المرسل والتاريخ على قائمة النتائج.")
+        self.apply_search_button.Bind(wx.EVT_BUTTON, self.on_apply_search)
+        search_filters_row.Add(self.apply_search_button, 0, wx.EXPAND | wx.ALL, 6)
+        self._applied_sender_filter = ""
+        self._applied_date_filter = 0
+        self.search_filters_panel.SetSizer(search_filters_row)
+        root.Add(self.search_filters_panel, 0, wx.EXPAND)
+        self.search_filters_panel.Hide()
+        self.sender_search_filter.Bind(wx.EVT_TEXT, self.on_search_text)
+        self.date_search_filter.Bind(wx.EVT_CHOICE, self.on_search_text)
+        self.Bind(wx.EVT_CHAR_HOOK, self.on_search_escape_key)
+
+        # Native accessibility may infer a list's name from a preceding static
+        # label, even when that label belongs to a hidden search control.
+        self.message_list_label = wx.StaticText(self, label=tr("قائمة الرسائل"))
+        root.Add(self.message_list_label, 0, wx.LEFT | wx.RIGHT, 8)
         self.list = wx.ListCtrl(self, style=wx.LC_REPORT)
         self.list.EnableCheckBoxes(False)
         self.list.InsertColumn(0, tr("الحالة"), width=120)
@@ -294,7 +362,10 @@ class MailPage(wx.Panel):
         self.html_viewer.Bind(wx.EVT_KEY_DOWN, self.on_html_viewer_key)
         self.html_viewer.Bind(wx.EVT_SET_FOCUS, self.on_message_viewer_focus)
         self.html_viewer.Bind(wx.html2.EVT_WEBVIEW_NAVIGATING, self.on_html_viewer_navigating)
+        self.html_viewer.Bind(wx.html2.EVT_WEBVIEW_NEWWINDOW, self.on_html_viewer_new_window)
         self.html_viewer.Bind(wx.html2.EVT_WEBVIEW_LOADED, self.on_html_viewer_loaded)
+        self.html_viewer.Bind(wx.html2.EVT_WEBVIEW_ERROR, self.on_html_viewer_error)
+        self.html_viewer.Bind(wx.html2.EVT_WEBVIEW_SCRIPT_RESULT, self.on_html_script_result)
         self.html_viewer.Bind(wx.EVT_LEFT_DOWN, self.on_html_viewer_pointer_focus)
         self.html_viewer.Bind(wx.EVT_CONTEXT_MENU, self.on_html_context_menu)
         if self._html_message_bridge:
@@ -373,7 +444,7 @@ class MailPage(wx.Panel):
         self.apply_filter()
 
     def selected_filter_key(self) -> str:
-        keys = ("all", "starred", "unread", "read", "trash")
+        keys = ("all", "starred", "unread", "read", "trash", "archive")
         selection = self.filter_choice.GetSelection()
         return keys[selection] if 0 <= selection < len(keys) else "all"
 
@@ -383,6 +454,119 @@ class MailPage(wx.Panel):
         self.set_viewer_text("")
         self.set_links([])
         self.current_content_key = None
+
+    def set_search_mode(self, mode: str) -> None:
+        self.search_mode = mode
+        show_button = mode == "button"
+        show_field = mode == "field"
+        self.search_button.Show(show_button)
+        self.search_field.Show(show_field)
+        self.search_field_label.SetLabel(tr("نص البحث:") if show_field else "")
+        self.search_field_label.Show(show_field)
+        if not show_field and self.search_query:
+            self.search_query = ""
+            self.search_field.ChangeValue("")
+            self.apply_filter()
+        self.Layout()
+
+    def set_search_query(self, query: str) -> None:
+        self.search_query = " ".join(str(query or "").split()).casefold()
+        if self.search_field.GetValue() != query:
+            self.search_field.ChangeValue(query)
+        self.apply_filter()
+
+    def exit_search(self) -> bool:
+        close_search = getattr(self, "close_search", None)
+        if close_search:
+            close_search()
+            return True
+        if self.search_mode == "field" and (self.search_query or focused_control() is self.search_field):
+            if self._search_announcement_call is not None:
+                self._search_announcement_call.Stop()
+                self._search_announcement_call = None
+            self.set_search_query("")
+            self.focus_message_list()
+            return True
+        return False
+
+    def on_search_escape_key(self, event: wx.KeyEvent) -> None:
+        if event.GetKeyCode() == wx.WXK_ESCAPE and not (event.ControlDown() or event.AltDown() or event.ShiftDown()) and self.exit_search():
+            return
+        event.Skip()
+
+    def handle_escape(self) -> None:
+        if not self.exit_search():
+            self.focus_message_list()
+
+    def focus_search_field(self) -> None:
+        self.search_field.SetFocus()
+        self.search_field.SelectAll()
+
+    def on_search_button(self, _event: wx.Event) -> None:
+        if self.on_search_request:
+            self.on_search_request(self)
+
+    def on_search_button_key(self, event: wx.KeyEvent) -> None:
+        if event.GetKeyCode() in {
+            wx.WXK_RETURN,
+            wx.WXK_NUMPAD_ENTER,
+            wx.WXK_SPACE,
+        }:
+            self.on_search_button(event)
+            return
+        event.Skip()
+
+    def on_search_text(self, _event: wx.Event) -> None:
+        if self.search_filters_panel.IsShown():
+            # Keep draft values separate: background refreshes must not apply them.
+            return
+        self.search_query = " ".join(self.search_field.GetValue().split()).casefold()
+        self.apply_filter()
+        if self._search_announcement_call is not None:
+            self._search_announcement_call.Stop()
+        if self.search_query or self.search_filters_panel.IsShown():
+            self._search_announcement_call = wx.CallLater(
+                550,
+                self.announce_search_result_count,
+            )
+
+    def on_apply_search(self, _event: wx.Event) -> None:
+        if self._search_announcement_call is not None:
+            self._search_announcement_call.Stop()
+            self._search_announcement_call = None
+        self._applied_sender_filter = self.sender_search_filter.GetValue().strip()
+        self._applied_date_filter = self.date_search_filter.GetSelection()
+        self.set_search_query(self.search_field.GetValue())
+        self.announce_search_result_count()
+
+    def announce_search_result_count(self) -> None:
+        self._search_announcement_call = None
+        count = len(self.visible_messages)
+        message = (
+            f"{tr('عدد نتائج البحث')}: {count}."
+            if count
+            else tr("لم يتم العثور على نتائج للبحث.")
+        )
+        announce_to_screen_reader(
+            self.search_field,
+            message,
+            EVENT_SEARCH_RESULTS if count else EVENT_SEARCH_NO_RESULTS,
+        )
+
+    @staticmethod
+    def message_matches_search(message: MessageSummary, query: str) -> bool:
+        if not query:
+            return True
+        searchable = " ".join(
+            (
+                message.sender,
+                message.sender_email,
+                message.display_subject,
+                message.display_date,
+                message.status_label,
+            )
+        ).casefold()
+        return all(term in searchable for term in query.split())
 
     def set_trash_messages(self, messages: list[MessageSummary], mailbox: str = "") -> None:
         self.trash_messages = self.sort_newest_first(messages)
@@ -453,7 +637,9 @@ class MailPage(wx.Panel):
             else set()
         )
         selected = self.selected_filter_key()
-        if selected == "trash":
+        if selected == "archive":
+            self.visible_messages = list(self.archive_messages)
+        elif selected == "trash":
             self.visible_messages = list(self.trash_messages)
         elif selected == "starred":
             self.visible_messages = [message for message in self.messages if message.is_starred]
@@ -463,6 +649,18 @@ class MailPage(wx.Panel):
             self.visible_messages = [message for message in self.messages if message.is_read]
         else:
             self.visible_messages = list(self.messages)
+        if self.search_query:
+            self.visible_messages = [
+                message
+                for message in self.visible_messages
+                if self.message_matches_search(message, self.search_query)
+            ]
+        filters_panel = getattr(self, "search_filters_panel", None)
+        if filters_panel is not None and filters_panel.IsShown():
+            selection = self._applied_date_filter
+            cutoff = date_cutoff(selection)
+            sender = self._applied_sender_filter
+            self.visible_messages = [message for message in self.visible_messages if matches_filters(message, sender, cutoff, older_than=selection == 8)]
         self.visible_messages = self.sort_newest_first(self.visible_messages)
         visible_keys = {self.message_key(message) for message in self.visible_messages}
         self._multi_selected_keys = selected_keys & visible_keys
@@ -504,7 +702,7 @@ class MailPage(wx.Panel):
         restore_control_focus(focus_owner)
 
     def on_filter(self, _event: wx.CommandEvent) -> None:
-        if self.on_filter_changed and self.selected_filter_key() == "trash":
+        if self.on_filter_changed and self.selected_filter_key() in {"trash", "archive"}:
             self.on_filter_changed(self)
             return
         self.apply_filter()
@@ -671,6 +869,8 @@ class MailPage(wx.Panel):
                     MailPage.notify_end_reached(self)
 
     def notify_end_reached(self) -> None:
+        if getattr(self, "search_query", ""):
+            return
         callback = getattr(self, "on_end_reached", None)
         if self.visible_messages and callback:
             callback(self)
@@ -1001,10 +1201,14 @@ class MailPage(wx.Panel):
             self._pending_auto_read_key = None
 
     def notify_message_viewer_entered(self) -> None:
-        if self.message_read_mode != MESSAGE_READ_ON_VIEWER_ENTER:
-            return
         summary = self.selected_summary()
-        if not summary or summary.is_read:
+        if not summary:
+            self._pending_auto_read_key = None
+            return
+        viewer_opened = getattr(self, "on_viewer_opened", None)
+        if viewer_opened:
+            viewer_opened(self, summary)
+        if self.message_read_mode != MESSAGE_READ_ON_VIEWER_ENTER or summary.is_read:
             self._pending_auto_read_key = None
             return
         key = self.message_key(summary)
@@ -1148,9 +1352,19 @@ class MailPage(wx.Panel):
             self.show_plain_viewer()
             return
         self._html_loading = True
+        self._html_verify_token = None
+        self._html_document_recovery_attempted = False
         try:
-            self.html_viewer.SetPage(self.message_html(self.viewer_text), "about:blank")
+            document = self.message_html(self.viewer_text)
+            # wxWidgets 3.2.9 uses a data URI internally for SetPage on Edge.
+            # Authorize only this exact generated document, once, not email data links.
+            self._html_expected_navigation = (
+                "data:text/html;charset=utf-8;base64,"
+                + base64.b64encode(document.encode("utf-8")).decode("ascii")
+            )
+            self.html_viewer.SetPage(document, "about:blank")
         except Exception:
+            self._html_expected_navigation = None
             LOGGER.exception("Failed to replace the HTML message document")
             self._html_loading = False
             self._html_refresh_pending = True
@@ -1190,9 +1404,16 @@ class MailPage(wx.Panel):
                 self.schedule_html_refresh(focus_start=self._html_focus_after_load)
             return
         if self._html_viewer_active and self._html_focus_after_load:
-            self._html_focus_after_load = False
-            wx.CallAfter(self.focus_html_document_start)
+            wx.CallAfter(MailPage.verify_html_document, self)
         MailPage.show_pending_html_context_menu(self)
+
+    def on_html_viewer_error(self, event: wx.html2.WebViewEvent) -> None:
+        # Never record the URL: email links may contain personal tokens.
+        LOGGER.warning("HTML navigation failed (category %s)", event.GetInt())
+        if self._html_viewer_active:
+            self._html_loading = False
+            self._html_refresh_pending = False
+            wx.CallAfter(MailPage.verify_html_document, self)
 
     def activate_html_viewer(self) -> None:
         pending_list_focus = getattr(self, "_message_list_focus_call", None)
@@ -1219,6 +1440,7 @@ class MailPage(wx.Panel):
 
     def deactivate_html_viewer(self) -> None:
         self._html_viewer_active = False
+        self._html_verify_token = None
         callback = getattr(self, "on_html_focus_state", None)
         if callback:
             callback(self, False)
@@ -1240,7 +1462,7 @@ class MailPage(wx.Panel):
             return
         try:
             self.html_viewer.SetFocus()
-            self.html_viewer.RunScript(
+            self.html_viewer.RunScriptAsync(
                 "var messageElement = document.getElementById('message'); "
                 "if (messageElement) { "
                 "messageElement.focus(); "
@@ -1426,6 +1648,10 @@ class MailPage(wx.Panel):
         self.set_status("مستعرض العناصر.")
 
     def focus_message_viewer(self) -> None:
+        # WebView2 gives keyboard focus to an internal Chromium child window,
+        # so wx.EVT_SET_FOCUS is not guaranteed to reach the wx WebView. Treat
+        # the explicit command that enters the viewer as the reliable event.
+        self.notify_message_viewer_entered()
         if self.viewer_mode == VIEWER_HTML:
             if self.link_panel_visible_in_html:
                 self.link_panel_visible_in_html = False
@@ -1440,6 +1666,7 @@ class MailPage(wx.Panel):
         if self.viewer_mode == VIEWER_HTML:
             self.focus_message_viewer()
             return
+        self.notify_message_viewer_entered()
         summary = self.selected_summary()
         self._focus_plain_start_after_content = bool(
             summary and self.current_content_key != self.message_key(summary)
@@ -1554,7 +1781,10 @@ body {{
     background: {background};
 }}
 .message-content {{
-    white-space: pre-wrap;
+    white-space: normal;
+}}
+.message-paragraph {{
+    margin: 0 0 1em 0;
 }}
 .current-line-preview {{
     display: none;
@@ -1734,8 +1964,9 @@ function pamUpdateCurrentLinePreview() {{
     var node = selection.focusNode;
     var value = node.nodeType === 3 ? (node.nodeValue || "") : (node.textContent || "");
     var offset = node.nodeType === 3 ? selection.focusOffset : 0;
-    var start = value.lastIndexOf("\n", Math.max(0, offset - 1)) + 1;
-    var end = value.indexOf("\n", offset);
+    // Keep the JS newline escape intact through the Python HTML template.
+    var start = value.lastIndexOf("\\n", Math.max(0, offset - 1)) + 1;
+    var end = value.indexOf("\\n", offset);
     if (end < 0) {{
         end = value.length;
     }}
@@ -1764,7 +1995,21 @@ document.addEventListener("keyup", pamUpdateCurrentLinePreview, true);
             pieces.append(self.message_html_action(label, item))
             position = end
         pieces.append(html.escape(text[position:]))
-        return "".join(pieces) or tr("لا يوجد نص قابل للعرض داخل هذه الرسالة.")
+        content = "".join(pieces)
+        if not content:
+            content = html.escape(tr("لا يوجد نص قابل للعرض داخل هذه الرسالة."))
+        paragraphs = [
+            paragraph
+            for paragraph in re.split(r"\n{2,}", content.strip("\n"))
+            if paragraph
+        ]
+        rendered_paragraphs: list[str] = []
+        for paragraph in paragraphs:
+            rendered_paragraph = paragraph.replace("\n", "<br>\n")
+            rendered_paragraphs.append(
+                f'<p class="message-paragraph">{rendered_paragraph}</p>'
+            )
+        return "".join(rendered_paragraphs)
 
     def message_html_action(self, label: str, item: LinkItem) -> str:
         kind = "button" if item.is_button else "link"
@@ -1802,23 +2047,34 @@ document.addEventListener("keyup", pamUpdateCurrentLinePreview, true);
 
     def on_html_viewer_navigating(self, event: wx.html2.WebViewEvent) -> None:
         url = event.GetURL()
+        if url and url == getattr(self, "_html_expected_navigation", None):
+            self._html_expected_navigation = None
+            return
         parsed = urllib.parse.urlparse(url)
-        if parsed.scheme == "pam" and self.handle_html_command(parsed.path):
+        if parsed.scheme == "pam":
             event.Veto()
+            self.handle_html_command(parsed.path)
             return
-        try:
-            navigation_action = event.GetNavigationAction()
-        except AttributeError:
-            navigation_action = event.GetNavigationType()
-        if navigation_action != wx.html2.WEBVIEW_NAV_ACTION_USER:
+        # SetPage uses about:blank. Preserve only this document and its anchors;
+        # WebView2 does not consistently classify links as USER navigation.
+        if url == "about:blank" or url.startswith("about:blank#") or url.startswith("#"):
             return
+        if not url and getattr(self, "_html_loading", False):
+            # A native document replacement may report an empty URI.
+            return
+        event.Veto()
+        MailPage.open_html_external_url(self, url)
+
+    def on_html_viewer_new_window(self, event: wx.html2.WebViewEvent) -> None:
+        # target=_blank and new-window requests must not create embedded content.
+        event.Veto()
+        MailPage.open_html_external_url(self, event.GetURL())
+
+    def open_html_external_url(self, url: str) -> None:
         external_url = safe_external_url(url)
         if external_url:
-            event.Veto()
-            webbrowser.open(external_url)
-            return
-        if parsed.scheme and parsed.scheme not in {"about"}:
-            event.Veto()
+            # Return from the native navigation callback before launching an app.
+            wx.CallAfter(webbrowser.open, external_url)
 
     def on_html_viewer_loaded(self, _event: wx.html2.WebViewEvent) -> None:
         MailPage.cancel_html_load_timeout(self)
@@ -1829,12 +2085,70 @@ document.addEventListener("keyup", pamUpdateCurrentLinePreview, true);
                 self.schedule_html_refresh(focus_start=self._html_focus_after_load)
             return
         MailPage.show_pending_html_context_menu(self)
-        if not self._html_viewer_active or not self._html_focus_after_load:
+        if not self._html_viewer_active:
             return
+        wx.CallAfter(MailPage.verify_html_document, self)
+
+    def verify_html_document(self) -> None:
+        """Never synchronously wait for Chromium on the wx UI thread."""
+        if getattr(self, "_closed", False) or not self._html_viewer_active:
+            return
+        if self._html_refresh_pending or self._html_loading:
+            return
+        if getattr(self, "_html_verify_token", None) is not None:
+            return
+        token = getattr(self, "_html_verify_serial", 0) + 1
+        self._html_verify_serial = token
+        self._html_verify_token = token
+        try:
+            self.html_viewer.RunScriptAsync(
+                f"'pam-verify:{token}:' + Boolean(document.getElementById('message'))"
+            )
+            wx.CallLater(1500, MailPage.on_html_verification_timeout, self, token)
+            return
+        except (RuntimeError, AttributeError, TypeError, NotImplementedError, wx.PyAssertionError):
+            LOGGER.warning("Unable to verify the HTML document")
+        MailPage.on_html_verification_timeout(self, token)
+
+    def on_html_script_result(self, event: wx.html2.WebViewEvent) -> None:
+        result = re.fullmatch(r"pam-verify:(\d+):(true|false)", event.GetString().strip().strip('"'))
+        if result is None:
+            return
+        # Defer UI changes until the WebView2 callback has returned.
+        wx.CallAfter(MailPage.complete_html_verification, self, int(result.group(1)),
+                     bool(event.GetInt()) and result.group(2) == "true")
+
+    def complete_html_verification(self, token: int, present: bool) -> None:
+        if getattr(self, "_closed", False) or token != getattr(self, "_html_verify_token", None):
+            return
+        if not self._html_viewer_active or self._html_loading or self._html_refresh_pending:
+            self._html_verify_token = None
+            return
+        if not present:
+            MailPage.on_html_verification_timeout(self, token)
+            return
+        self._html_verify_token = None
+        if self._html_focus_after_load:
+            self._html_focus_after_load = False
+            self.focus_html_document_start()
+
+    def on_html_verification_timeout(self, token: int) -> None:
+        if getattr(self, "_closed", False) or token != getattr(self, "_html_verify_token", None):
+            return
+        self._html_verify_token = None
+        if not self._html_viewer_active or self._html_loading or self._html_refresh_pending:
+            return
+        LOGGER.warning("HTML document did not become ready; using the native viewer")
+        self._html_viewer_active = False
         self._html_focus_after_load = False
-        wx.CallAfter(self.focus_html_document_start)
+        self._html_refresh_pending = True
+        self.show_plain_viewer()
+        restore_control_focus(self.viewer)
 
     def on_html_viewer_pointer_focus(self, event: wx.MouseEvent) -> None:
+        # A click inside WebView2 may focus a Chromium descendant without
+        # emitting wx.EVT_SET_FOCUS on the wrapper control.
+        self.notify_message_viewer_entered()
         if not self._html_viewer_active:
             self.activate_html_viewer()
         event.Skip()
@@ -1869,7 +2183,7 @@ document.addEventListener("keyup", pamUpdateCurrentLinePreview, true);
             and not event.CmdDown()
             and key_code == wx.WXK_ESCAPE
         ):
-            self.focus_message_list()
+            self.handle_escape()
             return
         event.Skip()
 
@@ -1880,7 +2194,7 @@ document.addEventListener("keyup", pamUpdateCurrentLinePreview, true);
             # Escape is a navigation command, not a popup action. Running it on
             # the next UI turn avoids the old 75 ms window in which WebView2
             # could finish a reload and retain keyboard focus.
-            wx.CallAfter(self.focus_message_list)
+            wx.CallAfter(self.handle_escape)
             return True
         if action == "toggle-items":
             self.schedule_html_focus_action(self.toggle_message_and_link_viewers)
@@ -1921,6 +2235,8 @@ document.addEventListener("keyup", pamUpdateCurrentLinePreview, true);
         self.request_html_context_menu()
 
     def request_html_context_menu(self) -> None:
+        if getattr(self, "_message_context_menu_open", False):
+            return
         now = time.monotonic()
         if now - self._last_context_menu_request_at < 0.3:
             return
@@ -1940,6 +2256,9 @@ document.addEventListener("keyup", pamUpdateCurrentLinePreview, true);
         )
 
     def show_pending_html_context_menu(self) -> None:
+        if getattr(self, "_message_context_menu_open", False):
+            self._pending_html_context_menu = False
+            return
         if not getattr(self, "_pending_html_context_menu", False):
             return
         if getattr(self, "_html_loading", False) or getattr(
@@ -2041,7 +2360,7 @@ document.addEventListener("keyup", pamUpdateCurrentLinePreview, true);
 
     def update_message_row(self, summary: MessageSummary) -> None:
         key = self.message_key(summary)
-        for messages in (self.messages, self.trash_messages):
+        for messages in (self.messages, self.trash_messages, getattr(self, "archive_messages", [])):
             for message in messages:
                 if self.message_key(message) == key:
                     message.is_read = summary.is_read
@@ -2076,7 +2395,7 @@ document.addEventListener("keyup", pamUpdateCurrentLinePreview, true);
             ),
             0,
         )
-        for messages in (self.messages, self.trash_messages):
+        for messages in (self.messages, self.trash_messages, getattr(self, "archive_messages", [])):
             for message in messages:
                 if self.message_key(message) == key:
                     message.is_read = is_read
@@ -2135,14 +2454,16 @@ document.addEventListener("keyup", pamUpdateCurrentLinePreview, true);
     def all_message_keys(self) -> set[tuple[str, str]]:
         return {
             self.message_key(message)
-            for messages in (self.messages, self.trash_messages)
+            for messages in (self.messages, self.trash_messages, getattr(self, "archive_messages", []))
             for message in messages
         }
 
-    def sort_newest_first(self, messages: list[MessageSummary]) -> list[MessageSummary]:
-        return sorted(messages, key=self.message_sort_key, reverse=True)
+    @staticmethod
+    def sort_newest_first(messages: list[MessageSummary]) -> list[MessageSummary]:
+        return sorted(messages, key=MailPage.message_sort_key, reverse=True)
 
-    def message_sort_key(self, message: MessageSummary) -> tuple[float, float, int, str]:
+    @staticmethod
+    def message_sort_key(message: MessageSummary) -> tuple[float, float, int, str]:
         try:
             uid_value = int(message.uid)
         except ValueError:
@@ -2204,7 +2525,7 @@ document.addEventListener("keyup", pamUpdateCurrentLinePreview, true);
 
     def update_message_flags(self, summary: MessageSummary) -> None:
         key = self.message_key(summary)
-        for messages in (self.messages, self.trash_messages):
+        for messages in (self.messages, self.trash_messages, getattr(self, "archive_messages", [])):
             for message in messages:
                 if self.message_key(message) == key:
                     message.is_read = summary.is_read
@@ -2217,7 +2538,7 @@ document.addEventListener("keyup", pamUpdateCurrentLinePreview, true);
 
     def update_message_flags_by_uid(self, summary: MessageSummary) -> None:
         selected_key = self.selected_message_key()
-        for messages in (self.messages, self.trash_messages):
+        for messages in (self.messages, self.trash_messages, getattr(self, "archive_messages", [])):
             for message in messages:
                 if message.uid != summary.uid:
                     continue
@@ -2236,7 +2557,7 @@ document.addEventListener("keyup", pamUpdateCurrentLinePreview, true);
         preserve_key = self.focused_message_key() or self.selected_message_key()
         by_key = {self.message_key(summary): summary for summary in summaries}
         by_uid = {summary.uid: summary for summary in summaries}
-        for messages in (self.messages, self.trash_messages):
+        for messages in (self.messages, self.trash_messages, getattr(self, "archive_messages", [])):
             for message in messages:
                 source = (
                     by_uid.get(message.uid)
@@ -2255,6 +2576,7 @@ document.addEventListener("keyup", pamUpdateCurrentLinePreview, true);
     def remove_message(self, summary: MessageSummary) -> None:
         key = self.message_key(summary)
         self.messages = [message for message in self.messages if self.message_key(message) != key]
+        self.archive_messages = [message for message in getattr(self, "archive_messages", []) if self.message_key(message) != key]
         self.trash_messages = [message for message in self.trash_messages if self.message_key(message) != key]
         self.visible_messages = [message for message in self.visible_messages if self.message_key(message) != key]
         self.apply_filter()
@@ -2277,6 +2599,7 @@ document.addEventListener("keyup", pamUpdateCurrentLinePreview, true);
             return self.message_key(message) not in keys
 
         self.messages = [message for message in self.messages if keep(message)]
+        self.archive_messages = [message for message in getattr(self, "archive_messages", []) if keep(message)]
         self.trash_messages = [
             message for message in self.trash_messages if keep(message)
         ]
@@ -2298,6 +2621,7 @@ document.addEventListener("keyup", pamUpdateCurrentLinePreview, true);
 
     def remove_message_by_uid(self, uid: str) -> None:
         self.messages = [message for message in self.messages if message.uid != uid]
+        self.archive_messages = [message for message in getattr(self, "archive_messages", []) if message.uid != uid]
         self.trash_messages = [message for message in self.trash_messages if message.uid != uid]
         self.visible_messages = [message for message in self.visible_messages if message.uid != uid]
         self.apply_filter()
@@ -2342,7 +2666,7 @@ document.addEventListener("keyup", pamUpdateCurrentLinePreview, true);
         if event.AltDown() or event.CmdDown():
             return False
         if event.GetKeyCode() == wx.WXK_ESCAPE:
-            self.focus_message_list()
+            self.handle_escape()
             return True
         if event.GetKeyCode() in {wx.WXK_RETURN, wx.WXK_NUMPAD_ENTER, wx.WXK_SPACE}:
             item = self.viewer_item_at_caret()
@@ -3271,6 +3595,8 @@ document.addEventListener("keyup", pamUpdateCurrentLinePreview, true);
         )
 
     def show_message_context_menu(self, control: wx.Window, translation_enabled: bool) -> None:
+        if getattr(self, "_message_context_menu_open", False):
+            return
         if control is self.actions_button:
             self.show_item_actions_menu(control)
             return
@@ -3287,6 +3613,8 @@ document.addEventListener("keyup", pamUpdateCurrentLinePreview, true);
         menu = wx.Menu()
         action_invoked = False
         return_control = self.context_return_control(control)
+
+        translate_requested = False
 
         def reply_action(_event: wx.CommandEvent) -> None:
             nonlocal action_invoked
@@ -3318,10 +3646,11 @@ document.addEventListener("keyup", pamUpdateCurrentLinePreview, true);
             wx.CallAfter(self.focus_message_list)
 
         def translate_action(_event: wx.CommandEvent) -> None:
-            nonlocal action_invoked
+            nonlocal action_invoked, translate_requested
             action_invoked = True
+            translate_requested = True
+            self._pending_html_context_menu = False
             self._translation_return_control = return_control
-            self.on_translate(self)
 
         def copy_action(_event: wx.CommandEvent) -> None:
             nonlocal action_invoked
@@ -3348,6 +3677,13 @@ document.addEventListener("keyup", pamUpdateCurrentLinePreview, true);
             self.on_delete(self)
             wx.CallAfter(self.focus_message_list)
 
+        def archive_action(_event: wx.CommandEvent) -> None:
+            nonlocal action_invoked
+            callback = getattr(self, "on_archive", None)
+            if callback:
+                action_invoked = True
+                callback(self)
+
         try:
             reply_item = menu.Append(wx.ID_ANY, tr("رد"))
             copy_item = (
@@ -3360,7 +3696,6 @@ document.addEventListener("keyup", pamUpdateCurrentLinePreview, true);
                 if opened_from_viewer
                 else None
             )
-            forward_item = menu.Append(wx.ID_ANY, tr("إعادة توجيه"))
             if opened_from_viewer:
                 read_item = (
                     menu.Append(wx.ID_ANY, tr("تعليم كمقروءة"))
@@ -3374,6 +3709,7 @@ document.addEventListener("keyup", pamUpdateCurrentLinePreview, true);
                     else "تعليم كمقروءة"
                 )
                 read_item = menu.Append(wx.ID_ANY, tr(read_label))
+            forward_item = menu.Append(wx.ID_ANY, tr("إعادة توجيه"))
             star_label = "إزالة التمييز بنجمة" if summary and summary.is_starred else "تمييز بنجمة"
             star_item = menu.Append(wx.ID_ANY, tr(star_label))
             pin_label = "إلغاء التثبيت في الأعلى" if summary and summary.is_pinned else "التثبيت في الأعلى"
@@ -3383,6 +3719,14 @@ document.addEventListener("keyup", pamUpdateCurrentLinePreview, true);
                 else menu.Append(wx.ID_ANY, tr(pin_label))
             )
             delete_item = menu.Append(wx.ID_ANY, tr("الحذف والنقل إلى سلة المحذوفات"))
+            archive_item = (
+                menu.Append(wx.ID_ANY, tr("إعادة إلى الوارد" if self.selected_filter_key() == "archive" else "أرشفة الرسالة"))
+                if not opened_from_viewer
+                else None
+            )
+            if archive_item is not None:
+                archive_item.Enable(summary is not None and getattr(self, "on_archive", None) is not None)
+                menu.Bind(wx.EVT_MENU, archive_action, archive_item)
 
             has_message = summary is not None
             reply_item.Enable(has_message)
@@ -3413,9 +3757,17 @@ document.addEventListener("keyup", pamUpdateCurrentLinePreview, true);
                 menu.Bind(wx.EVT_MENU, pin_action, pin_item)
             menu.Bind(wx.EVT_MENU, delete_action, delete_item)
             announce_context_menu(return_control)
+            self._message_context_menu_open = True
             self.context_menu_popup_owner(control).PopupMenu(menu)
         finally:
             menu.Destroy()
+            self._message_context_menu_open = False
+        if translate_requested:
+            # Start only after the native popup loop has unwound and the menu
+            # has been destroyed. Translation may display dialogs or yield UI.
+            self._pending_html_context_menu = False
+            self._last_context_menu_request_at = time.monotonic()
+            wx.CallAfter(self.on_translate, self)
         if not action_invoked:
             self.schedule_context_focus_restore(return_control)
 

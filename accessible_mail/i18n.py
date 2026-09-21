@@ -6,6 +6,14 @@ from .i18n_fr import FRENCH_DYNAMIC_TEMPLATES, FRENCH_TRANSLATIONS
 from .i18n_hi import HINDI_DYNAMIC_TEMPLATES, HINDI_TRANSLATIONS
 from .i18n_es import SPANISH_DYNAMIC_TEMPLATES, SPANISH_TRANSLATIONS
 from .i18n_tr import TURKISH_DYNAMIC_TEMPLATES, TURKISH_TRANSLATIONS
+from .i18n_zh_cn import (
+    SIMPLIFIED_CHINESE_DYNAMIC_TEMPLATES,
+    SIMPLIFIED_CHINESE_TRANSLATIONS,
+)
+from .i18n_ru import RUSSIAN_DYNAMIC_TEMPLATES, RUSSIAN_TRANSLATIONS
+from .i18n_ja import JAPANESE_DYNAMIC_TEMPLATES, JAPANESE_TRANSLATIONS
+from .i18n_de import GERMAN_DYNAMIC_TEMPLATES, GERMAN_TRANSLATIONS
+from .i18n_fallback_en import ENGLISH_FALLBACK_TRANSLATIONS
 
 
 LANGUAGE_ARABIC = "ar"
@@ -14,6 +22,10 @@ LANGUAGE_FRENCH = "fr"
 LANGUAGE_SPANISH = "es"
 LANGUAGE_TURKISH = "tr"
 LANGUAGE_HINDI = "hi"
+LANGUAGE_SIMPLIFIED_CHINESE = "zh-CN"
+LANGUAGE_RUSSIAN = "ru"
+LANGUAGE_JAPANESE = "ja"
+LANGUAGE_GERMAN = "de"
 SUPPORTED_LANGUAGES = {
     LANGUAGE_ARABIC,
     LANGUAGE_ENGLISH,
@@ -21,21 +33,92 @@ SUPPORTED_LANGUAGES = {
     LANGUAGE_SPANISH,
     LANGUAGE_TURKISH,
     LANGUAGE_HINDI,
+    LANGUAGE_SIMPLIFIED_CHINESE,
+    LANGUAGE_RUSSIAN,
+    LANGUAGE_JAPANESE,
+    LANGUAGE_GERMAN,
 }
 
 _language = LANGUAGE_ARABIC
 
 
 ENGLISH_TRANSLATIONS: dict[str, str] = {
+    "تعذر تشغيل التحديث لأن توقيع Authenticode غير صالح أو غير موثوق.": "The update installer Authenticode signature is invalid or untrusted.",
+    "اختر اللغة التي سيتم ترجمة رسائل البريد إليها": "Choose the language to translate email messages into",
     "العربية": "Arabic",
     "الإنجليزية": "English",
     "الفرنسية": "French",
     "الإسبانية": "Spanish",
     "التركية": "Turkish",
     "الهندية": "Hindi",
+    "الصينية المبسطة": "Simplified Chinese",
+    "الروسية": "Russian",
+    "اليابانية": "Japanese",
+    "الألمانية": "German",
+    "دليل اختصارات البرنامج": "Application shortcut guide",
+    "دليل اختصارات البرنامج\tAlt+D": "Application shortcut guide\tAlt+D",
+    "نص دليل اختصارات البرنامج": "Application shortcut guide text",
+    "الوصول إلى قائمة الرسائل في التصنيف الحالي.": "Go to the message list in the current category.",
+    "العودة إلى مستعرض آخر رسالة فُتحت.": "Return to the viewer of the last opened message.",
+    "يجب فتح رسالة أولا.": "You must open a message first.",
+    "التنقل السريع": "Quick navigation",
+    "الأوامر العامة": "General commands",
+    "قائمة الرسائل": "Message list",
+    "مستعرض الرسالة والعناصر": "Message and item viewers",
+    "البحث وقائمة الأوامر": "Search and command list",
+    "إنشاء الرسالة وسجل العناوين": "Compose and address book",
+    "فتح المرشد التفاعلي.": "Open the interactive guide.",
+    "فتح دليل البرنامج.": "Open the program guide.",
+    "فتح خيارات الحسابات وإدارتها.": "Open account options and management.",
+    "إنشاء رسالة جديدة.": "Compose a new message.",
+    "فتح البحث في الرسائل.": "Open message search.",
+    "الرد على الرسالة المحددة.": "Reply to the selected message.",
+    "ترجمة الرسالة الحالية.": "Translate the current message.",
+    "تحديث الرسائل.": "Refresh messages.",
+    "إغلاق البرنامج.": "Close the application.",
+    "فتح مستعرض الرسالة المحددة.": "Open the selected message viewer.",
+    "دخول مستعرض HTML من قائمة الرسائل.": "Enter the HTML viewer from the message list.",
+    "تبديل حالة الرسالة بين مقروءة وغير مقروءة.": "Toggle the message between read and unread.",
+    "حذف الرسالة المحددة ونقلها إلى سلة المحذوفات.": "Delete the selected message and move it to Trash.",
+    "تشغيل وضع التحديد المتعدد أو إيقافه.": "Turn multiple-selection mode on or off.",
+    "تحديد الرسالة الحالية أو إلغاء تحديدها.": "Select or deselect the current message.",
+    "سماع عدد الرسائل المحددة.": "Hear the number of selected messages.",
+    "الخروج من وضع التحديد المتعدد.": "Exit multiple-selection mode.",
+    "فتح قائمة السياق للعنصر الحالي.": "Open the context menu for the current item.",
+    "العودة إلى قائمة الرسائل.": "Return to the message list.",
+    "التنقل بين مستعرض الرسالة ومستعرض العناصر.": "Switch between the message viewer and item viewer.",
+    "تكبير مستعرض الرسالة أو إعادته إلى حجمه السابق.": "Expand the message viewer or restore its previous size.",
+    "نسخ نص الرسالة من المستعرض.": "Copy the message text from the viewer.",
+    "فتح الرابط أو الزر أو المرفق المحدد.": "Open the selected link, button, or attachment.",
+    "فتح قائمة سياق الرسالة أو أوامر العنصر.": "Open the message context menu or item commands.",
+    "إغلاق البحث والعودة إلى قائمة الرسائل.": "Close search and return to the message list.",
+    "تنفيذ الأمر المحدد.": "Run the selected command.",
+    "فتح أسماء سجل العناوين.": "Open the address-book names.",
+    "إزالة المرفق المحدد من الرسالة.": "Remove the selected attachment from the message.",
+    "فتح أوامر العنوان أو المرفق المحدد.": "Open commands for the selected address or attachment.",
+    "إنشاء رسالة إلى العنوان المحدد.": "Compose a message to the selected address.",
+    "Space أثناء التحديد المتعدد": "Space during multiple selection",
+    "Control وحده أثناء التحديد المتعدد": "Control alone during multiple selection",
+    "Escape أثناء التحديد المتعدد": "Escape during multiple selection",
+    "مفتاح التطبيقات أو Shift+F10": "Applications key or Shift+F10",
+    "Enter أو Space": "Enter or Space",
+    "Escape داخل البحث": "Escape in search",
+    "Enter أو Space في قائمة الأوامر": "Enter or Space in the command list",
+    "السهم لأسفل في حقل المستلم": "Down Arrow in the recipient field",
+    "Delete في قائمة المرفقات": "Delete in the attachment list",
+    "Enter أو Space في سجل العناوين": "Enter or Space in the address book",
+    "الوصول إلى أقسام البريد.": "Go to the mail sections.",
+    "الوصول إلى قائمة أوامر البرنامج.": "Go to the application command list.",
+    "فتح دليل اختصارات البرنامج.": "Open the application shortcut guide.",
     "لغة البرنامج": "Application language",
     "لغة البرنامج:": "Application language:",
     "الإعدادات": "Settings",
+    "إرجاع الإعدادات إلى الوضع الافتراضي": "Restore default settings",
+    "يعيد إعدادات البرنامج إلى قيمها الافتراضية مع الاحتفاظ بلغة البرنامج والحسابات.": "Restores the application settings to their defaults while keeping the application language and accounts.",
+    "سيتم إرجاع جميع إعدادات البرنامج إلى الوضع الافتراضي مع الاحتفاظ بلغة البرنامج الحالية وحسابات البريد. هل تريد المتابعة؟": "All application settings will be restored to their defaults while keeping the current application language and email accounts. Do you want to continue?",
+    "استعادة الإعدادات الافتراضية": "Restore default settings",
+    "أوافق": "I agree",
+    "كلا": "No",
     "مستعرض الرسائل:": "Message viewer:",
     "نوع مستعرض الرسائل": "Message viewer type",
     "مستعرض HTML": "HTML viewer",
@@ -203,6 +286,48 @@ ENGLISH_TRANSLATIONS: dict[str, str] = {
     "تسجيل الدخول الكلاسيكي": "Classic sign-in",
     "إخفاء تسجيل الدخول الكلاسيكي": "Hide classic sign-in",
     "إظهار حقلي البريد الإلكتروني وكلمة المرور": "Show the email and password fields",
+    "تسجيل Google بكلمة مرور التطبيق": "Sign in to Google with an app password",
+    "إخفاء تسجيل Google بكلمة مرور التطبيق": "Hide Google app password sign-in",
+    "إظهار حقلي بريد Gmail وكلمة مرور التطبيق المكونة من 16 رمزا": "Show the Gmail address and 16-character app password fields",
+    "استخدم كلمة مرور تطبيق أنشأتها من حساب Google، وليس كلمة مرور حسابك العادية. يتطلب إنشاؤها تفعيل التحقق بخطوتين.": "Use an app password created in your Google Account, not your regular account password. Creating one requires 2-Step Verification.",
+    "كلمة مرور التطبيق:": "App password:",
+    "كلمة مرور التطبيق": "App password",
+    "أدخل كلمة مرور تطبيق Google المكونة من 16 رمزا؛ يمكن لصقها مع المسافات.": "Enter the 16-character Google app password; you can paste it with spaces.",
+    "تسجيل Google بالبريد وكلمة مرور التطبيق": "Sign in to Google with the email address and app password",
+    "يرجى كتابة عنوان Gmail.": "Enter a Gmail address.",
+    "تسجيل كلمة مرور التطبيق مخصص لحسابات Gmail فقط.": "App password sign-in is available for Gmail accounts only.",
+    "يرجى كتابة كلمة مرور تطبيق Google المكونة من 16 رمزا.": "Enter the 16-character Google app password.",
+    "استخدم كلمة مرور تطبيق Google المكونة من 16 رمزا، وليس كلمة مرور حسابك العادية. يجب تفعيل التحقق بخطوتين أولاً.": "Use a 16-character Google app password, not your regular account password. You must first enable 2-Step Verification.",
+    "عنوان Gmail:": "Gmail address:",
+    "عنوان Gmail": "Gmail address",
+    "يمكن لصق كلمة مرور التطبيق مع المسافات وسيزيلها البرنامج تلقائيا.": "You can paste the app password with spaces; the application will remove them automatically.",
+    "فتح صفحة إنشاء كلمة مرور التطبيق في Google": "Open the Google app password creation page",
+    "يفتح صفحة Google الرسمية في المتصفح الافتراضي.": "Opens the official Google page in the default browser.",
+    "تعذر فتح صفحة كلمات مرور التطبيقات في المتصفح.": "Unable to open the app passwords page in the browser.",
+    "فتح معالج تفاعلي يشرح إعداد كلمة مرور التطبيق خطوة بخطوة": "Open an interactive wizard that explains app password setup step by step",
+    "معالج كلمة مرور تطبيق Google": "Google App Password Wizard",
+    "مرحبا بك في معالج كلمة مرور التطبيق": "Welcome to the App Password Wizard",
+    "حماية الحساب والتحقق بخطوتين": "Account protection and 2-Step Verification",
+    "إنشاء كلمة مرور التطبيق": "Create an app password",
+    "إدخال بيانات Gmail": "Enter Gmail details",
+    "مراجعة الإعداد وإنهاؤه": "Review and finish setup",
+    "يساعدك هذا المعالج على إضافة حساب Gmail باستخدام كلمة مرور تطبيق. هذه طريقة ثانوية عندما يتعذر تسجيل Google عبر المتصفح، ولا تستبدل الطريقة الموصى بها للمستخدم العادي.": "This wizard helps you add a Gmail account with an app password. This is a secondary method when browser-based Google sign-in is unavailable and does not replace the recommended method for most users.",
+    "تحمي ميزة التحقق بخطوتين حسابك حتى لو عُرفت كلمة مروره. تشترط Google تفعيلها قبل إنشاء كلمة مرور تطبيق. قد لا يتوفر هذا الخيار لحسابات العمل أو الدراسة أو الحسابات المشتركة في الحماية المتقدمة.": "2-Step Verification protects your account even if its password becomes known. Google requires it before you can create an app password. This option may be unavailable for work or school accounts or accounts enrolled in Advanced Protection.",
+    "افتح صفحة Google الرسمية، وأنشئ كلمة مرور جديدة باسم Power Accessible Mail، ثم انسخ الرمز الذي يظهر مرة واحدة. تستطيع إلغاء هذا الرمز لاحقا من حساب Google دون تغيير كلمة مرور حسابك الأساسية.": "Open the official Google page, create a new app password named Power Accessible Mail, then copy the code shown once. You can revoke this code later from your Google Account without changing your main account password.",
+    "اكتب عنوان Gmail والصق كلمة مرور التطبيق المكونة من 16 رمزا. لا تكتب كلمة مرور حساب Google العادية. يزيل البرنامج المسافات ويحفظ الرمز مشفرا لحساب Windows الحالي.": "Enter your Gmail address and paste the 16-character app password. Do not enter your regular Google Account password. The application removes spaces and stores the code encrypted for the current Windows account.",
+    "راجع عنوان الحساب قبل الإنهاء. سيضبط البرنامج خادمي Gmail الآمنين IMAP وSMTP تلقائيا، ولن يعرض كلمة مرور التطبيق في هذه الصفحة.": "Review the account address before finishing. The application will configure Gmail's secure IMAP and SMTP servers automatically and will not display the app password on this page.",
+    "تقدم معالج كلمة مرور التطبيق": "App password wizard progress",
+    "السابق": "Back",
+    "التالي": "Next",
+    "إنهاء": "Finish",
+    "الخطوة السابقة": "Previous step",
+    "الخطوة التالية": "Next step",
+    "إلغاء معالج كلمة مرور التطبيق": "Cancel the app password wizard",
+    "الخطوة {0} من {1}: {2}": "Step {0} of {1}: {2}",
+    "ملخص إعداد حساب Gmail": "Gmail account setup summary",
+    "يعرض عنوان الحساب وطريقة الاتصال دون عرض كلمة مرور التطبيق.": "Shows the account address and connection method without displaying the app password.",
+    "إنهاء إعداد حساب Gmail": "Finish Gmail account setup",
+    "عنوان Gmail: {0}\nطريقة الاتصال: IMAP وSMTP الآمنان\nكلمة مرور التطبيق: محفوظة ولن تُعرض": "Gmail address: {0}\nConnection method: secure IMAP and SMTP\nApp password: saved and hidden",
     "المتابعة كزائر": "Continue as guest",
     "اختيار عنوان بريد إلكتروني": "Choose an email address",
     "اختر عنوانًا ثم اضغط Enter.": "Choose an address, then press Enter.",
@@ -691,6 +816,222 @@ ENGLISH_TRANSLATIONS.update(
     }
 )
 
+_SEARCH_TRANSLATIONS = {
+    "en": {
+        "طريقة البحث في الرسائل:": "Message search method:",
+        "طريقة البحث في الرسائل": "Message search method",
+        "بحث مستدعى عبر Ctrl+F أو Ctrl+ب": "On-demand search with Ctrl+F",
+        "زر البحث مع الفلاتر": "Search button with filters",
+        "حقل بحث دائم بجوار التصنيف": "Permanent search field next to the category",
+        "بحث في الرسائل": "Search messages",
+        "نتائج البحث": "Search results",
+        "البحث في رسائل القسم الحالي": "Search messages in the current section",
+        "يفتح نافذة بحث مستقلة تضم النتائج ومستعرض الرسالة ومستعرض العناصر.": "Opens a separate search window containing the results, message viewer, and item viewer.",
+        "اكتب جزءا من اسم المرسل أو عنوانه أو موضوع الرسالة لتصفية القائمة فوريا.": "Type part of the sender name, address, or message subject to filter the list immediately.",
+        "اختر استدعاء نافذة البحث بالاختصار، أو إظهار زر البحث، أو إظهار حقل دائم يفلتر رسائل القسم الحالي أثناء الكتابة.": "Choose to open the search window with a shortcut, show a search button, or show a permanent field that filters the current section while typing.",
+        "لا توجد رسائل محملة للبحث. حدّث الرسائل أو زامنها أولا.": "There are no loaded messages to search. Refresh or synchronize messages first.",
+        "تم فتح نافذة البحث في الرسائل.": "The message search window has opened.",
+        "عدد نتائج البحث": "Search result count",
+        "لم يتم العثور على نتائج للبحث.": "No search results were found.",
+        "إغلاق نافذة البحث": "Close the search window",
+        "فتح نافذة البحث وبدء البحث": "Opening the search window and starting a search",
+        "عدم العثور على نتائج للبحث": "No search results found",
+    },
+    "fr": {
+        "طريقة البحث في الرسائل:": "Méthode de recherche des messages :",
+        "طريقة البحث في الرسائل": "Méthode de recherche des messages",
+        "بحث مستدعى عبر Ctrl+F أو Ctrl+ب": "Recherche à la demande avec Ctrl+F",
+        "زر البحث مع الفلاتر": "Bouton de recherche avec filtres",
+        "حقل بحث دائم بجوار التصنيف": "Champ de recherche permanent à côté de la catégorie",
+        "بحث في الرسائل": "Rechercher dans les messages",
+        "نتائج البحث": "Résultats de recherche",
+        "البحث في رسائل القسم الحالي": "Rechercher dans les messages de la section actuelle",
+        "يفتح نافذة بحث مستقلة تضم النتائج ومستعرض الرسالة ومستعرض العناصر.": "Ouvre une fenêtre de recherche distincte avec les résultats, la visionneuse de messages et la visionneuse d’éléments.",
+        "اكتب جزءا من اسم المرسل أو عنوانه أو موضوع الرسالة لتصفية القائمة فوريا.": "Saisissez une partie du nom, de l’adresse ou de l’objet de l’expéditeur pour filtrer immédiatement la liste.",
+        "اختر استدعاء نافذة البحث بالاختصار، أو إظهار زر البحث، أو إظهار حقل دائم يفلتر رسائل القسم الحالي أثناء الكتابة.": "Choisissez d’ouvrir la recherche avec un raccourci, d’afficher un bouton ou d’afficher un champ permanent qui filtre la section actuelle pendant la saisie.",
+        "لا توجد رسائل محملة للبحث. حدّث الرسائل أو زامنها أولا.": "Aucun message chargé à rechercher. Actualisez ou synchronisez d’abord les messages.",
+        "تم فتح نافذة البحث في الرسائل.": "La fenêtre de recherche des messages est ouverte.",
+        "عدد نتائج البحث": "Nombre de résultats de recherche",
+        "لم يتم العثور على نتائج للبحث.": "Aucun résultat de recherche trouvé.",
+        "إغلاق نافذة البحث": "Fermer la fenêtre de recherche",
+        "فتح نافذة البحث وبدء البحث": "Ouverture de la fenêtre et démarrage de la recherche",
+        "عدم العثور على نتائج للبحث": "Aucun résultat de recherche",
+    },
+    "es": {
+        "طريقة البحث في الرسائل:": "Método de búsqueda de mensajes:",
+        "طريقة البحث في الرسائل": "Método de búsqueda de mensajes",
+        "بحث مستدعى عبر Ctrl+F أو Ctrl+ب": "Búsqueda bajo demanda con Ctrl+F",
+        "زر البحث مع الفلاتر": "Botón de búsqueda con filtros",
+        "حقل بحث دائم بجوار التصنيف": "Campo de búsqueda permanente junto a la categoría",
+        "بحث في الرسائل": "Buscar mensajes",
+        "نتائج البحث": "Resultados de búsqueda",
+        "البحث في رسائل القسم الحالي": "Buscar mensajes en la sección actual",
+        "يفتح نافذة بحث مستقلة تضم النتائج ومستعرض الرسالة ومستعرض العناصر.": "Abre una ventana de búsqueda independiente con los resultados, el visor de mensajes y el visor de elementos.",
+        "اكتب جزءا من اسم المرسل أو عنوانه أو موضوع الرسالة لتصفية القائمة فوريا.": "Escribe parte del nombre, la dirección o el asunto del remitente para filtrar la lista inmediatamente.",
+        "اختر استدعاء نافذة البحث بالاختصار، أو إظهار زر البحث، أو إظهار حقل دائم يفلتر رسائل القسم الحالي أثناء الكتابة.": "Elige abrir la búsqueda con un atajo, mostrar un botón o mostrar un campo permanente que filtre la sección actual mientras escribes.",
+        "لا توجد رسائل محملة للبحث. حدّث الرسائل أو زامنها أولا.": "No hay mensajes cargados para buscar. Actualiza o sincroniza primero.",
+        "تم فتح نافذة البحث في الرسائل.": "Se abrió la ventana de búsqueda de mensajes.",
+        "عدد نتائج البحث": "Número de resultados",
+        "لم يتم العثور على نتائج للبحث.": "No se encontraron resultados.",
+        "إغلاق نافذة البحث": "Cerrar la ventana de búsqueda",
+        "فتح نافذة البحث وبدء البحث": "Abrir la ventana e iniciar la búsqueda",
+        "عدم العثور على نتائج للبحث": "No se encontraron resultados",
+    },
+    "tr": {
+        "طريقة البحث في الرسائل:": "Mesaj arama yöntemi:",
+        "طريقة البحث في الرسائل": "Mesaj arama yöntemi",
+        "بحث مستدعى عبر Ctrl+F أو Ctrl+ب": "Ctrl+F ile isteğe bağlı arama",
+        "زر البحث مع الفلاتر": "Filtreli arama düğmesi",
+        "حقل بحث دائم بجوار التصنيف": "Kategorinin yanında kalıcı arama alanı",
+        "بحث في الرسائل": "Mesajlarda ara",
+        "نتائج البحث": "Arama sonuçları",
+        "البحث في رسائل القسم الحالي": "Geçerli bölümdeki mesajlarda ara",
+        "يفتح نافذة بحث مستقلة تضم النتائج ومستعرض الرسالة ومستعرض العناصر.": "Sonuçları, mesaj görüntüleyiciyi ve öğe görüntüleyiciyi içeren ayrı bir arama penceresi açar.",
+        "اكتب جزءا من اسم المرسل أو عنوانه أو موضوع الرسالة لتصفية القائمة فوريا.": "Listeyi hemen filtrelemek için gönderen adının, adresinin veya mesaj konusunun bir bölümünü yazın.",
+        "اختر استدعاء نافذة البحث بالاختصار، أو إظهار زر البحث، أو إظهار حقل دائم يفلتر رسائل القسم الحالي أثناء الكتابة.": "Aramayı kısayolla açmayı, bir arama düğmesi göstermeyi veya yazarken geçerli bölümü filtreleyen kalıcı bir alan göstermeyi seçin.",
+        "لا توجد رسائل محملة للبحث. حدّث الرسائل أو زامنها أولا.": "Aranacak yüklü mesaj yok. Önce yenileyin veya eşitleyin.",
+        "تم فتح نافذة البحث في الرسائل.": "Mesaj arama penceresi açıldı.",
+        "عدد نتائج البحث": "Arama sonucu sayısı",
+        "لم يتم العثور على نتائج للبحث.": "Arama sonucu bulunamadı.",
+        "إغلاق نافذة البحث": "Arama penceresini kapat",
+        "فتح نافذة البحث وبدء البحث": "Arama penceresini açma ve aramayı başlatma",
+        "عدم العثور على نتائج للبحث": "Arama sonucu bulunamadı",
+    },
+    "hi": {
+        "طريقة البحث في الرسائل:": "मैसेज खोजने का तरीका:",
+        "طريقة البحث في الرسائل": "मैसेज खोजने का तरीका",
+        "بحث مستدعى عبر Ctrl+F أو Ctrl+ب": "Ctrl+F से जरूरत पर खोज",
+        "زر البحث مع الفلاتر": "फ़िल्टर सहित खोज बटन",
+        "حقل بحث دائم بجوار التصنيف": "श्रेणी के पास स्थायी खोज फ़ील्ड",
+        "بحث في الرسائل": "मैसेज खोजें",
+        "نتائج البحث": "खोज परिणाम",
+        "البحث في رسائل القسم الحالي": "मौजूदा भाग के मैसेज खोजें",
+        "يفتح نافذة بحث مستقلة تضم النتائج ومستعرض الرسالة ومستعرض العناصر.": "परिणामों, मैसेज व्यूअर और आइटम व्यूअर वाली अलग खोज विंडो खोलता है।",
+        "اكتب جزءا من اسم المرسل أو عنوانه أو موضوع الرسالة لتصفية القائمة فوريا.": "सूची को तुरंत फ़िल्टर करने के लिए भेजने वाले के नाम, पते या मैसेज विषय का कुछ भाग लिखें।",
+        "اختر استدعاء نافذة البحث بالاختصار، أو إظهار زر البحث، أو إظهار حقل دائم يفلتر رسائل القسم الحالي أثناء الكتابة.": "खोज को शॉर्टकट से खोलना, खोज बटन दिखाना या लिखते समय मौजूदा भाग को फ़िल्टर करने वाला स्थायी फ़ील्ड दिखाना चुनें।",
+        "لا توجد رسائل محملة للبحث. حدّث الرسائل أو زامنها أولا.": "खोज के लिए कोई लोड किया हुआ मैसेज नहीं है। पहले मैसेज रिफ्रेश या सिंक करें।",
+        "تم فتح نافذة البحث في الرسائل.": "मैसेज खोज विंडो खुल गई है।",
+        "عدد نتائج البحث": "खोज परिणामों की संख्या",
+        "لم يتم العثور على نتائج للبحث.": "कोई खोज परिणाम नहीं मिला।",
+        "إغلاق نافذة البحث": "खोज विंडो बंद करें",
+        "فتح نافذة البحث وبدء البحث": "खोज विंडो खोलना और खोज शुरू करना",
+        "عدم العثور على نتائج للبحث": "कोई खोज परिणाम नहीं मिला",
+    },
+}
+ENGLISH_TRANSLATIONS.update(_SEARCH_TRANSLATIONS["en"])
+FRENCH_TRANSLATIONS.update(_SEARCH_TRANSLATIONS["fr"])
+SPANISH_TRANSLATIONS.update(_SEARCH_TRANSLATIONS["es"])
+TURKISH_TRANSLATIONS.update(_SEARCH_TRANSLATIONS["tr"])
+HINDI_TRANSLATIONS.update(_SEARCH_TRANSLATIONS["hi"])
+ENGLISH_TRANSLATIONS.update(ENGLISH_FALLBACK_TRANSLATIONS)
+
+
+ENGLISH_TRANSLATIONS.update({
+    "تحويل النص إلى لغة أخرى": "Translate text into another language",
+    "إضافة لغة للتحويل إليها": "Add a target language",
+    "إضافة اللغة": "Add language",
+    "اختر لغة:": "Choose a language:",
+    "لغات تحويل النص": "Text translation languages",
+    "محو المكتوب": "Clear text",
+    "جار ترجمة النص...": "Translating text...",
+    "تمت ترجمة النص.": "Text translated.",
+    "تعذرت ترجمة النص": "Could not translate text",
+    "تعذرت ترجمة النص.": "Could not translate text.",
+    "تعذر حفظ اللغة": "Could not save language",
+    "اكتملت الترجمة، ولم يُستبدل النص لأنك عدّلته أثناء الترجمة.": "Translation finished. Your edits were kept because you changed the text during translation."
+})
+
+FRENCH_TRANSLATIONS.update({
+    "تحويل النص إلى لغة أخرى": "Traduire le texte dans une autre langue",
+    "إضافة لغة للتحويل إليها": "Ajouter une langue cible",
+    "إضافة اللغة": "Ajouter la langue",
+    "اختر لغة:": "Choisissez une langue :",
+    "لغات تحويل النص": "Langues de traduction du texte",
+    "محو المكتوب": "Effacer le texte",
+    "جار ترجمة النص...": "Traduction du texte...",
+    "تمت ترجمة النص.": "Texte traduit.",
+    "تعذرت ترجمة النص": "Impossible de traduire le texte",
+    "تعذرت ترجمة النص.": "Impossible de traduire le texte.",
+    "تعذر حفظ اللغة": "Impossible d’enregistrer la langue",
+    "اكتملت الترجمة، ولم يُستبدل النص لأنك عدّلته أثناء الترجمة.": "Traduction terminée. Vos modifications ont été conservées car vous avez modifié le texte pendant la traduction."
+})
+
+SPANISH_TRANSLATIONS.update({
+    "تحويل النص إلى لغة أخرى": "Traducir texto a otro idioma",
+    "إضافة لغة للتحويل إليها": "Añadir un idioma de destino",
+    "إضافة اللغة": "Añadir idioma",
+    "اختر لغة:": "Elija un idioma:",
+    "لغات تحويل النص": "Idiomas de traducción de texto",
+    "محو المكتوب": "Borrar texto",
+    "جار ترجمة النص...": "Traduciendo texto...",
+    "تمت ترجمة النص.": "Texto traducido.",
+    "تعذرت ترجمة النص": "No se pudo traducir el texto",
+    "تعذرت ترجمة النص.": "No se pudo traducir el texto.",
+    "تعذر حفظ اللغة": "No se pudo guardar el idioma",
+    "اكتملت الترجمة، ولم يُستبدل النص لأنك عدّلته أثناء الترجمة.": "Traducción completada. Se conservaron sus cambios porque modificó el texto durante la traducción."
+})
+
+TURKISH_TRANSLATIONS.update({
+    "تحويل النص إلى لغة أخرى": "Metni başka bir dile çevir",
+    "إضافة لغة للتحويل إليها": "Hedef dil ekle",
+    "إضافة اللغة": "Dil ekle",
+    "اختر لغة:": "Bir dil seçin:",
+    "لغات تحويل النص": "Metin çeviri dilleri",
+    "محو المكتوب": "Metni temizle",
+    "جار ترجمة النص...": "Metin çevriliyor...",
+    "تمت ترجمة النص.": "Metin çevrildi.",
+    "تعذرت ترجمة النص": "Metin çevrilemedi",
+    "تعذرت ترجمة النص.": "Metin çevrilemedi.",
+    "تعذر حفظ اللغة": "Dil kaydedilemedi",
+    "اكتملت الترجمة، ولم يُستبدل النص لأنك عدّلته أثناء الترجمة.": "Çeviri tamamlandı. Çeviri sırasında metni değiştirdiğiniz için düzenlemeleriniz korundu."
+})
+
+HINDI_TRANSLATIONS.update({
+    "تحويل النص إلى لغة أخرى": "पाठ का दूसरी भाषा में अनुवाद करें",
+    "إضافة لغة للتحويل إليها": "लक्ष्य भाषा जोड़ें",
+    "إضافة اللغة": "भाषा जोड़ें",
+    "اختر لغة:": "भाषा चुनें:",
+    "لغات تحويل النص": "पाठ अनुवाद की भाषाएँ",
+    "محو المكتوب": "पाठ मिटाएँ",
+    "جار ترجمة النص...": "पाठ का अनुवाद हो रहा है...",
+    "تمت ترجمة النص.": "पाठ का अनुवाद हो गया।",
+    "تعذرت ترجمة النص": "पाठ का अनुवाद नहीं हो सका",
+    "تعذرت ترجمة النص.": "पाठ का अनुवाद नहीं हो सका।",
+    "تعذر حفظ اللغة": "भाषा सहेजी नहीं जा सकी",
+    "اكتملت الترجمة، ولم يُستبدل النص لأنك عدّلته أثناء الترجمة.": "अनुवाद पूरा हुआ। अनुवाद के दौरान आपने पाठ बदला था, इसलिए आपके बदलाव सुरक्षित रखे गए।"
+})
+
+
+ENGLISH_TRANSLATIONS.update({
+    "المتابعة لحساب Google بكلمة مرور التطبيق (موصى بها)": "Continue with a Google app password (recommended)",
+    "تسجيل الدخول عبر Google (محدود بـ100 مستخدم)": "Sign in with Google (limited to 100 users)",
+    "تسجيل الدخول عبر Google محدود حاليا بـ100 مستخدم. إذا تعذر تسجيل الدخول، يرجى استخدام المتابعة لحساب Google بكلمة مرور التطبيق.": "Google sign-in is currently limited to 100 users. If you cannot sign in, please use the Google app password option.",
+    "يساعدك هذا المعالج على إضافة حساب Gmail باستخدام كلمة مرور تطبيق. هذه هي الطريقة الموصى بها حاليا لإضافة Gmail إلى البرنامج. لا تستخدم كلمة مرور حساب Google العادية.": "This wizard helps you add Gmail using an app password. This is currently the recommended way to add Gmail to this application. Do not use your regular Google Account password.",
+})
+FRENCH_TRANSLATIONS.update({
+    "المتابعة لحساب Google بكلمة مرور التطبيق (موصى بها)": "Continuer avec un mot de passe d’application Google (recommandé)",
+    "تسجيل الدخول عبر Google (محدود بـ100 مستخدم)": "Connexion Google (limitée à 100 utilisateurs)",
+    "تسجيل الدخول عبر Google محدود حاليا بـ100 مستخدم. إذا تعذر تسجيل الدخول، يرجى استخدام المتابعة لحساب Google بكلمة مرور التطبيق.": "La connexion Google est actuellement limitée à 100 utilisateurs. Si elle échoue, utilisez l’option de mot de passe d’application Google.",
+    "يساعدك هذا المعالج على إضافة حساب Gmail باستخدام كلمة مرور تطبيق. هذه هي الطريقة الموصى بها حاليا لإضافة Gmail إلى البرنامج. لا تستخدم كلمة مرور حساب Google العادية.": "Cet assistant vous aide à ajouter Gmail avec un mot de passe d’application. Cette méthode est actuellement recommandée dans ce programme. N’utilisez pas le mot de passe habituel de votre compte Google.",
+})
+SPANISH_TRANSLATIONS.update({
+    "المتابعة لحساب Google بكلمة مرور التطبيق (موصى بها)": "Continuar con una contraseña de aplicación de Google (recomendado)",
+    "تسجيل الدخول عبر Google (محدود بـ100 مستخدم)": "Iniciar sesión con Google (límite de 100 usuarios)",
+    "تسجيل الدخول عبر Google محدود حاليا بـ100 مستخدم. إذا تعذر تسجيل الدخول، يرجى استخدام المتابعة لحساب Google بكلمة مرور التطبيق.": "El inicio de sesión con Google está limitado actualmente a 100 usuarios. Si no puede iniciar sesión, utilice la opción de contraseña de aplicación de Google.",
+    "يساعدك هذا المعالج على إضافة حساب Gmail باستخدام كلمة مرور تطبيق. هذه هي الطريقة الموصى بها حاليا لإضافة Gmail إلى البرنامج. لا تستخدم كلمة مرور حساب Google العادية.": "Este asistente le ayuda a añadir Gmail con una contraseña de aplicación. Es el método recomendado actualmente en este programa. No utilice la contraseña habitual de su cuenta de Google.",
+})
+TURKISH_TRANSLATIONS.update({
+    "المتابعة لحساب Google بكلمة مرور التطبيق (موصى بها)": "Google uygulama şifresiyle devam et (önerilen)",
+    "تسجيل الدخول عبر Google (محدود بـ100 مستخدم)": "Google ile oturum aç (100 kullanıcıyla sınırlı)",
+    "تسجيل الدخول عبر Google محدود حاليا بـ100 مستخدم. إذا تعذر تسجيل الدخول، يرجى استخدام المتابعة لحساب Google بكلمة مرور التطبيق.": "Google ile oturum açma şu anda 100 kullanıcıyla sınırlıdır. Oturum açamıyorsanız Google uygulama şifresi seçeneğini kullanın.",
+    "يساعدك هذا المعالج على إضافة حساب Gmail باستخدام كلمة مرور تطبيق. هذه هي الطريقة الموصى بها حاليا لإضافة Gmail إلى البرنامج. لا تستخدم كلمة مرور حساب Google العادية.": "Bu sihirbaz, uygulama şifresiyle Gmail eklemenize yardımcı olur. Bu, şu anda bu programda önerilen yöntemdir. Normal Google hesabı şifrenizi kullanmayın.",
+})
+HINDI_TRANSLATIONS.update({
+    "المتابعة لحساب Google بكلمة مرور التطبيق (موصى بها)": "Google ऐप पासवर्ड से आगे बढ़ें (अनुशंसित)",
+    "تسجيل الدخول عبر Google (محدود بـ100 مستخدم)": "Google से साइन इन करें (100 उपयोगकर्ताओं तक सीमित)",
+    "تسجيل الدخول عبر Google محدود حاليا بـ100 مستخدم. إذا تعذر تسجيل الدخول، يرجى استخدام المتابعة لحساب Google بكلمة مرور التطبيق.": "Google से साइन इन करना अभी 100 उपयोगकर्ताओं तक सीमित है। यदि साइन इन नहीं हो रहा है, तो Google ऐप पासवर्ड वाला विकल्प इस्तेमाल करें।",
+    "يساعدك هذا المعالج على إضافة حساب Gmail باستخدام كلمة مرور تطبيق. هذه هي الطريقة الموصى بها حاليا لإضافة Gmail إلى البرنامج. لا تستخدم كلمة مرور حساب Google العادية.": "यह विज़ार्ड ऐप पासवर्ड से Gmail जोड़ने में मदद करता है। इस प्रोग्राम में फिलहाल यही अनुशंसित तरीका है। अपने Google खाते का सामान्य पासवर्ड इस्तेमाल न करें।",
+})
 
 _ENGLISH_TO_ARABIC = {english: arabic for arabic, english in ENGLISH_TRANSLATIONS.items()}
 _FRENCH_TO_ARABIC = {french: arabic for arabic, french in FRENCH_TRANSLATIONS.items()}
@@ -801,6 +1142,13 @@ _DYNAMIC_FRENCH = _localized_dynamic_catalog("French", FRENCH_DYNAMIC_TEMPLATES)
 _DYNAMIC_SPANISH = _localized_dynamic_catalog("Spanish", SPANISH_DYNAMIC_TEMPLATES)
 _DYNAMIC_TURKISH = _localized_dynamic_catalog("Turkish", TURKISH_DYNAMIC_TEMPLATES)
 _DYNAMIC_HINDI = _localized_dynamic_catalog("Hindi", HINDI_DYNAMIC_TEMPLATES)
+_DYNAMIC_SIMPLIFIED_CHINESE = _localized_dynamic_catalog(
+    "Simplified Chinese",
+    SIMPLIFIED_CHINESE_DYNAMIC_TEMPLATES,
+)
+_DYNAMIC_RUSSIAN = _localized_dynamic_catalog("Russian", RUSSIAN_DYNAMIC_TEMPLATES)
+_DYNAMIC_JAPANESE = _localized_dynamic_catalog("Japanese", JAPANESE_DYNAMIC_TEMPLATES)
+_DYNAMIC_GERMAN = _localized_dynamic_catalog("German", GERMAN_DYNAMIC_TEMPLATES)
 
 _TRANSLATION_CATALOGS = {
     LANGUAGE_ENGLISH: ENGLISH_TRANSLATIONS,
@@ -808,6 +1156,10 @@ _TRANSLATION_CATALOGS = {
     LANGUAGE_SPANISH: SPANISH_TRANSLATIONS,
     LANGUAGE_TURKISH: TURKISH_TRANSLATIONS,
     LANGUAGE_HINDI: HINDI_TRANSLATIONS,
+    LANGUAGE_SIMPLIFIED_CHINESE: SIMPLIFIED_CHINESE_TRANSLATIONS,
+    LANGUAGE_RUSSIAN: RUSSIAN_TRANSLATIONS,
+    LANGUAGE_JAPANESE: JAPANESE_TRANSLATIONS,
+    LANGUAGE_GERMAN: GERMAN_TRANSLATIONS,
 }
 _DYNAMIC_TRANSLATION_CATALOGS = {
     LANGUAGE_ENGLISH: _DYNAMIC_ENGLISH,
@@ -815,6 +1167,23 @@ _DYNAMIC_TRANSLATION_CATALOGS = {
     LANGUAGE_SPANISH: _DYNAMIC_SPANISH,
     LANGUAGE_TURKISH: _DYNAMIC_TURKISH,
     LANGUAGE_HINDI: _DYNAMIC_HINDI,
+    LANGUAGE_SIMPLIFIED_CHINESE: _DYNAMIC_SIMPLIFIED_CHINESE,
+    LANGUAGE_RUSSIAN: _DYNAMIC_RUSSIAN,
+    LANGUAGE_JAPANESE: _DYNAMIC_JAPANESE,
+    LANGUAGE_GERMAN: _DYNAMIC_GERMAN,
+}
+_SIMPLIFIED_CHINESE_TO_ARABIC = {
+    translated: arabic
+    for arabic, translated in SIMPLIFIED_CHINESE_TRANSLATIONS.items()
+}
+_RUSSIAN_TO_ARABIC = {
+    translated: arabic for arabic, translated in RUSSIAN_TRANSLATIONS.items()
+}
+_JAPANESE_TO_ARABIC = {
+    translated: arabic for arabic, translated in JAPANESE_TRANSLATIONS.items()
+}
+_GERMAN_TO_ARABIC = {
+    translated: arabic for arabic, translated in GERMAN_TRANSLATIONS.items()
 }
 _REVERSE_TRANSLATION_CATALOGS = (
     _ENGLISH_TO_ARABIC,
@@ -822,6 +1191,10 @@ _REVERSE_TRANSLATION_CATALOGS = (
     _SPANISH_TO_ARABIC,
     _TURKISH_TO_ARABIC,
     _HINDI_TO_ARABIC,
+    _SIMPLIFIED_CHINESE_TO_ARABIC,
+    _RUSSIAN_TO_ARABIC,
+    _JAPANESE_TO_ARABIC,
+    _GERMAN_TO_ARABIC,
 )
 
 
@@ -860,6 +1233,9 @@ def tr(text: str) -> str:
     exact = translations.get(arabic)
     if exact is not None:
         return exact
+    english_fallback = ENGLISH_TRANSLATIONS.get(arabic)
+    if english_fallback is not None:
+        return english_fallback
     dynamic_translations = _DYNAMIC_TRANSLATION_CATALOGS.get(
         _language,
         _DYNAMIC_ENGLISH,

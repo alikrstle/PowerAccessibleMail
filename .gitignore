@@ -17,3 +17,7 @@ dist-x64/
 dist-x86/
 release/
 release-archive-*/
+website/node_modules/
+website/test-results/
+website/.wrangler/
+build-i18n-cache/

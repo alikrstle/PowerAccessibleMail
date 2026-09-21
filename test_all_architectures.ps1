@@ -95,7 +95,11 @@ print(json.dumps({
         }
     }
     $actualPackages = & $PythonPath -m pip freeze |
-        Where-Object { $_ -and -not $_.StartsWith("#") } |
+        Where-Object {
+            $_ -and
+            -not $_.StartsWith("#") -and
+            -not $_.StartsWith("ruff==")
+        } |
         Sort-Object
     if ($LASTEXITCODE -ne 0) {
         throw "$Architecture could not list installed packages."
@@ -112,15 +116,22 @@ print(json.dumps({
     if ($LASTEXITCODE -ne 0) {
         throw "$Architecture dependency check failed."
     }
-    & $PythonPath -m compileall -q `
-        (Join-Path $ProjectRoot "accessible_mail") `
-        (Join-Path $ProjectRoot "tests")
-    if ($LASTEXITCODE -ne 0) {
-        throw "$Architecture compilation check failed."
+    $previousPycachePrefix = $env:PYTHONPYCACHEPREFIX
+    $env:PYTHONPYCACHEPREFIX = Join-Path $env:TEMP "power-accessible-mail-pycache-$Architecture"
+    try {
+        & $PythonPath -m compileall -q `
+            (Join-Path $ProjectRoot "accessible_mail") `
+            (Join-Path $ProjectRoot "tests")
+        if ($LASTEXITCODE -ne 0) {
+            throw "$Architecture compilation check failed."
+        }
+        & $PythonPath -m unittest discover -s (Join-Path $ProjectRoot "tests") -q
+        if ($LASTEXITCODE -ne 0) {
+            throw "$Architecture tests failed."
+        }
     }
-    & $PythonPath -m unittest discover -s (Join-Path $ProjectRoot "tests") -q
-    if ($LASTEXITCODE -ne 0) {
-        throw "$Architecture tests failed."
+    finally {
+        $env:PYTHONPYCACHEPREFIX = $previousPycachePrefix
     }
 
     Write-Output (

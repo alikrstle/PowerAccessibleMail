@@ -162,7 +162,7 @@ class UpdateCheckerTests(unittest.TestCase):
         return_value="alikrstle/PowerAccessibleMail",
     )
     @patch("accessible_mail.update_checker.urllib.request.urlopen")
-    def test_rate_limit_falls_back_to_latest_release_redirect(
+    def test_rate_limit_falls_back_to_explicit_unsigned_installer(
         self,
         urlopen,
         _repository,

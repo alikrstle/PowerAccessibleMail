@@ -55,6 +55,9 @@ EVENT_MESSAGE_LOADING = "message_loading"
 EVENT_PROGRESS = "progress"
 EVENT_FOCUS_NAVIGATION = "focus_navigation"
 EVENT_ITEM_DETAILS = "item_details"
+EVENT_SEARCH_STARTED = "search_started"
+EVENT_SEARCH_RESULTS = "search_results"
+EVENT_SEARCH_NO_RESULTS = "search_no_results"
 
 
 @dataclass(frozen=True, slots=True)
@@ -105,6 +108,9 @@ SPOKEN_NOTIFICATION_EVENTS: Final = (
     SpokenNotificationEvent(EVENT_PROGRESS, "النسب المئوية لتقدم العمليات"),
     SpokenNotificationEvent(EVENT_FOCUS_NAVIGATION, "أسماء مناطق الرسائل عند انتقال التركيز"),
     SpokenNotificationEvent(EVENT_ITEM_DETAILS, "اسم الرابط أو الزر عند التنقل داخل الرسالة"),
+    SpokenNotificationEvent(EVENT_SEARCH_STARTED, "فتح نافذة البحث وبدء البحث"),
+    SpokenNotificationEvent(EVENT_SEARCH_RESULTS, "عدد نتائج البحث"),
+    SpokenNotificationEvent(EVENT_SEARCH_NO_RESULTS, "عدم العثور على نتائج للبحث"),
 )
 
 ALL_EVENT_IDS: Final = frozenset(event.event_id for event in SPOKEN_NOTIFICATION_EVENTS)
@@ -175,6 +181,14 @@ SPOKEN_NOTIFICATION_GROUPS: Final = (
             EVENT_TRANSLATION_BACKGROUND,
             EVENT_TRANSLATION_CANCELED,
             EVENT_TRANSLATION_ERRORS,
+        ),
+    ),
+    SpokenNotificationGroup(
+        "البحث في الرسائل",
+        (
+            EVENT_SEARCH_STARTED,
+            EVENT_SEARCH_RESULTS,
+            EVENT_SEARCH_NO_RESULTS,
         ),
     ),
 )
@@ -287,6 +301,12 @@ def notification_event_for_message(message: str) -> str:
         return EVENT_MESSAGE_LOADING
     if text in {"مستعرض العناصر.", "مستعرض الرسالة.", "قائمة الرسائل."}:
         return EVENT_FOCUS_NAVIGATION
+    if "بحث" in text or "نتيجة" in text and "رسالة" in text:
+        if any(phrase in text for phrase in ("لا توجد", "لم يتم العثور", "دون نتائج")):
+            return EVENT_SEARCH_NO_RESULTS
+        if any(word in text for word in ("نتيجة", "نتائج")):
+            return EVENT_SEARCH_RESULTS
+        return EVENT_SEARCH_STARTED
 
     if "ترجم" in text or "الترجمة" in text:
         if "ألغيت" in text or "إلغاء" in text:
