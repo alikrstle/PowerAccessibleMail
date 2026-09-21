@@ -1,59 +1,276 @@
-# Power Accessible Mail
+# برنامج البريد الإلكتروني المتوافق مع المكفوفين
 
-هذا هو المستودع الرسمي لتنزيل إصدارات وتحديثات Power Accessible Mail.
+تطبيق بريد إلكتروني أولي بلغة Python وواجهة wxPython. الواجهة عمودية، وتعتمد على عناصر Windows/wx الأصلية لتعمل بشكل أفضل مع قارئات الشاشة.
 
-لا يحتوي هذا المستودع على شيفرة البرنامج. تحفظ ملفات التثبيت والنسخ المحمولة وملفات SHA-256 في صفحة الإصدارات فقط.
+هذا هو المستودع الرسمي لمصدر Power Accessible Mail وإصداراته وموقعه.
 
-## الإصدار المستقر
+## الإصدار المستقر 1.5.0
 
-الإصدار `1.2.15` إصدار مستقر غير موقع رقمياً ومتاح بمعماريتي 64 بت و32 بت. قد يعرض Windows تحذير «ناشر غير معروف» أثناء التثبيت.
+- [تنزيل مثبت Windows ‏64 بت](https://github.com/alikrstle/PowerAccessibleMail/releases/download/v1.5.0/PowerAccessibleMailSetup-1.5.0-win-x64-UNSIGNED.exe)
+- [تنزيل مثبت Windows ‏32 بت](https://github.com/alikrstle/PowerAccessibleMail/releases/download/v1.5.0/PowerAccessibleMailSetup-1.5.0-win-x86-UNSIGNED.exe)
+- [صفحة الإصدار وملفات النسخ المحمولة وبصمات SHA-256](https://github.com/alikrstle/PowerAccessibleMail/releases/tag/v1.5.0)
 
-## التنزيلات المتاحة
+ملفات هذا الإصدار غير موقعة رقمياً، ولذلك تحمل اللاحقة الصريحة `UNSIGNED`. ينشر GitHub بصمة SHA-256 لكل أصل، كما تتضمن صفحة الإصدار ملفات البصمات المطابقة للمعماريتين.
 
-- [تنزيل مثبت 64 بت للإصدار 1.2.15](https://github.com/alikrstle/PowerAccessibleMail/releases/download/v1.2.15/PowerAccessibleMailSetup-1.2.15-win-x64-UNSIGNED.exe)
-- [تنزيل مثبت 32 بت للإصدار 1.2.15](https://github.com/alikrstle/PowerAccessibleMail/releases/download/v1.2.15/PowerAccessibleMailSetup-1.2.15-win-x86-UNSIGNED.exe)
+يوجد مصدر الموقع الرسمي في المجلد [`website/`](website/). يعرض الموقع روابط الإصدار المستقر المثبتة ويتحقق من اكتمال مثبتات ونسخ x64 وx86 المحمولة وملفات البصمات.
 
-- الإصدار المستقر الحالي: `1.2.15`.
-- `PowerAccessibleMailSetup-*-win-x64`: مثبت Windows إصدار 64 بت.
-- `PowerAccessibleMailSetup-*-win-x86`: مثبت Windows إصدار 32 بت.
-- الملفات التي ينتهي اسمها بـ `UNSIGNED` غير موقعة رقمياً. تحقق من بصمة SHA-256 المرفقة قبل التشغيل.
+## التشغيل
 
-المطور: صولجان الشرق  
-المالك: علي الأمير  
-الاسم الإنجليزي: Soljan.AlSharq.
+1. افتح موجه الأوامر داخل هذا المجلد.
+2. شغل ملف التثبيت:
 
----
+```bat
+install.bat
+```
 
-This is the official repository for Power Accessible Mail releases and updates.
+أو ثبت المتطلبات يدويا:
 
-The repository does not contain the application source code. Installers, portable packages, and SHA-256 manifests are available only from the Releases page.
+```bat
+python -m pip install --only-binary=:all: -r requirements-release.lock
+```
 
-## Stable release
+3. شغل البرنامج:
 
-Version `1.2.15` is an unsigned stable release, available for both x64 and x86 Windows. Windows may display an “Unknown publisher” warning during installation.
+```bat
+python main.py
+```
 
-## Available downloads
+أو شغل الملف:
 
-- [Download the 1.2.15 64-bit installer](https://github.com/alikrstle/PowerAccessibleMail/releases/download/v1.2.15/PowerAccessibleMailSetup-1.2.15-win-x64-UNSIGNED.exe)
-- [Download the 1.2.15 32-bit installer](https://github.com/alikrstle/PowerAccessibleMail/releases/download/v1.2.15/PowerAccessibleMailSetup-1.2.15-win-x86-UNSIGNED.exe)
+```bat
+run.bat
+```
 
-- Current stable release: `1.2.15`.
-- `PowerAccessibleMailSetup-*-win-x64`: 64-bit Windows installer.
-- `PowerAccessibleMailSetup-*-win-x86`: 32-bit Windows installer.
-- Files ending in `UNSIGNED` are not digitally signed. Verify them with the included SHA-256 manifest before running.
+## ما الذي يدعمه الإصدار الحالي؟
 
-Developer: Soljan.AlSharq.  
-Owner: Ali Al-Amir
+- إضافة حساب بريد واحد أو أكثر باستخدام IMAP و SMTP.
+- إضافة حساب Gmail بتسجيل الدخول عبر المتصفح باستخدام OAuth.
+- عرض الرسائل الواردة.
+- عرض رسائل البريد غير المرغوب بها إذا كان اسم المجلد معروفا أو يمكن اكتشافه تلقائيا.
+- عرض الرسائل المرسلة.
+- تصنيف الرسائل إلى مقروءة وغير مقروءة.
+- جلب الرسائل على دفعات صغيرة بدل تحميل كل الحساب مرة واحدة.
+- عرض نسبة تقدم أثناء استلام الرسائل من الخادم.
+- حفظ الرسائل المستوردة محليا في تخزين مشفر حتى لا يعيد البرنامج طلبها كل مرة.
+- واجهة عربية أو إنجليزية أو فرنسية يمكن تبديلها مباشرة من الإعدادات، مع اختيار تلقائي حسب لغة Windows عند التشغيل الأول.
+- مستعرض HTML ومستعرض نصي سهل للرسائل.
+- ترجمة الرسالة إلى اللغة التي تختارها داخل مستعرض الرسالة أو في نافذة مستقلة حسب الإعداد المختار. بعد السماح باستخدام الترجمة أول مرة، يعرض البرنامج قائمة تبدأ بأكثر 20 لغة شيوعا ثم بقية اللغات؛ اختر بالنقر أو بالأسهم ثم Enter، وسيُحفظ اختيارك.
+- تتوفر واجهة البرنامج بالعربية والإنجليزية والفرنسية والإسبانية والتركية والهندية والصينية المبسطة والروسية واليابانية والألمانية.
+- استخراج الروابط والمرفقات وعرضها في مستعرض واحد، مع تمييز كل عنصر بعنوان مثل رابط 1 أو مرفق 1.
+- إنشاء رسالة جديدة.
+- إرفاق ملف واحد أو أكثر عند إنشاء الرسالة، مع قائمة مستقلة تعرض الملفات المضافة وتسمح بإزالتها قبل الإرسال.
+- مستعرض عناصر ذكي يرقم الروابط والأزرار والصور والمرفقات، يختار أفضل وصف متاح، ويمنع تكرار العناوين والملفات والصور المتطابقة.
+- زر إجراءات العنصر يتيح فتح المرفق المحدد أو حفظه، وحفظ جميع المرفقات دفعة واحدة، وفتح الرابط المحدد أو نسخه مباشرة من دون قائمة فرعية.
+- الرد على رسالة محددة من زر "رد" الموجود بجانب "فتح الرابط".
+- قائمة مساعدة تحتوي على دليل البرنامج وخيار فحص التحديثات.
+- تظهر الرسائل في الوضع العادي كعناصر قائمة بلا مربعات اختيار. استخدم `Ctrl+Shift+Space` لتفعيل التحديد المتعدد وإظهار المربعات، ثم حدّد بالمسافة أو بالفأرة. اضغط `Control` وحده لسماع عدد الرسائل المحددة، ويُنطق الوصول إلى بداية القائمة أو نهايتها.
+- قائمة أوامر رئيسية عمودية يمكن التنقل فيها بالسهم للأعلى والأسفل، وتنفيذ الأمر المحدد بـ Enter أو Space.
+- أمر "تحميل رسائل أقدم" لجلب الدفعة السابقة من رسائل القسم الحالي.
+- أمر "إعادة تسجيل الدخول للحساب" لتجديد OAuth إذا رفضت Google الرمز أو تغيّرت الصلاحيات.
+- اختصارات لوحة المفاتيح:
+  - Alt+1 للوصول إلى قائمة الرسائل في التصنيف الحالي.
+  - Alt+2 للعودة إلى مستعرض آخر رسالة فُتحت فعلياً؛ وإذا لم تُفتح رسالة من قبل يظهر إشعار بذلك.
+  - Alt+3 للوصول إلى أقسام البريد.
+  - Alt+4 للوصول إلى قائمة أوامر البرنامج.
+  - Alt+D لفتح دليل اختصارات البرنامج.
+  - F5 لتحديث المحتوى المعروض.
+  - Ctrl+N لإنشاء رسالة.
+  - Ctrl+R للرد.
+  - Ctrl+T لترجمة الرسالة الحالية.
+  - Escape للرجوع إلى قائمة الرسائل من مستعرض الرسالة أو مستعرض العناصر.
+  - Ctrl+Enter للتبديل بين مستعرض الرسالة ومستعرض العناصر.
+  - Ctrl+A لإضافة حساب.
+  - Ctrl+O لفتح الرابط المحدد.
+  - F1 لعرض دليل البرنامج.
+  - Alt+F4 لإغلاق البرنامج.
 
-## Official website / الموقع الرسمي
+## تسجيل الدخول عبر المتصفح
 
-The source of the Soljan AlSharq website is maintained in [`website/`](website/).
-It reads the pinned stable release from this repository and publishes the
-verified x64 and x86 installer links. Website quality checks run automatically; production
-deployment to the existing Cloudflare Pages project is a manual protected
-workflow.
+يدعم البرنامج تسجيل الدخول عبر المتصفح لحسابات:
 
-توجد ملفات موقع صولجان الشرق في المجلد [`website/`](website/). يقرأ الموقع
-الإصدار المستقر المحدد في هذا المستودع ويعرض روابط نسختي 64 بت و32 بت بعد التحقق منها. تعمل
-فحوص الجودة تلقائياً، أما النشر إلى مشروع Cloudflare Pages الإنتاجي فهو إجراء
-يدوي محمي.
+- Google / Gmail
+- Microsoft / Outlook
+
+افتح "إضافة حساب" واختر طريقة التسجيل. عند اختيار التسجيل عبر المتصفح تظهر خدمات البريد كأزرار؛ الضغط على اسم الخدمة يفتح المتصفح مباشرة من دون زر "موافق" إضافي. أما نموذج التسجيل اليدوي فيحتفظ بزر "موافق" لحفظ البيانات.
+
+مهم للمستخدم: لا تُدخل كلمة مرور حسابك الأصلية داخل البرنامج. يدعم Gmail طريقتين: كلمة مرور تطبيق Google، وهي الخيار الموصى به حاليا عند تفعيل التحقق بخطوتين، أو OAuth عبر المتصفح عندما تكون مفاتيح الخدمة متاحة. ويدعم Microsoft تسجيل الدخول الآمن عبر المتصفح.
+
+مهم للمطور: لا يستطيع البرنامج قراءة حسابات أو كلمات مرور المتصفح مباشرة. يجب تسجيل التطبيق مرة واحدة لدى Google وMicrosoft، ثم وضع بيانات العملاء في ملف `oauth_clients.json` الموحد. هذه البيانات لا تظهر في واجهة المستخدم.
+
+نطاقات OAuth المستخدمة:
+
+- Gmail API: `openid email profile https://www.googleapis.com/auth/gmail.modify`
+- Microsoft: `openid profile email offline_access https://outlook.office.com/IMAP.AccessAsUser.All https://outlook.office.com/SMTP.Send`
+
+### تجهيز OAuth للمطور
+
+1. أنشئ `oauth_clients.json` في جذر المشروع اعتمادا على `oauth_clients.example.json`.
+2. سجل التطبيق في Google Cloud أو Microsoft Entra.
+3. ضع بيانات الخدمتين في الملف الموحد:
+
+```json
+{
+  "google_gmail_api": {
+    "client_id": "ضع Google Gmail API Client ID هنا",
+    "client_secret": "ضع Google Gmail API Client Secret هنا إن وجد"
+  },
+  "microsoft": {
+    "client_id": "ضع Microsoft Application Client ID هنا",
+    "client_secret": ""
+  }
+}
+```
+
+نسختا `x64` و`x86` تستخدمان ملف الاعتماد نفسه والميزات نفسها. يمكن أيضا ضبط القيم عبر متغيرات البيئة:
+
+- `ACCESSIBLE_MAIL_GOOGLE_GMAIL_API_CLIENT_ID`
+- `ACCESSIBLE_MAIL_GOOGLE_GMAIL_API_CLIENT_SECRET`
+- `ACCESSIBLE_MAIL_MICROSOFT_CLIENT_ID`
+- `ACCESSIBLE_MAIL_MICROSOFT_CLIENT_SECRET`
+
+عند تسجيل Microsoft استخدم منصة Mobile and desktop applications واضبط Redirect URI على `http://localhost`.
+
+## بناء نسختي Windows
+
+المصدر واحد، والاختلاف الوحيد هو معمارية Python والمكتبات:
+
+```powershell
+.\build_release_power_accessible_mail_x64.ps1
+.\build_release_power_accessible_mail_x86.ps1
+```
+
+تستخدم نسخة `x64` البيئة `.venv`، وتستخدم نسخة `x86` البيئة `.venv-x86`. ينتج البناء مثبتا ونسخة محمولة وبصمات SHA-256 لكل معمارية. يتطلب بناء الإصدار العام شهادة Authenticode موثوقة في مخزن شهادات Windows عبر `POWER_ACCESSIBLE_MAIL_SIGNING_CERT_THUMBPRINT`، ويتوقف البناء بدلا من إنتاج ملف عام غير موقع.
+
+لإنشاء ملف غير موقع للاختبار المحدود أو للتحليل المحلي وإرساله إلى Microsoft عند فحص إنذار كاذب:
+
+```powershell
+.\build_release_power_accessible_mail_x64.ps1 -AllowUnsigned
+.\build_release_power_accessible_mail_x86.ps1 -AllowUnsigned
+```
+
+ولفحص الحزمة نفسها بتعريفات Microsoft Defender الحالية من PowerShell يعمل كمسؤول، مع تعطيل المعالجة كي لا يحذف الفاحص ملفات الاختبار:
+
+```powershell
+.\build_release_power_accessible_mail_x64.ps1 -AllowUnsigned -RunDefenderScan
+.\build_release_power_accessible_mail_x86.ps1 -AllowUnsigned -RunDefenderScan
+```
+
+يستخدم المثبت غير الموقع ضغط ZIP غير متصلب، بينما يبقى بناء PyInstaller في وضع `onedir` ومع `--noupx`. ويسجل بيان البناء بصمة SHA-256 وحالة التوقيع لكل ملف EXE وDLL وPYD، إضافة إلى نتيجة فحص Defender عند تشغيله. لا تضمن هذه الإجراءات منع الإنذار الكاذب، لكنها تقلل الأنماط الملتبسة وتجعل تشخيص أي اكتشاف قابلا للتكرار.
+
+يفضّل توقيع الإصدار المستقر بشهادة Authenticode موثوقة. وعندما لا تتوفر شهادة بسعر مناسب ويعتمد مسؤول المشروع النشر غير الموقع صراحة، تبقى لاحقة `UNSIGNED` ظاهرة في كل حزمة، وتُنشر ملفات SHA-256 معها، وتظل فحوص HTTPS والإصدار والمعمارية والبصمة إلزامية في التحديث الداخلي. لا يُطلب من المستخدم تعطيل Defender. راجع [إجراء إنذارات Defender الكاذبة](DEFENDER_FALSE_POSITIVE_AR.md).
+
+يدعم التحديث الداخلي انتقاليا مثبتا يحمل اللاحقة الصريحة `-UNSIGNED` عندما لا تتوفر شهادة التوقيع، لكنه يفضّل المثبت الموقّع دائما. لا يعمل المثبت غير الموقّع إلا بعد التحقق الصامت من HTTPS وبصمة SHA-256 ورقم الإصدار والمعمارية. أي ملف غير موقّع لا يحمل اللاحقة، أو ملف يحمل توقيعا تالفا أو غير موثوق، يُرفض.
+
+قبل البناء، يمكن التحقق من البيئتين والمصدر المشترك وقفل الحزم والاختبارات بأمر واحد:
+
+```powershell
+.\test_all_architectures.ps1
+```
+
+إذا نُقل مجلد المشروع إلى مسار جديد، فقد تبقى مشغلات البيئة الافتراضية مرتبطة بالمسار القديم. أصلح البيئتين من Python الأساسي المطابق ثم أعد الفحص:
+
+```powershell
+& "D:\python\python.exe" -m venv --upgrade .venv
+& "D:\python-x86\python.exe" -m venv --upgrade .venv-x86
+& ".\.venv\Scripts\python.exe" -m pip install --only-binary=:all: --require-hashes -r requirements-release.lock
+& ".\.venv-x86\Scripts\python.exe" -m pip install --only-binary=:all: --require-hashes -r requirements-release.lock
+.\test_all_architectures.ps1
+```
+
+يتحقق الفاحص أيضا من معمارية bootloader الخاص بـPyInstaller، لا من معمارية Python فقط. إذا أبلغ عن bootloader غير مطابق، أعد تثبيت PyInstaller داخل البيئة المتأثرة:
+
+```powershell
+.\.venv\Scripts\python.exe -m pip install --force-reinstall --no-deps pyinstaller==6.20.0
+```
+
+## سجل الأعطال
+
+ينشئ البرنامج سجل أعطال دوّارا في:
+
+```text
+%APPDATA%\PowerAccessibleMail\logs\power-accessible-mail.log
+```
+
+يسجل الملف نوع الخطأ ومواقع الشفرة فقط، ولا يسجل نص الاستثناء أو كلمات المرور
+أو رموز OAuth أو عناوين البريد ومحتوى الرسائل. يحتفظ البرنامج بثلاث نسخ احتياطية
+بحجم أقصى 512 كيلوبايت لكل ملف.
+
+## ملاحظات مهمة للحسابات
+
+لا تستخدم كلمة مرور الحساب الأصلية داخل البرنامج. في Gmail استخدم كلمة مرور تطبيق Google المخصصة للبرنامج (الخيار الموصى به حاليا) أو OAuth عبر المتصفح. في Microsoft استخدم تسجيل الدخول عبر المتصفح. تبقى الإعدادات اليدوية للحالات المتقدمة ومزودي البريد الآخرين.
+
+إعدادات شائعة:
+
+- Gmail:
+  - IMAP: `imap.gmail.com`, المنفذ `993`, SSL.
+  - SMTP: `smtp.gmail.com`, المنفذ `587`, STARTTLS.
+  - مجلد غير مرغوب غالبا: `[Gmail]/Spam`.
+- Outlook/Hotmail:
+  - IMAP: `outlook.office365.com`, المنفذ `993`, SSL.
+  - SMTP: `smtp-mail.outlook.com`, المنفذ `587`, STARTTLS.
+  - مجلد غير مرغوب غالبا: `Junk Email`.
+- Yahoo:
+  - IMAP: `imap.mail.yahoo.com`, المنفذ `993`, SSL.
+  - SMTP: `smtp.mail.yahoo.com`, المنفذ `587`, STARTTLS.
+  - مجلد غير مرغوب غالبا: `Bulk Mail`.
+
+## مكان حفظ الحسابات
+
+يحفظ البرنامج إعدادات الحسابات في مجلد بيانات المستخدم:
+
+- على Windows: `%APPDATA%\PowerAccessibleMail\accounts.json`
+- على الأنظمة الأخرى: `~/.accessible_mail/accounts.json`
+
+إذا اخترت حفظ كلمة المرور اليدوية أو رموز OAuth، تُخزن داخل هذا الملف بعد حمايتها باستخدام Windows DPAPI لحساب Windows الحالي. لا يكتب البرنامج هذه الأسرار كنص صريح، ويفشل الحفظ إذا تعذرت حمايتها.
+
+## التخزين المحلي المشفر
+
+يحفظ البرنامج الرسائل المستوردة في قاعدة بيانات محلية داخل:
+
+`%APPDATA%\PowerAccessibleMail\.mail_store\messages.sqlite3`
+
+المجلد مخفي على Windows، ومحتوى الرسائل والروابط وملخصات الرسائل تحفظ مشفرة باستخدام Windows DPAPI لحساب Windows الحالي. هذا يعني أن البرنامج يعرض الرسائل المحفوظة بسرعة في المرات التالية، ثم يحدّث أحدث دفعة من Gmail في الخلفية.
+
+هذا ليس بديلا عن تشفير قرص Windows الكامل، لكنه يمنع قراءة الرسائل مباشرة من الملف بدون حساب Windows نفسه.
+
+## تحديث البرنامج
+
+يفحص البرنامج أحدث إصدار منشور في [GitHub Releases](https://github.com/alikrstle/PowerAccessibleMail/releases) بعد بدء التشغيل، ويمكن إجراء الفحص يدويا من قائمة "المساعدة" عبر "تحديث البرنامج". لا يحتاج المستخدم إلى رمز GitHub. عند وجود إصدار أحدث تظهر نافذة واضحة تحتوي على زري "تحديث الآن" و"إغلاق". ينزل زر التحديث المثبت المطابق إلى مجلد التحديثات داخل `%LOCALAPPDATA%`، ويتحقق من بصمة SHA-256، ثم يغلق البرنامج ويثبت الإصدار الجديد تلقائيا ويعيد تشغيله من دون صفحات اللغة أو خطوات المثبت المعتادة. تبقى نافذة UAC أو تحذيرات حماية Windows ظاهرة عندما يطلبها النظام، ولا يحاول البرنامج تجاوزها. وإذا لم يوجد ملف مطابق يفتح صفحة الإصدار.
+
+عند نشر إصدار جديد:
+
+1. أنشئ مسودة GitHub Release، وارفع كل الأصول والبصمات إليها قبل نشرها. اجعلها `Pre-release` للاختبار، أو إصدارا مستقرا بعد اعتماد مسؤول المشروع واكتمال اختبارات القبول.
+2. استخدم وسم إصدار مثل `v1.5.0`.
+3. إذا توفر توقيع صالح، انشر المثبت الموقع بلا لاحقة. وإذا اعتمد مسؤول المشروع النشر غير الموقع، ارفع `PowerAccessibleMailSetup-1.5.0-win-x64-UNSIGNED.exe` مع ملف SHA-256 المطابق.
+4. طبّق القاعدة نفسها على نسخة x86.
+5. ارفع ملفات ZIP وملفات بصمة SHA-256 للمعماريتين إلى الإصدار نفسه.
+6. لا تنشر ملفا غير موقع باسم يوحي بأنه موقع. إذا صنّف Defender الملف خطأ، أرسله إلى Microsoft كـSoftware developer وسجل رقم الطلب.
+
+المستودع الافتراضي هو `alikrstle/PowerAccessibleMail`. يمكن تغييره لأغراض التطوير عبر:
+
+`POWER_ACCESSIBLE_MAIL_GITHUB_REPOSITORY=owner/repository`
+
+يبقى ملف JSON القديم مدعوما كخيار تجاوز. عند ضبط `POWER_ACCESSIBLE_MAIL_UPDATE_URL` أو وضع الرابط في `update_manifest_url.txt` بجانب البرنامج أو في مجلد بيانات المستخدم، يستخدم البرنامج ذلك الملف بدلا من GitHub Releases:
+
+```json
+{
+  "version": "1.5.0",
+  "downloads": {
+    "x64": "https://example.com/PowerAccessibleMailSetup-1.5.0-win-x64.exe",
+    "x86": "https://example.com/PowerAccessibleMailSetup-1.5.0-win-x86.exe"
+  },
+  "notes": "تحسينات في استلام الرسائل ودعم المرفقات."
+}
+```
+
+يجب أن يستخدم رابط ملف JSON وروابط التنزيل HTTPS. لا يشغّل المحدث الداخلي مثبتا إلا إذا طابق اسم المنتج ورقم الإصدار ومعمارية البرنامج الحالية وتوفرت بصمة SHA-256 صحيحة.
+
+## ترجمة نص الرسالة قبل الإرسال
+
+في حقل الموضوع أو المحتوى، افتح قائمة السياق بزر التطبيقات أو Shift+F10 أو النقر بالزر الأيمن. أول خيار هو «تحويل النص إلى لغة أخرى»، يليه نسخ ولصق ومحو المكتوب.
+
+اختر «إضافة لغة للتحويل إليها» لفتح قائمة رأسية باللغات، ثم تنقل بالأسهم واضغط Enter، أو انتقل بواسطة Tab إلى «إضافة اللغة». تُحفظ اللغة لاستخدامها لاحقا في القائمة الفرعية. إضافة اللغة لا تبدأ الترجمة تلقائيا؛ اخترها من القائمة لبدء تحويل كامل نص الحقل.
+
+تعمل الترجمة في الخلفية عبر خدمة الترجمة المستخدمة في البرنامج، وتستخدم موافقة نقل النص وإعدادات نطق إشعارات الترجمة. عند نجاحها يُستبدل نص الحقل، ويمكن التراجع عبر Ctrl+Z. إذا غُيّر النص أثناء الانتظار أو أُغلقت نافذة الإنشاء، لا تُطبّق النتيجة المتأخرة. عند فشل الترجمة يبقى النص الأصلي.
+
+مصدر أسماء اللغات ورموزها: https://docs.cloud.google.com/translate/docs/languages (قائمة NMT، بتاريخ 2026-09-07). قد يختلف توفر بعض اللغات حسب واجهة خدمة الترجمة.

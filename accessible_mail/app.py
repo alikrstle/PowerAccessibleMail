@@ -1,0 +1,127 @@
+from __future__ import annotations
+
+from collections.abc import Sequence
+
+import wx
+
+from .accessibility import (
+    announce_to_screen_reader,
+    focused_control,
+    install_message_box_translation,
+    restore_control_focus,
+    set_accessible,
+)
+from .account_dialog import AccountDialog
+from .bulk_operations import run_bulk_operations
+from .dialogs import (
+    BulkDeleteDialog,
+    ComposeDialog,
+    SettingsDialog,
+    UpdateAvailableDialog,
+    UpdateDownloadDialog,
+)
+from .error_logging import record_unhandled_exception
+from .mail_page import MailPage
+from .launch_request import mailto_request_from_arguments
+from .main_frame import MainFrame
+from .ui_constants import (
+    BULK_ACTION_DELETE,
+    BULK_ACTION_MARK_READ,
+    BULK_ACTION_MARK_UNREAD,
+    BULK_ACTION_PIN,
+    BULK_ACTION_STAR,
+    BULK_ACTION_UNPIN,
+    BULK_ACTION_UNSTAR,
+    FILTER_ALL,
+    FILTER_CHOICES,
+    FILTER_READ,
+    FILTER_STARRED,
+    FILTER_TRASH,
+    FILTER_UNREAD,
+    INITIAL_MESSAGE_LIMIT,
+    INLINE_GENERIC_LINK_TEXTS,
+    LANGUAGE_CHOICES,
+    MANUAL_PROVIDER_GOOGLE,
+    MANUAL_PROVIDER_MICROSOFT,
+    MAX_MEMORY_MESSAGE_CONTENTS,
+    MESSAGE_SELECTION_DELAY_MS,
+    MULTI_SELECTION_ANNOUNCEMENT_DELAY_MS,
+    SEARCH_MODE_CHOICES,
+    THEME_CHOICES,
+    TRANSLATION_MODE_CHOICES,
+    VIEWER_CHOICES,
+)
+
+
+__all__ = (
+    "AccountDialog",
+    "BULK_ACTION_DELETE",
+    "BULK_ACTION_MARK_READ",
+    "BULK_ACTION_MARK_UNREAD",
+    "BULK_ACTION_PIN",
+    "BULK_ACTION_STAR",
+    "BULK_ACTION_UNPIN",
+    "BULK_ACTION_UNSTAR",
+    "BulkDeleteDialog",
+    "ComposeDialog",
+    "FILTER_ALL",
+    "FILTER_CHOICES",
+    "FILTER_READ",
+    "FILTER_STARRED",
+    "FILTER_TRASH",
+    "FILTER_UNREAD",
+    "INITIAL_MESSAGE_LIMIT",
+    "INLINE_GENERIC_LINK_TEXTS",
+    "LANGUAGE_CHOICES",
+    "MANUAL_PROVIDER_GOOGLE",
+    "MANUAL_PROVIDER_MICROSOFT",
+    "MAX_MEMORY_MESSAGE_CONTENTS",
+    "MESSAGE_SELECTION_DELAY_MS",
+    "MULTI_SELECTION_ANNOUNCEMENT_DELAY_MS",
+    "SEARCH_MODE_CHOICES",
+    "MailPage",
+    "MainFrame",
+    "SettingsDialog",
+    "THEME_CHOICES",
+    "TRANSLATION_MODE_CHOICES",
+    "UpdateAvailableDialog",
+    "UpdateDownloadDialog",
+    "VIEWER_CHOICES",
+    "announce_to_screen_reader",
+    "focused_control",
+    "restore_control_focus",
+    "run",
+    "run_bulk_operations",
+    "set_accessible",
+)
+
+
+install_message_box_translation()
+
+
+class AccessibleMailApp(wx.App):
+    def OnExceptionInMainLoop(self) -> bool:
+        exc_type, exc_value, exc_traceback = __import__("sys").exc_info()
+        if exc_type is not None and exc_value is not None:
+            record_unhandled_exception(
+                exc_type,
+                exc_value,
+                exc_traceback,
+                origin="wx main loop",
+            )
+        return False
+
+
+def run(arguments: Sequence[str] = ()) -> None:
+    mailto_request = mailto_request_from_arguments(arguments)
+    app = AccessibleMailApp(False)
+    frame = MainFrame()
+    frame.Show()
+    if mailto_request is not None:
+        wx.CallAfter(
+            frame.open_compose_dialog,
+            mailto_request.to_address,
+            mailto_request.subject,
+            mailto_request.body,
+        )
+    app.MainLoop()
