@@ -13,7 +13,7 @@ from accessible_mail.ui_constants import BULK_ACTION_MARK_READ
 class ExtendedPracticeTests(unittest.TestCase):
     def test_nine_new_tasks_appended_without_renumbering_existing(self):
         self.assertEqual(len(EXTENDED_LESSONS), 9)
-        self.assertEqual([lesson[2] for lesson in LESSONS[16:]], [lesson[2] for lesson in EXTENDED_LESSONS])
+        self.assertEqual([lesson[2] for lesson in LESSONS[16:25]], [lesson[2] for lesson in EXTENDED_LESSONS])
         self.assertEqual(LESSONS[8][2], "forward")
         self.assertEqual(LESSONS[18][2], "practice_contacts")
         self.assertEqual(LESSONS[19][2], "practice_contacts_edit_use")

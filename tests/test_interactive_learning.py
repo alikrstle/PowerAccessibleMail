@@ -10,6 +10,30 @@ from accessible_mail.interactive_learning import MESSAGE_ACTIONS, PAIR_FIELDS, p
 
 
 class LearningTests(unittest.TestCase):
+    def test_merged_folder_task_preserves_later_task_identity(self):
+        with tempfile.TemporaryDirectory() as folder:
+            path = Path(folder) / "progress.json"
+            path.write_text(json.dumps({"version": 2, "current": "organize_section", "states": {
+                "organize_folder_create": "completed", "organize_folder_management": "completed"
+            }}), encoding="utf-8")
+            obj = SimpleNamespace(progress_path=path, task_states={})
+            step = InteractiveLearning.load_progress(obj)
+            self.assertEqual(LESSONS[step][2], "organize_section")
+            self.assertNotIn("organize_folder_create", obj.task_states)
+            self.assertEqual(obj.task_states["organize_folder_management"], "completed")
+            path.write_text(json.dumps({"version": 2, "current": "organize_folder_membership", "states": {}}), encoding="utf-8")
+            self.assertEqual(LESSONS[InteractiveLearning.load_progress(obj)][2], "organize_folder_create")
+
+    def test_new_merged_completion_is_not_lost_on_restart(self):
+        with tempfile.TemporaryDirectory() as folder:
+            path = Path(folder) / "progress.json"
+            step = next(i for i, lesson in enumerate(LESSONS) if lesson[2] == "organize_folder_management")
+            obj = SimpleNamespace(progress_path=path, step=step, task_states={"organize_folder_create": "completed"})
+            self.assertTrue(InteractiveLearning.save_progress(obj))
+            loaded = SimpleNamespace(progress_path=path, task_states={})
+            self.assertEqual(InteractiveLearning.load_progress(loaded), step)
+            self.assertEqual(loaded.task_states["organize_folder_create"], "completed")
+
     def test_previous_end_resumes_at_first_new_lesson(self):
         with tempfile.TemporaryDirectory() as folder:
             path = Path(folder) / "progress.json"
@@ -18,6 +42,16 @@ class LearningTests(unittest.TestCase):
             obj = SimpleNamespace(progress_path=path, task_states={})
             self.assertEqual(InteractiveLearning.load_progress(obj), 16)
             self.assertEqual(obj.task_states, states)
+
+    def test_completed_1_5_guide_resumes_at_first_1_6_task(self):
+        with tempfile.TemporaryDirectory() as folder:
+            path = Path(folder) / "progress.json"
+            states = {lesson[2]: "completed" for lesson in LESSONS[:25]}
+            path.write_text(json.dumps({"version": 2, "current": "end", "states": states}), encoding="utf-8")
+            obj = SimpleNamespace(progress_path=path, task_states={})
+
+            self.assertEqual(InteractiveLearning.load_progress(obj), 25)
+            self.assertEqual(LESSONS[25][2], "organize_bulk_submenus")
 
     def test_old_combined_contact_progress_migrates_to_split_tasks(self):
         with tempfile.TemporaryDirectory() as folder:

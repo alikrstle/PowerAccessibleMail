@@ -3,12 +3,78 @@ from __future__ import annotations
 import tempfile
 import unittest
 import sqlite3
+import os
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 from accessible_mail.models import Account, LinkItem, MessageContent, MessageSummary
-from accessible_mail.secure_store import MessageCache, _decrypt_summary_json
+from accessible_mail.folder_store import FOLDER_MESSAGES, FolderStore
+from accessible_mail.secure_store import (
+    LOCKED_CACHE_PREFIX, MessageCache, _decrypt_summary_json, protect_bytes, unprotect_bytes,
+)
+
+
+class DpapiEntropyTests(unittest.TestCase):
+    def test_optional_entropy_is_passed_as_third_dpapi_argument(self) -> None:
+        crypt32 = Mock()
+        crypt32.CryptProtectData.return_value = 1
+        crypt32.CryptUnprotectData.return_value = 1
+        with patch("accessible_mail.secure_store.ctypes.windll") as windll:
+            windll.crypt32 = crypt32
+            self.assertEqual(protect_bytes(b"data", b"secret"), b"")
+            self.assertEqual(unprotect_bytes(b"data", b"secret"), b"")
+        protect_args = crypt32.CryptProtectData.call_args.args
+        unprotect_args = crypt32.CryptUnprotectData.call_args.args
+        self.assertIsNone(protect_args[1])
+        self.assertEqual(protect_args[2]._obj.cbData, 6)
+        self.assertIsNone(unprotect_args[1])
+        self.assertEqual(unprotect_args[2]._obj.cbData, 6)
+
+    def test_existing_cache_calls_keep_no_optional_entropy(self) -> None:
+        crypt32 = Mock()
+        crypt32.CryptProtectData.return_value = 1
+        with patch("accessible_mail.secure_store.ctypes.windll") as windll:
+            windll.crypt32 = crypt32
+            protect_bytes(b"data")
+        self.assertIsNone(crypt32.CryptProtectData.call_args.args[2])
+
+
+@unittest.skipUnless(os.environ.get("PAM_REAL_DPAPI_TEST") == "1", "requires real Windows DPAPI")
+class RealLockCacheIntegrationTests(unittest.TestCase):
+    def test_password_protects_membership_and_cached_content(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            store = FolderStore(Path(directory) / "folders.db")
+            cache = MessageCache(Path(directory) / "messages.sqlite3")
+            cache.set_lock_store(store)
+            account = Account(id="account-a", email_address="user@example.com")
+            summary = MessageSummary(uid="42", mailbox="INBOX", subject="Private subject")
+            cache.upsert_content(account, MessageContent(summary=summary, text="Private body", links=[]))
+            folder = store.create_folder(account.id, FOLDER_MESSAGES, "Private", ['["INBOX","42"]'])
+            with cache.lock_guard:
+                store.lock_target(account.id, "folder", folder.id, "passphrase-123")
+                store.unlock_target(account.id, "folder", folder.id, "passphrase-123")
+                keys, entropy = store.open_lock_material("folder", folder.id)
+                cache.seal_locked_rows(account.id, keys, entropy)
+                store.close_target("folder", folder.id)
+            self.assertIsNone(cache.get_content(account.id, "INBOX", "42"))
+            with cache._connect() as conn:
+                blob = bytes(conn.execute("SELECT body_blob FROM messages WHERE uid = '42'").fetchone()[0])
+            self.assertTrue(blob.startswith(LOCKED_CACHE_PREFIX))
+            with self.assertRaises(OSError):
+                unprotect_bytes(blob[len(LOCKED_CACHE_PREFIX):], b"wrong-key")
+            reopened_store = FolderStore(Path(directory) / "folders.db")
+            reopened_cache = MessageCache(Path(directory) / "messages.sqlite3")
+            reopened_cache.set_lock_store(reopened_store)
+            self.assertIsNone(reopened_cache.get_content(account.id, "INBOX", "42"))
+            reopened_store.unlock_target(account.id, "folder", folder.id, "passphrase-123")
+            self.assertEqual(reopened_cache.get_content(account.id, "INBOX", "42").text, "Private body")
+            reopened_store.remove_lock(account.id, "folder", folder.id)
+            self.assertFalse(reopened_store.is_locked(account.id, "folder", folder.id))
+            self.assertEqual(reopened_cache.get_content(account.id, "INBOX", "42").text, "Private body")
+            with reopened_cache._connect() as conn:
+                body = bytes(conn.execute("SELECT body_blob FROM messages WHERE uid = '42'").fetchone()[0])
+            self.assertFalse(body.startswith(LOCKED_CACHE_PREFIX))
 
 
 class MessageCacheTests(unittest.TestCase):
@@ -27,6 +93,81 @@ class MessageCacheTests(unittest.TestCase):
                 side_effect=lambda data: bytes(data).removeprefix(b"encrypted:"),
             ),
         )
+
+    def test_locked_message_cache_requires_password_and_sync_cannot_downgrade_it(self) -> None:
+        class LockStore:
+            locked = False
+            entropy = None
+
+            def has_any_locks(self):
+                return self.locked
+
+            def set_message_cache(self, cache):
+                self.cache = cache
+
+            def lock_context_for_message(self, account_id, mailbox, uid):
+                return (self.locked, self.entropy) if uid == "42" else (False, None)
+
+        def encrypt(data, entropy=None):
+            return (b"password:" if entropy else b"windows:") + bytes(data)
+
+        def decrypt(data, entropy=None):
+            prefix = b"password:" if entropy else b"windows:"
+            if not bytes(data).startswith(prefix):
+                raise ValueError("wrong key")
+            return bytes(data)[len(prefix):]
+
+        with (
+            patch("accessible_mail.secure_store.protect_bytes", side_effect=encrypt),
+            patch("accessible_mail.secure_store.unprotect_bytes", side_effect=decrypt),
+        ):
+            cache = MessageCache(self.cache_path)
+            store = LockStore()
+            cache.set_lock_store(store)
+            summary = MessageSummary(uid="42", mailbox="INBOX", subject="Secret")
+            cache.upsert_content(self.account, MessageContent(summary=summary, text="Private body", links=[]))
+            key = '["INBOX","42"]'
+            store.locked, store.entropy = True, b"secret"
+            cache.seal_locked_rows(self.account.id, [key], b"secret")
+            with cache._connect() as conn:
+                row = conn.execute("SELECT summary_blob, body_blob FROM messages WHERE uid = '42'").fetchone()
+            self.assertTrue(bytes(row["summary_blob"]).startswith(LOCKED_CACHE_PREFIX))
+            self.assertTrue(bytes(row["body_blob"]).startswith(LOCKED_CACHE_PREFIX))
+            self.assertEqual(cache.get_content(self.account.id, "INBOX", "42").text, "Private body")
+            cache.upsert_content(self.account, MessageContent(summary=summary, text="Updated private body", links=[]))
+            self.assertEqual(cache.get_content(self.account.id, "INBOX", "42").text, "Updated private body")
+            with cache._connect() as conn:
+                updated_blob = bytes(conn.execute("SELECT body_blob FROM messages WHERE uid = '42'").fetchone()[0])
+            self.assertTrue(updated_blob.startswith(LOCKED_CACHE_PREFIX))
+            store.entropy = None
+            self.assertIsNone(cache.get_content(self.account.id, "INBOX", "42"))
+            cache.upsert_content(self.account, MessageContent(summary=summary, text="Unsafe overwrite", links=[]))
+            with cache._connect() as conn:
+                current = conn.execute("SELECT body_blob FROM messages WHERE uid = '42'").fetchone()[0]
+            self.assertEqual(bytes(current), updated_blob)
+            store.entropy = b"secret"
+            cache.unseal_locked_rows(self.account.id, [key], b"secret")
+            store.locked = False
+            self.assertEqual(cache.get_content(self.account.id, "INBOX", "42").text, "Updated private body")
+
+    def test_legacy_unwrapped_cache_row_is_retained_but_inaccessible_when_closed(self) -> None:
+        class LockStore:
+            def has_any_locks(self):
+                return True
+
+            def set_message_cache(self, cache):
+                pass
+
+            def lock_context_for_message(self, account_id, mailbox, uid):
+                return True, None
+
+        protect_patch, unprotect_patch = self.crypto_patches()
+        with protect_patch, unprotect_patch:
+            cache = MessageCache(self.cache_path)
+            cache.upsert_summaries(self.account, [MessageSummary(uid="42", mailbox="INBOX")])
+            cache.set_lock_store(LockStore())
+            self.assertEqual(cache.count_summaries(self.account.id, "INBOX"), 1)
+            self.assertEqual(cache.list_summaries(self.account.id, "INBOX", 50), [])
 
     def test_access_error_does_not_move_or_delete_database(self) -> None:
         self.cache_path.write_bytes(b"healthy database placeholder")

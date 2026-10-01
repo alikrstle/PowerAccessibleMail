@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import imaplib
+import re
 import smtplib
 import threading
+import time
 import webbrowser
 from collections import OrderedDict
 from collections.abc import Callable
@@ -55,6 +57,7 @@ from .config import (
     save_accounts,
     save_settings,
 )
+from .custom_category_dialog import CategoryRulesDialog, CustomCategoryDialog
 from .dialogs import (
     BulkDeleteDialog,
     ComposeDialog,
@@ -65,12 +68,20 @@ from .dialogs import (
 )
 from .email_service import MailError, MailSyncResult
 from .email_utils import normalize_message_text
-from .guide import load_program_guide
+from .folder_store import (
+    FOLDER_MESSAGES,
+    FolderStore,
+    ProtectedAddressBookError,
+    message_folder_key,
+    parse_message_folder_key,
+)
+from .guide import adjacent_guide_heading, guide_heading_ranges, load_program_guide
 from .i18n import set_language, tr
-from .mail_page import MailPage
+from .mail_page import FolderRow, MailPage
 from .mail_service_router import MailServiceRouter
 from .models import Account, LinkItem, MessageContent, MessageSummary
 from .notification_preferences import (
+    EVENT_COMPOSE_OPEN,
     EVENT_SEARCH_STARTED,
     configure_spoken_notifications,
     notification_event_for_message,
@@ -79,10 +90,27 @@ from .oauth import (
     OAuthError,
     OAuthReauthenticationRequired,
     apply_provider_settings,
+    revoke_account_oauth_token,
     run_browser_oauth_flow,
+    supports_oauth_revocation,
+)
+from .program_sounds import (
+    SOUND_ADDRESS_BOOK,
+    SOUND_COMPOSE,
+    SOUND_ITEM_VIEWER,
+    SOUND_LEARNING_OPEN,
+    SOUND_SEND,
+    SOUND_SETTINGS,
+    SOUND_TRASH,
+    SOUND_UPDATE_AVAILABLE,
+    play_program_sound,
+    start_update_background_music,
+    stop_program_sound,
+    stop_update_background_music,
 )
 from .translation import TranslationRateLimitError, translate_text_with_google
 from .ui_constants import (
+    BULK_ACTION_ARCHIVE,
     BULK_ACTION_DELETE,
     BULK_ACTION_MARK_READ,
     BULK_ACTION_MARK_UNREAD,
@@ -90,12 +118,14 @@ from .ui_constants import (
     BULK_ACTION_STAR,
     BULK_ACTION_UNPIN,
     BULK_ACTION_UNSTAR,
+    BULK_ACTION_RESTORE_ARCHIVED,
+    FILTER_CHOICES,
     INITIAL_MESSAGE_LIMIT,
     MAX_MEMORY_MESSAGE_CONTENTS,
     MESSAGE_SELECTION_DELAY_MS,
 )
+from .visual_accessibility import apply_visual_accessibility, visual_palette
 from .ui_helpers import (
-    theme_palette,
     app_icon_path,
     apply_layout_direction,
     localize_menu_bar,
@@ -116,6 +146,13 @@ from .windows_integration import (
 
 
 OFFICIAL_WEBSITE_URL = "https://soljan-alsharq.com/"
+
+
+def play_sound_if_available(owner: object, event_id: str) -> bool:
+    handler = getattr(owner, "play_program_sound", None)
+    return bool(handler(event_id)) if callable(handler) else False
+
+
 PRIVACY_POLICY_URL = "https://soljan-alsharq.com/privacy"
 TERMS_OF_USE_URL = "https://soljan-alsharq.com/terms"
 DEVELOPER_EMAIL = "support@soljan-alsharq.com"
@@ -127,6 +164,9 @@ QUICK_NAVIGATION_SHORTCUTS: tuple[tuple[str, str], ...] = (
     ("Alt+2", "العودة إلى مستعرض آخر رسالة فُتحت."),
     ("Alt+3", "الوصول إلى أقسام البريد."),
     ("Alt+4", "الوصول إلى قائمة أوامر البرنامج."),
+    ("Alt+S / Alt+س", "فتح سجل العناوين."),
+    ("Alt+د / Alt+]", "الانتقال إلى الحساب التالي."),
+    ("Alt+ج / Alt+[", "الانتقال إلى الحساب السابق."),
 )
 SHORTCUT_GUIDE_SECTIONS: tuple[tuple[str, tuple[tuple[str, str], ...]], ...] = (
     ("التنقل السريع", QUICK_NAVIGATION_SHORTCUTS),
@@ -136,12 +176,21 @@ SHORTCUT_GUIDE_SECTIONS: tuple[tuple[str, tuple[tuple[str, str], ...]], ...] = (
             ("Alt+H", "فتح المرشد التفاعلي."),
             ("F1", "فتح دليل البرنامج."),
             ("Alt+D", "فتح دليل اختصارات البرنامج."),
-            ("Ctrl+A", "فتح خيارات الحسابات وإدارتها."),
+            ("Alt+A", "فتح خيارات الحسابات وإدارتها."),
             ("Ctrl+N", "إنشاء رسالة جديدة."),
             ("Ctrl+F", "فتح البحث في الرسائل."),
             ("Ctrl+R", "الرد على الرسالة المحددة."),
             ("Ctrl+T", "ترجمة الرسالة الحالية."),
             ("F5", "تحديث الرسائل."),
+            ("Alt+Z", "إنشاء مجلد للرسائل."),
+            ("Alt+X", "إضافة الرسالة المحددة إلى مجلد."),
+            ("Alt+C", "حذف المجلد المحدد دون حذف رسائله."),
+            ("Alt+Ctrl+Z", "إنشاء قسم مخصص."),
+            ("Alt+Ctrl+X", "نقل العنصر المحدد إلى قسم مخصص."),
+            ("Alt+Ctrl+C", "حذف القسم المخصص الحالي."),
+            ("Alt+Ctrl+Shift+Z", "إنشاء تصنيف مخصص."),
+            ("Alt+Ctrl+Shift+X", "تعديل مرشح التصنيف المخصص الحالي."),
+            ("Alt+Ctrl+Shift+C", "حذف التصنيف المخصص الحالي."),
             ("Alt+F4", "إغلاق البرنامج."),
         ),
     ),
@@ -153,6 +202,7 @@ SHORTCUT_GUIDE_SECTIONS: tuple[tuple[str, tuple[tuple[str, str], ...]], ...] = (
             ("Space", "تبديل حالة الرسالة بين مقروءة وغير مقروءة."),
             ("Delete", "حذف الرسالة المحددة ونقلها إلى سلة المحذوفات."),
             ("Ctrl+Shift+Space", "تشغيل وضع التحديد المتعدد أو إيقافه."),
+            ("Ctrl+A", "تحديد كل الرسائل الظاهرة في القائمة الحالية."),
             ("Space أثناء التحديد المتعدد", "تحديد الرسالة الحالية أو إلغاء تحديدها."),
             ("Control وحده أثناء التحديد المتعدد", "سماع عدد الرسائل المحددة."),
             ("Escape أثناء التحديد المتعدد", "الخروج من وضع التحديد المتعدد."),
@@ -216,6 +266,16 @@ def page_operation_is_current(owner: object, page: object, account_id: str) -> b
     return True
 
 
+def account_operation_is_current(owner: object, account_id: str, generation: int) -> bool:
+    """Reject results from an earlier visit to the same account as well."""
+    if (getattr(owner, "_closing", False)
+            or generation != getattr(owner, "_account_view_generation", 0)
+            or getattr(owner, "displayed_account_id", None) != account_id):
+        return False
+    account = owner.selected_account()
+    return account is not None and account.id == account_id
+
+
 class MessageSearchDialog(wx.Dialog):
     def __init__(
         self,
@@ -244,6 +304,7 @@ class MessageSearchDialog(wx.Dialog):
             on_archive=parent.on_archive_message,
             on_toggle_expanded=parent.on_toggle_expanded_viewer,
             on_html_focus_state=parent.on_html_focus_state_changed,
+            on_item_viewer_opened=parent.on_item_viewer_opened,
         )
         self.page.set_theme(parent.settings.theme)
         self.page.set_viewer_mode(parent.settings.message_viewer)
@@ -283,9 +344,12 @@ class MessageSearchDialog(wx.Dialog):
         self.owner.cancel_pending_message_load()
         self.owner._search_dialog = None
         self.Destroy()
-        page = self.owner.current_page()
-        if page:
-            wx.CallAfter(page.focus_message_list)
+        if getattr(self, "_return_home_on_close", False):
+            wx.CallAfter(self.owner.on_focus_command_list_shortcut)
+        else:
+            page = self.owner.current_page()
+            if page:
+                wx.CallAfter(page.focus_message_list)
 
     def on_char_hook(self, event: wx.KeyEvent) -> None:
         if MainFrame.is_search_shortcut(event):
@@ -293,9 +357,43 @@ class MessageSearchDialog(wx.Dialog):
         elif event.ControlDown() and event.GetKeyCode() in (wx.WXK_RETURN, wx.WXK_NUMPAD_ENTER):
             self.page.toggle_message_and_link_viewers()
         elif event.GetKeyCode() == wx.WXK_ESCAPE:
+            self._return_home_on_close = True
             self.Close()
         else:
             event.Skip()
+
+
+class ApplicationExitShortcutFilter(wx.EventFilter):
+    """Route Alt+F4 from child windows to the application's main frame."""
+
+    def __init__(self, frame: MainFrame) -> None:
+        super().__init__()
+        self.frame = frame
+
+    @staticmethod
+    def belongs_to_frame(frame: wx.Frame, window: object) -> bool:
+        while isinstance(window, wx.Window):
+            if window is frame:
+                return True
+            window = window.GetParent()
+        return False
+
+    def FilterEvent(self, event: wx.Event) -> int:
+        event_type = event.GetEventType()
+        if event_type not in {wx.wxEVT_CHAR_HOOK, wx.wxEVT_CLOSE_WINDOW}:
+            return wx.EventFilter.Event_Skip
+        window = event.GetEventObject()
+        if not self.belongs_to_frame(self.frame, window):
+            return wx.EventFilter.Event_Skip
+        if event_type == wx.wxEVT_CHAR_HOOK:
+            if event.GetKeyCode() != wx.WXK_F4 or not event.AltDown():
+                return wx.EventFilter.Event_Skip
+        elif window is self.frame or self.frame._exit_shortcut_requested or not (
+            wx.GetKeyState(wx.WXK_ALT) and wx.GetKeyState(wx.WXK_F4)
+        ):
+            return wx.EventFilter.Event_Skip
+        self.frame.request_exit_from_shortcut()
+        return wx.EventFilter.Event_Processed
 
 
 class MainFrame(wx.Frame):
@@ -315,11 +413,17 @@ class MainFrame(wx.Frame):
         self.settings = settings
         self.default_mail_registration_ready = register_default_mail_capabilities()
         self.service = MailServiceRouter(self.on_account_updated)
+        self._folder_store: FolderStore | None = FolderStore()
+        self.service.cache.set_lock_store(self._folder_store)
+        self._visible_category_ids: list[str] = []
+        self._visible_section_ids: list[str] = []
         self.accounts = load_accounts()
+        for account in self.accounts:
+            self._folder_store.configure_account(account)
         self.content_cache: OrderedDict[tuple[str, str, str], MessageContent] = OrderedDict()
         self.current_content: MessageContent | None = None
         self.displayed_account_id: str | None = None
-        self._syncing_page_keys: set[str] = set()
+        self._syncing_page_keys: set[tuple[str, str]] = set()
         self._loading_older_keys: set[tuple[str, str]] = set()
         self._older_messages_exhausted: set[tuple[str, str]] = set()
         self._known_inbox_uids: dict[str, set[str]] = {}
@@ -327,6 +431,8 @@ class MainFrame(wx.Frame):
         self._trash_mailboxes_by_account: dict[str, str] = {}
         self._polling_new_mail = False
         self._message_load_generation = 0
+        self._refresh_generation = 0
+        self._account_view_generation = 0
         self._message_load_call: wx.CallLater | None = None
         self._notification_timer: wx.CallLater | None = None
         self._account_switch_target_id: str | None = None
@@ -343,6 +449,7 @@ class MainFrame(wx.Frame):
         self._html_escape_hotkey_registered = False
         self._active_worker_count = 0
         self._closing = False
+        self._exit_shortcut_requested = False
         self._search_dialog: MessageSearchDialog | None = None
         self._last_opened_viewer_page_key: str | None = None
         self._last_opened_viewer_message_key: tuple[str, str] | None = None
@@ -362,6 +469,8 @@ class MainFrame(wx.Frame):
         self._start_new_mail_timer()
         self._startup_update_call = wx.CallLater(2500, self.start_startup_update_check)
         self.Centre()
+        self._exit_shortcut_filter = ApplicationExitShortcutFilter(self)
+        wx.EvtHandler.AddFilter(self._exit_shortcut_filter)
         call_after_if_open(self, self.show_welcome_notification)
         call_after_if_open(self, self.show_initial_login_if_needed)
 
@@ -370,6 +479,9 @@ class MainFrame(wx.Frame):
             event.Skip()
             return
         self._closing = True
+        if getattr(self, "_exit_shortcut_filter", None) is not None:
+            wx.EvtHandler.RemoveFilter(self._exit_shortcut_filter)
+            self._exit_shortcut_filter = None
         if getattr(self, "_search_dialog", None) is not None:
             self._search_dialog.Destroy()
             self._search_dialog = None
@@ -388,7 +500,37 @@ class MainFrame(wx.Frame):
         if self._update_cancel_event is not None:
             self._update_cancel_event.set()
         cleanup_opened_attachment_session()
+        stop_program_sound()
         event.Skip()
+
+    def request_exit_from_shortcut(self) -> None:
+        if self._closing or self._exit_shortcut_requested:
+            return
+        self._exit_shortcut_requested = True
+
+        def depth(window: wx.Window) -> int:
+            count = 0
+            parent = window.GetParent()
+            while parent is not None:
+                count += 1
+                parent = parent.GetParent()
+            return count
+
+        dialogs = [
+            window for window in wx.GetTopLevelWindows()
+            if isinstance(window, wx.Dialog)
+            and ApplicationExitShortcutFilter.belongs_to_frame(self, window)
+            and window.IsModal()
+        ]
+        for dialog in sorted(dialogs, key=depth, reverse=True):
+            dialog.EndModal(wx.ID_CANCEL)
+        wx.CallAfter(self.finish_exit_from_shortcut)
+
+    def finish_exit_from_shortcut(self) -> None:
+        if self._closing:
+            return
+        if not self.Close():
+            self._exit_shortcut_requested = False
 
     def _build(self) -> None:
         panel = wx.Panel(self)
@@ -454,6 +596,7 @@ class MainFrame(wx.Frame):
             on_toggle_expanded=self.on_toggle_expanded_viewer,
             on_html_focus_state=self.on_html_focus_state_changed,
             on_search_request=self.on_search,
+            on_item_viewer_opened=self.on_item_viewer_opened,
         )
         spam_page = MailPage(
             self.notebook,
@@ -476,6 +619,7 @@ class MainFrame(wx.Frame):
             on_toggle_expanded=self.on_toggle_expanded_viewer,
             on_html_focus_state=self.on_html_focus_state_changed,
             on_search_request=self.on_search,
+            on_item_viewer_opened=self.on_item_viewer_opened,
         )
         sent_page = MailPage(
             self.notebook,
@@ -498,6 +642,7 @@ class MainFrame(wx.Frame):
             on_toggle_expanded=self.on_toggle_expanded_viewer,
             on_html_focus_state=self.on_html_focus_state_changed,
             on_search_request=self.on_search,
+            on_item_viewer_opened=self.on_item_viewer_opened,
         )
         all_mail_page = MailPage(
             self.notebook,
@@ -520,16 +665,69 @@ class MainFrame(wx.Frame):
             on_toggle_expanded=self.on_toggle_expanded_viewer,
             on_html_focus_state=self.on_html_focus_state_changed,
             on_search_request=self.on_search,
+            on_item_viewer_opened=self.on_item_viewer_opened,
         )
         self.pages["inbox"] = inbox_page
         self.pages["spam"] = spam_page
         self.pages["sent"] = sent_page
         self.pages["all"] = all_mail_page
+        folder_page = MailPage(
+            self.notebook,
+            "مجلدات الرسائل",
+            self.on_message_selected,
+            self.on_toggle_message_read,
+            self.on_translate_current_message,
+            self.on_reply,
+            self.on_toggle_star_current_message,
+            self.on_toggle_pin_current_message,
+            self.on_delete_current_message,
+            self.on_bulk_message_action,
+            self.on_mail_page_filter_changed,
+            on_viewer_opened=self.on_message_viewer_opened,
+            on_viewer_enter=self.on_message_viewer_enter,
+            on_end_reached=self.on_message_list_end_reached,
+            on_attachment_transfer=self.on_attachment_transfer,
+            on_forward=self.on_forward_message,
+            on_archive=self.on_archive_message,
+            on_toggle_expanded=self.on_toggle_expanded_viewer,
+            on_html_focus_state=self.on_html_focus_state_changed,
+            on_search_request=self.on_search,
+            on_item_viewer_opened=self.on_item_viewer_opened,
+        )
+        self.pages["folders"] = folder_page
+        folder_page.is_message_folder_page = False
+        folder_page.set_folder_collection_layout(True)
+        folder_page.on_folder_back = self.on_leave_message_folder
+        folder_page.filter_choices = FILTER_CHOICES
+        folder_page.filter_choice.Set([tr(label) for label in folder_page.filter_choices])
+        folder_page.filter_choice.SetSelection(0)
+        self._open_folder_id = ""
+        folder_page.folder_rows = []
+        folder_page.on_folder_open = lambda folder_id: self.open_section_folder("folders", folder_id)
+        folder_page.on_folder_context = lambda folder_id: self.on_folder_context_menu(
+            folder_id_override=folder_id, popup_owner=folder_page.list,
+        )
+        for section_key, section_page in (
+            ("inbox", inbox_page), ("spam", spam_page),
+            ("sent", sent_page), ("all", all_mail_page),
+        ):
+            section_page.folder_rows = []
+            section_page.on_folder_open = lambda folder_id, key=section_key: self.open_section_folder(key, folder_id)
+            section_page.on_folder_context = lambda folder_id, owner=section_page.list: self.on_folder_context_menu(
+                folder_id_override=folder_id, popup_owner=owner,
+            )
         self.notebook.AddPage(inbox_page, tr("الرسائل الواردة"))
         self.notebook.AddPage(spam_page, tr("الرسائل غير المرغوب بها"))
         self.notebook.AddPage(sent_page, tr("الرسائل المرسلة"))
         self.notebook.AddPage(all_mail_page, tr("كل الرسائل"))
+        self.notebook.AddPage(folder_page, tr("مجلدات الرسائل"))
         set_accessible(self.notebook, "أقسام البريد")
+        self.notebook.Bind(wx.EVT_CONTEXT_MENU, self.on_section_notebook_context)
+        self.notebook.Bind(wx.EVT_CHAR_HOOK, self.on_section_notebook_key)
+        self.notebook.Bind(wx.EVT_NOTEBOOK_PAGE_CHANGING, self.on_locked_section_changing)
+        for page in self.pages.values():
+            page.filter_choice.Bind(wx.EVT_CONTEXT_MENU, self.on_category_notebook_context)
+            page.filter_choice.Bind(wx.EVT_CHAR_HOOK, self.on_category_notebook_key)
         root.Add(self.notebook, 1, wx.EXPAND | wx.ALL, 8)
 
         progress_row = wx.BoxSizer(wx.HORIZONTAL)
@@ -592,11 +790,11 @@ class MainFrame(wx.Frame):
         general_actions_menu = wx.Menu()
         account_options_item = general_actions_menu.Append(
             wx.ID_ANY,
-            "خيارات الحسابات وإدارتها\tCtrl+A",
+            "خيارات الحسابات وإدارتها\tAlt+A",
         )
         settings_item = general_actions_menu.Append(wx.ID_ANY, "الإعدادات")
         compose_item = general_actions_menu.Append(wx.ID_ANY, "إنشاء بريد\tCtrl+N")
-        refresh_item = general_actions_menu.Append(wx.ID_ANY, "تحديث\tF5")
+        refresh_item = general_actions_menu.Append(wx.ID_ANY, "تحديث المحتوى المعروض\tF5")
         general_actions_menu.AppendSeparator()
         exit_item = general_actions_menu.Append(wx.ID_EXIT, "خروج\tAlt+F4")
         menu_bar.Append(general_actions_menu, "الإجراءات العامة")
@@ -689,6 +887,7 @@ class MainFrame(wx.Frame):
         if dialog.IsShown():
             dialog.close()
         else:
+            play_sound_if_available(self, SOUND_LEARNING_OPEN)
             dialog.Show()
             dialog.Raise()
             dialog.explain()
@@ -699,7 +898,6 @@ class MainFrame(wx.Frame):
         self.accel_reply = wx.NewIdRef()
         self.accel_refresh = wx.NewIdRef()
         self.accel_translate = wx.NewIdRef()
-        self.accel_close = wx.NewIdRef()
         self.accel_guide = wx.NewIdRef()
         self.accel_focus_items = wx.NewIdRef()
         self.accel_context_menu = wx.NewIdRef()
@@ -711,14 +909,25 @@ class MainFrame(wx.Frame):
         self.accel_mail_sections = wx.NewIdRef()
         self.accel_command_list = wx.NewIdRef()
         self.accel_shortcuts_guide = wx.NewIdRef()
+        self.accel_address_book = wx.NewIdRef()
+        self.accel_next_account = wx.NewIdRef()
+        self.accel_previous_account = wx.NewIdRef()
+        self.accel_create_folder = wx.NewIdRef()
+        self.accel_add_to_folder = wx.NewIdRef()
+        self.accel_delete_folder = wx.NewIdRef()
+        self.accel_create_section = wx.NewIdRef()
+        self.accel_move_to_section = wx.NewIdRef()
+        self.accel_delete_section = wx.NewIdRef()
+        self.accel_create_category = wx.NewIdRef()
+        self.accel_edit_category = wx.NewIdRef()
+        self.accel_delete_category = wx.NewIdRef()
         entries = [
             wx.AcceleratorEntry(wx.ACCEL_ALT, ord("H"), self.learning_menu_id),
-            wx.AcceleratorEntry(wx.ACCEL_CTRL, ord("A"), self.accel_add),
+            wx.AcceleratorEntry(wx.ACCEL_ALT, ord("A"), self.accel_add),
             wx.AcceleratorEntry(wx.ACCEL_CTRL, ord("N"), self.accel_compose),
             wx.AcceleratorEntry(wx.ACCEL_CTRL, ord("R"), self.accel_reply),
             wx.AcceleratorEntry(wx.ACCEL_NORMAL, wx.WXK_F5, self.accel_refresh),
             wx.AcceleratorEntry(wx.ACCEL_CTRL, ord("T"), self.accel_translate),
-            wx.AcceleratorEntry(wx.ACCEL_ALT, wx.WXK_F4, self.accel_close),
             wx.AcceleratorEntry(wx.ACCEL_NORMAL, wx.WXK_F1, self.accel_guide),
             wx.AcceleratorEntry(wx.ACCEL_CTRL, ord("F"), self.accel_search),
             wx.AcceleratorEntry(wx.ACCEL_ALT, ord("1"), self.accel_message_list),
@@ -726,6 +935,23 @@ class MainFrame(wx.Frame):
             wx.AcceleratorEntry(wx.ACCEL_ALT, ord("3"), self.accel_mail_sections),
             wx.AcceleratorEntry(wx.ACCEL_ALT, ord("4"), self.accel_command_list),
             wx.AcceleratorEntry(wx.ACCEL_ALT, ord("D"), self.accel_shortcuts_guide),
+            wx.AcceleratorEntry(wx.ACCEL_ALT, ord("S"), self.accel_address_book),
+            wx.AcceleratorEntry(wx.ACCEL_ALT, ord("س"), self.accel_address_book),
+            wx.AcceleratorEntry(wx.ACCEL_ALT, ord("د"), self.accel_next_account),
+            wx.AcceleratorEntry(wx.ACCEL_ALT, ord("ج"), self.accel_previous_account),
+            wx.AcceleratorEntry(wx.ACCEL_ALT, ord("]"), self.accel_next_account),
+            wx.AcceleratorEntry(wx.ACCEL_ALT, ord("["), self.accel_previous_account),
+            wx.AcceleratorEntry(wx.ACCEL_ALT, 0xDD, self.accel_next_account),
+            wx.AcceleratorEntry(wx.ACCEL_ALT, 0xDB, self.accel_previous_account),
+            wx.AcceleratorEntry(wx.ACCEL_ALT, ord("Z"), self.accel_create_folder),
+            wx.AcceleratorEntry(wx.ACCEL_ALT, ord("X"), self.accel_add_to_folder),
+            wx.AcceleratorEntry(wx.ACCEL_ALT, ord("C"), self.accel_delete_folder),
+            wx.AcceleratorEntry(wx.ACCEL_ALT | wx.ACCEL_CTRL, ord("Z"), self.accel_create_section),
+            wx.AcceleratorEntry(wx.ACCEL_ALT | wx.ACCEL_CTRL, ord("X"), self.accel_move_to_section),
+            wx.AcceleratorEntry(wx.ACCEL_ALT | wx.ACCEL_CTRL, ord("C"), self.accel_delete_section),
+            wx.AcceleratorEntry(wx.ACCEL_ALT | wx.ACCEL_CTRL | wx.ACCEL_SHIFT, ord("Z"), self.accel_create_category),
+            wx.AcceleratorEntry(wx.ACCEL_ALT | wx.ACCEL_CTRL | wx.ACCEL_SHIFT, ord("X"), self.accel_edit_category),
+            wx.AcceleratorEntry(wx.ACCEL_ALT | wx.ACCEL_CTRL | wx.ACCEL_SHIFT, ord("C"), self.accel_delete_category),
             wx.AcceleratorEntry(wx.ACCEL_CTRL, wx.WXK_RETURN, self.accel_focus_items),
             wx.AcceleratorEntry(
                 wx.ACCEL_ALT,
@@ -745,13 +971,13 @@ class MainFrame(wx.Frame):
                 self.accel_context_menu,
             ),
         ]
+        self._accelerator_entries = tuple(entries)
         self.SetAcceleratorTable(wx.AcceleratorTable(entries))
         self.Bind(wx.EVT_MENU, self.on_account_options, id=self.accel_add)
         self.Bind(wx.EVT_MENU, self.on_compose, id=self.accel_compose)
         self.Bind(wx.EVT_MENU, self.on_reply, id=self.accel_reply)
         self.Bind(wx.EVT_MENU, self.on_refresh, id=self.accel_refresh)
         self.Bind(wx.EVT_MENU, self.on_translate_current_message, id=self.accel_translate)
-        self.Bind(wx.EVT_MENU, lambda _event: self.Close(), id=self.accel_close)
         self.Bind(wx.EVT_MENU, self.on_show_guide, id=self.accel_guide)
         self.Bind(wx.EVT_MENU, self.on_search, id=self.accel_search)
         self.Bind(
@@ -779,6 +1005,21 @@ class MainFrame(wx.Frame):
             self.on_show_shortcuts_guide,
             id=self.accel_shortcuts_guide,
         )
+        self.Bind(wx.EVT_MENU, self.on_address_book, id=self.accel_address_book)
+        self.Bind(wx.EVT_MENU, self.on_next_account, id=self.accel_next_account)
+        self.Bind(wx.EVT_MENU, self.on_previous_account, id=self.accel_previous_account)
+        for command_id, handler in (
+            (self.accel_create_folder, self.on_create_folder_shortcut),
+            (self.accel_add_to_folder, self.on_add_to_folder_shortcut),
+            (self.accel_delete_folder, self.on_delete_folder_shortcut),
+            (self.accel_create_section, self.create_local_section),
+            (self.accel_move_to_section, self.on_move_to_section_shortcut),
+            (self.accel_delete_section, self.on_delete_section_shortcut),
+            (self.accel_create_category, self.create_local_category),
+            (self.accel_edit_category, self.on_edit_category_shortcut),
+            (self.accel_delete_category, self.on_delete_category_shortcut),
+        ):
+            self.Bind(wx.EVT_MENU, lambda _event, action=handler: action(), id=command_id)
         self.Bind(wx.EVT_MENU, self.on_focus_items_accelerator, id=self.accel_focus_items)
         self.Bind(
             wx.EVT_MENU,
@@ -797,6 +1038,76 @@ class MainFrame(wx.Frame):
         if not page:
             return
         call_after_if_open(self, page.toggle_message_and_link_viewers)
+
+    def on_create_folder_shortcut(self) -> None:
+        page = self.current_page()
+        if page is None or not page.messages:
+            self.SetStatusText("اختر قسماً يحتوي على رسائل لإنشاء مجلد.")
+            return
+        page.begin_folder_creation()
+
+    def on_add_to_folder_shortcut(self) -> None:
+        account = self.selected_account()
+        page = self.current_page()
+        if account is None or page is None:
+            return
+        summaries = page.selected_summaries()
+        if not summaries and (summary := page.selected_summary()) is not None:
+            summaries = [summary]
+        if not summaries:
+            self.SetStatusText("اختر رسالة أولاً لإضافتها إلى مجلد.")
+            return
+        self.on_add_messages_to_folder(account, summaries)
+
+    def on_delete_folder_shortcut(self) -> None:
+        page = self.current_page()
+        focused = page.focused_summary() if page is not None else None
+        folder_id = focused.folder_id if isinstance(focused, FolderRow) else self.selected_folder_id()
+        if not folder_id:
+            self.SetStatusText("قف على المجلد الذي تريد حذفه.")
+            return
+        self.delete_folder_by_id(folder_id)
+
+    def on_move_to_section_shortcut(self) -> None:
+        account = self.selected_account()
+        page = self.current_page()
+        if account is None or page is None:
+            return
+        focused = page.focused_summary()
+        if isinstance(focused, FolderRow):
+            self.choose_folder_section(account, focused.folder_id)
+            return
+        summaries = page.selected_summaries()
+        if not summaries and (summary := page.selected_summary()) is not None:
+            summaries = [summary]
+        if summaries:
+            self.on_move_messages_to_section(account, summaries)
+        else:
+            self.SetStatusText("قف على رسالة أو مجلد لإضافته إلى قسم.")
+
+    def on_delete_section_shortcut(self) -> None:
+        page = self.current_page()
+        key = self.page_key_for_page(page) if page is not None else ""
+        if key.startswith("section:"):
+            self.delete_local_section(key.removeprefix("section:"))
+        else:
+            self.SetStatusText("قف على قسم مخصص لحذفه.")
+
+    def on_edit_category_shortcut(self) -> None:
+        page = self.current_page()
+        key = page.selected_filter_key() if page is not None else ""
+        if key.startswith("custom:"):
+            self.edit_local_category_rules(key.removeprefix("custom:"))
+        else:
+            self.SetStatusText("قف على تصنيف مخصص لتعديل مرشحه.")
+
+    def on_delete_category_shortcut(self) -> None:
+        page = self.current_page()
+        key = page.selected_filter_key() if page is not None else ""
+        if key.startswith("custom:"):
+            self.delete_local_category(key.removeprefix("custom:"))
+        else:
+            self.SetStatusText("قف على تصنيف مخصص لحذفه.")
 
     def on_focus_message_list_shortcut(
         self,
@@ -852,6 +1163,12 @@ class MainFrame(wx.Frame):
         self._last_opened_viewer_message_key = page.message_key(summary)
         self._last_opened_viewer_account_id = self.displayed_account_id
 
+    def play_program_sound(self, event_id: str) -> bool:
+        return play_program_sound(event_id, self.settings)
+
+    def on_item_viewer_opened(self, _page: MailPage) -> None:
+        play_sound_if_available(self, SOUND_ITEM_VIEWER)
+
     def on_focus_mail_sections_shortcut(
         self,
         _event: wx.Event | None = None,
@@ -870,15 +1187,43 @@ class MainFrame(wx.Frame):
         call_after_if_open(self, self.command_list.SetFocus)
 
     def on_frame_char_hook(self, event: wx.KeyEvent) -> None:
+        if event.AltDown() and not (event.ControlDown() or event.ShiftDown() or event.CmdDown()):
+            key_codes = {event.GetKeyCode()}
+            for getter_name in ("GetUnicodeKey", "GetRawKeyCode"):
+                getter = getattr(event, getter_name, None)
+                if callable(getter):
+                    try:
+                        key_code = getter()
+                        if isinstance(key_code, int):
+                            key_codes.add(key_code)
+                    except (RuntimeError, TypeError):
+                        pass
+            # Arabic د/ج share the physical ]/[ keys. Under wxMSW the
+            # translated Unicode key can be absent for Alt combinations;
+            # the scan code in the native key flags remains layout-independent.
+            scan_code = None
+            get_raw_flags = getattr(event, "GetRawKeyFlags", None)
+            if callable(get_raw_flags):
+                try:
+                    scan_code = (get_raw_flags() >> 16) & 0xFF
+                except (RuntimeError, TypeError):
+                    pass
+            if key_codes & {ord("S"), ord("s"), ord("س")}:
+                self.on_address_book()
+                return
+            if key_codes & {ord("د"), ord("]"), 0xDD} or scan_code == 0x1B:
+                self.on_next_account()
+                return
+            if key_codes & {ord("ج"), ord("["), 0xDB} or scan_code == 0x1A:
+                self.on_previous_account()
+                return
         if MainFrame.is_search_shortcut(event):
             self.on_search()
             return
+        unmodified = not (event.ControlDown() or event.ShiftDown() or event.AltDown() or event.CmdDown())
         if (
             event.GetKeyCode() == wx.WXK_ESCAPE
-            and not event.ControlDown()
-            and not event.ShiftDown()
-            and not event.AltDown()
-            and not event.CmdDown()
+            and unmodified
         ):
             page = self.current_page()
             if page:
@@ -893,6 +1238,38 @@ class MainFrame(wx.Frame):
                 if getattr(page, "_html_viewer_active", False) or focus in viewer_controls:
                     self.on_escape_message_viewer()
                     return
+                if getattr(page, "multi_select_mode", False):
+                    page.exit_multi_selection_mode()
+                    self.show_notification("اضغط Escape مرة ثانية للعودة إلى واجهة البرنامج.")
+                    return
+                if getattr(page, "is_message_folder_page", False):
+                    self.on_leave_message_folder()
+                    self.show_notification("اضغط Escape مرة ثانية للعودة إلى واجهة البرنامج.")
+                    return
+            self.on_focus_command_list_shortcut()
+            return
+        if event.GetKeyCode() == wx.WXK_BACK and unmodified:
+            focus = wx.Window.FindFocus()
+            if isinstance(focus, (wx.TextCtrl, wx.ComboBox)):
+                event.Skip()
+                return
+            page = self.current_page()
+            if page is not None:
+                if focus in {page.viewer, page.html_viewer, page.link_list, page.actions_button}:
+                    self.on_escape_message_viewer()
+                    return
+                if focus is page.list:
+                    if getattr(page, "is_message_folder_page", False):
+                        self.on_leave_message_folder()
+                    else:
+                        page.filter_choice.SetFocus()
+                    return
+                if focus is page.filter_choice:
+                    self.notebook.SetFocus()
+                    return
+            if focus is self.notebook:
+                self.on_focus_command_list_shortcut()
+                return
         event.Skip()
 
     @staticmethod
@@ -958,8 +1335,10 @@ class MainFrame(wx.Frame):
     def on_escape_message_viewer(self, _event: wx.Event | None = None) -> None:
         page = self.current_page()
         if not page:
+            self.on_focus_command_list_shortcut()
             return
         if page.exit_search():
+            self.on_focus_command_list_shortcut()
             return
         if getattr(self, "_viewer_expanded", False):
             self.on_toggle_expanded_viewer(page)
@@ -969,6 +1348,13 @@ class MainFrame(wx.Frame):
         if focus is page.list:
             if page.multi_select_mode:
                 page.exit_multi_selection_mode()
+                self.show_notification("اضغط Escape مرة ثانية للعودة إلى واجهة البرنامج.")
+                return
+            if getattr(page, "is_message_folder_page", False):
+                self.on_leave_message_folder()
+                self.show_notification("اضغط Escape مرة ثانية للعودة إلى واجهة البرنامج.")
+                return
+            self.on_focus_command_list_shortcut()
             return
         item_controls = {
             page.viewer,
@@ -979,6 +1365,16 @@ class MainFrame(wx.Frame):
         }
         if getattr(page, "_html_viewer_active", False) or focus in item_controls:
             call_after_if_open(self, page.focus_message_list)
+            return
+        if getattr(page, "multi_select_mode", False):
+            page.exit_multi_selection_mode()
+            self.show_notification("اضغط Escape مرة ثانية للعودة إلى واجهة البرنامج.")
+            return
+        if getattr(page, "is_message_folder_page", False):
+            self.on_leave_message_folder()
+            self.show_notification("اضغط Escape مرة ثانية للعودة إلى واجهة البرنامج.")
+            return
+        self.on_focus_command_list_shortcut()
 
     def on_toggle_expanded_viewer(
         self,
@@ -1019,8 +1415,15 @@ class MainFrame(wx.Frame):
         if not page:
             return
         focus = wx.Window.FindFocus()
+        if focus is self.notebook:
+            self.on_section_notebook_context()
+            return
+        if focus is page.filter_choice:
+            self.on_category_notebook_context()
+            return
         if focus is page.actions_button:
-            control = page.actions_button
+            call_after_if_open(self, page.show_item_menu, page.actions_button)
+            return
         elif focus is page.viewer:
             control = page.viewer
         elif focus is page.link_list:
@@ -1028,8 +1431,10 @@ class MainFrame(wx.Frame):
             return
         elif focus is page.list:
             control = page.list
-        else:
+        elif focus is page.html_viewer or (focus is not None and page.html_viewer.IsDescendant(focus)):
             control = page.html_viewer
+        else:
+            return
         call_after_if_open(
             self,
             page.show_message_context_menu,
@@ -1088,15 +1493,13 @@ class MainFrame(wx.Frame):
         save_settings(self.settings)
 
     def page_key_for_page(self, page: MailPage) -> str:
-        if page is self.pages["spam"]:
-            return "spam"
-        if page is self.pages["sent"]:
-            return "sent"
-        if page is self.pages["all"]:
-            return "all"
-        return "inbox"
+        return next((key for key, candidate in self.pages.items() if candidate is page), "inbox")
 
     def mailbox_for_page_key(self, account: Account, page_key: str) -> str:
+        if page_key.startswith("section:"):
+            return ""
+        if page_key == "folders":
+            return ""
         if page_key == "spam":
             return account.spam_mailbox
         if page_key == "sent":
@@ -1109,6 +1512,8 @@ class MainFrame(wx.Frame):
         mailbox = self.mailbox_for_page_key(account, page_key)
         if mailbox:
             return mailbox
+        if page_key == "folders" or page_key.startswith("section:"):
+            return ""
         if page_key == "spam":
             return self.service.resolve_spam_mailbox(account)
         if page_key == "sent":
@@ -1119,12 +1524,773 @@ class MainFrame(wx.Frame):
 
     def on_mail_page_filter_changed(self, page: MailPage) -> None:
         if page.selected_filter_key() == "archive":
+            if (page is self.pages["folders"] and not self.selected_folder_id()) or self.page_key_for_page(page).startswith("section:"):
+                page.archive_messages = [row for row in page.folder_rows if row.archived]
+                page.apply_filter()
+                return
             self.load_archive_messages(page)
             return
         if page.selected_filter_key() == "trash":
             self.load_trash_messages(page)
             return
         page.apply_filter()
+
+    def folder_store(self) -> FolderStore:
+        if self._folder_store is None:
+            self._folder_store = FolderStore()
+        return self._folder_store
+
+    def refresh_section_folder_choices(self, preferred_key: str = "", preferred_id: str = "") -> None:
+        account = self.selected_account()
+        store = self.folder_store() if account else None
+        page = self.pages["folders"]
+        folders = (
+            store.list_folders(account.id, FOLDER_MESSAGES, section_id="")
+            + store.list_folders(account.id, FOLDER_MESSAGES, archived=True, section_id="")
+        ) if account else []
+        page.folder_rows = [FolderRow(folder) for folder in folders]
+        if not self.selected_folder_id():
+            page.archive_messages = [row for row in page.folder_rows if row.archived]
+            page.apply_filter(preserve_key=("__local_folder__", preferred_id) if preferred_key == "folders" and preferred_id else None)
+        for key in ("inbox", "spam", "sent", "all"):
+            section_page = self.pages[key]
+            section_folders = (
+                store.list_folders(account.id, FOLDER_MESSAGES) + store.list_folders(account.id, FOLDER_MESSAGES, archived=True)
+                if key == "all" else store.list_section_folders(account.id, key) + [
+                    folder for folder in store.list_folders(account.id, FOLDER_MESSAGES, archived=True)
+                    if folder.section_key == key and not folder.section_id
+                ]
+            ) if account else []
+            section_page.folder_rows = [FolderRow(folder) for folder in {folder.id: folder for folder in section_folders}.values()]
+            section_page.apply_filter(
+                preserve_key=("__local_folder__", preferred_id) if preferred_key == key and preferred_id else None
+            )
+        for key in (key for key in self.pages if key.startswith("section:")):
+            section_page = self.pages[key]
+            section_id = key.removeprefix("section:")
+            if account and store.is_locked(account.id, "section", section_id) and not store.is_open(account.id, "section", section_id):
+                MainFrame.clear_closed_section_page(section_page)
+                continue
+            section_folders = (
+                store.list_folders(account.id, FOLDER_MESSAGES, section_id=section_id)
+                + store.list_folders(account.id, FOLDER_MESSAGES, archived=True, section_id=section_id)
+            ) if account else []
+            section_page.folder_rows = [FolderRow(folder) for folder in section_folders]
+            section_page.apply_filter(
+                preserve_key=("__local_folder__", preferred_id) if preferred_key == key and preferred_id else None
+            )
+
+    def open_section_folder(self, section_key: str, folder_id: str) -> None:
+        self._folder_parent_section_id = ""
+        if hasattr(self, "selected_account") and hasattr(self, "folder_store"):
+            account = self.selected_account()
+            if account is None:
+                return
+            store = self.folder_store()
+            folder = store.get_folder(account.id, folder_id)
+            if folder.section_id and store.is_locked(account.id, "section", folder.section_id) and not store.is_open(account.id, "section", folder.section_id):
+                self.SetStatusText("افتح قفل القسم أولاً.")
+                return
+            if store.is_locked(account.id, "folder", folder_id) and not store.is_open(account.id, "folder", folder_id):
+                password = self.ask_local_lock_password("أدخل كلمة مرور المجلد لعرض رسائله:")
+                if password is None:
+                    return
+                try:
+                    store.unlock_target(account.id, "folder", folder_id, password)
+                except Exception as exc:
+                    wx.MessageBox(tr(str(exc)), tr("تعذر فتح قفل المجلد"), wx.OK | wx.ICON_ERROR, self)
+                    return
+            if folder.section_id and store.is_locked(account.id, "section", folder.section_id):
+                self._folder_parent_section_id = folder.section_id
+        self._folder_return_page_key = section_key if section_key in self.pages else "folders"
+        self._folder_return_filter_index = self.pages[self._folder_return_page_key].filter_choice.GetSelection()
+        self.pages["folders"].filter_choice.SetSelection(0)
+        self.pages["folders"].filter_choice.Enable(False)
+        if hasattr(self.pages["folders"], "set_folder_collection_layout"):
+            self.pages["folders"].set_folder_collection_layout(False)
+        self.refresh_folder_choices(folder_id, preserve=False)
+        self.notebook.SetSelection(list(self.pages).index("folders"))
+        self.pages["folders"].focus_message_list()
+
+    def refresh_folder_choices(self, preferred_id: str = "", *, preserve: bool = True) -> None:
+        account = self.selected_account()
+        if not account:
+            self._open_folder_id = ""
+            self.pages["folders"].is_message_folder_page = False
+            self.pages["folders"].filter_choice.Enable(True)
+            self.pages["folders"].set_folder_collection_layout(True)
+            self.pages["folders"].set_messages([])
+            return
+        try:
+            folder_id = preferred_id or (self._open_folder_id if preserve else "")
+            if folder_id:
+                self.folder_store().get_folder(account.id, folder_id)
+            self._open_folder_id = folder_id
+        except Exception as exc:
+            self._open_folder_id = ""
+            self.SetStatusText(f"تعذر فتح المجلد: {exc}")
+        self.pages["folders"].is_message_folder_page = bool(self._open_folder_id)
+        self.pages["folders"].filter_choice.Enable(not self._open_folder_id)
+        self.pages["folders"].set_folder_collection_layout(not self._open_folder_id)
+        self.load_selected_folder()
+        if hasattr(self.pages["inbox"], "folder_rows"):
+            self.refresh_section_folder_choices()
+
+    def selected_folder_id(self) -> str:
+        return getattr(self, "_open_folder_id", "")
+
+    def load_selected_folder(self) -> None:
+        account = self.selected_account()
+        folder_id = self.selected_folder_id()
+        page = self.pages["folders"]
+        if not account or not folder_id:
+            page.set_messages([])
+            return
+        try:
+            page.allowed_locked_hashes = self.folder_store()._indexed_hashes(
+                account.id, self.folder_store().list_items(account.id, folder_id),
+            )
+            references = [
+                parsed for key in self.folder_store().list_items(account.id, folder_id)
+                if (parsed := parse_message_folder_key(key)) is not None
+            ]
+            live = {
+                (summary.mailbox, summary.uid): summary
+                for key in ("inbox", "spam", "sent", "all")
+                for summary in self.pages[key].messages
+                if self.folder_store().message_identity_matches(account.id, summary)
+            }
+            missing: dict[str, list[str]] = {}
+            for mailbox, uid in references:
+                if (mailbox, uid) not in live:
+                    missing.setdefault(mailbox, []).append(uid)
+            for mailbox, uids in missing.items():
+                for uid, summary in self.service.cache.summaries_by_uids(
+                    account.id, mailbox, uids
+                ).items():
+                    live[(mailbox, uid)] = summary
+            page.set_messages([live[ref] for ref in references if ref in live])
+            MainFrame.backfill_local_summaries(self, page, account, references, live)
+        except Exception as exc:
+            page.set_messages([])
+            self.SetStatusText(f"تعذر فتح المجلد: {exc}")
+
+    def backfill_local_summaries(self, page, account, references, live) -> None:
+        generation = getattr(page, "_local_backfill_generation", 0) + 1
+        page._local_backfill_generation = generation
+        missing = [ref for ref in references if ref not in live]
+        if not missing or not hasattr(self, "run_worker") or not callable(getattr(self.service, "fetch_summary", None)):
+            return
+
+        def work():
+            found = []
+            for mailbox, uid in missing:
+                try:
+                    found.append(self.service.fetch_summary(account, mailbox, uid))
+                except Exception:
+                    # Missing remote mail or offline operation must never remove
+                    # membership or replace a protected cached copy.
+                    continue
+            return found
+
+        def done(found):
+            if generation != getattr(page, "_local_backfill_generation", 0) or not page_operation_is_current(self, page, account.id):
+                return
+            current = {(summary.mailbox, summary.uid): summary for summary in page.messages}
+            current.update({(summary.mailbox, summary.uid): summary for summary in found
+                            if MainFrame.message_access_allowed(self, summary, page)})
+            page.set_messages([current[ref] for ref in references if ref in current])
+
+        self.run_worker("جار تحميل الرسالة...", work, done)
+
+    def on_leave_message_folder(self) -> None:
+        folder_id = getattr(self, "_open_folder_id", "")
+        if folder_id and getattr(self, "_folder_store", None) is not None:
+            self._folder_store.close_target("folder", folder_id)
+        self._open_folder_id = ""
+        page = self.pages["folders"]
+        page.allowed_locked_hashes = set()
+        page.is_message_folder_page = False
+        page.set_messages([])
+        page.filter_choice.Enable(True)
+        if hasattr(page, "set_folder_collection_layout"):
+            page.set_folder_collection_layout(True)
+        selection = getattr(self, "_folder_return_filter_index", 0)
+        target_key = getattr(self, "_folder_return_page_key", "folders")
+        if target_key not in self.pages:
+            target_key = "folders"
+        parent_section = getattr(self, "_folder_parent_section_id", "")
+        if parent_section and target_key != f"section:{parent_section}" and self._folder_store is not None:
+            self._folder_store.close_target("section", parent_section)
+        self._folder_parent_section_id = ""
+        target_page = self.pages[target_key]
+        target_page.filter_choice.SetSelection(min(selection, target_page.filter_choice.GetCount() - 1))
+        self.refresh_section_folder_choices()
+        self.notebook.SetSelection(list(self.pages).index(target_key))
+        target_page.focus_message_list()
+
+    def on_folder_context_menu(
+        self, _event: wx.Event | None = None, *,
+        folder_id_override: str = "", popup_owner: wx.Window | None = None,
+    ) -> None:
+        account = self.selected_account()
+        folder_id = folder_id_override or self.selected_folder_id()
+        if not account or not folder_id:
+            return
+        try:
+            folder = self.folder_store().get_folder(account.id, folder_id)
+        except Exception as exc:
+            self.SetStatusText(f"تعذر فتح قائمة المجلد: {exc}")
+            return
+        menu = wx.Menu()
+        rename_item = menu.Append(wx.ID_ANY, tr("إعادة تسمية المجلد"))
+        pin_item = menu.Append(wx.ID_ANY, tr("إلغاء تثبيت المجلد" if folder.pinned else "تثبيت المجلد في الأعلى"))
+        star_item = menu.Append(wx.ID_ANY, tr("إزالة نجمة المجلد" if folder.starred else "تمييز المجلد بنجمة"))
+        archive_item = menu.Append(wx.ID_ANY, tr("إعادة المجلد من الأرشيف" if folder.archived else "أرشفة المجلد"))
+        locked = self.folder_store().is_locked(account.id, "folder", folder_id)
+        lock_item = menu.Append(wx.ID_ANY, tr("إزالة قفل المجلد" if locked else "قفل المجلد بكلمة مرور"))
+        section_menu = wx.Menu()
+        original_item = section_menu.Append(wx.ID_ANY, tr("إعادة إلى قسم المجلدات"))
+        section_menu.Bind(wx.EVT_MENU,
+                          lambda _event: wx.CallAfter(self.move_folder_to_section, account, folder_id, None), original_item)
+        for section in self.folder_store().list_sections(account.id):
+            item = section_menu.Append(wx.ID_ANY, section.name)
+            section_menu.Bind(
+                wx.EVT_MENU,
+                lambda _event, section_id=section.id: wx.CallAfter(self.move_folder_to_section, account, folder_id, section_id),
+                item,
+            )
+        menu.AppendSubMenu(section_menu, tr("نقل المجلد إلى قسم مخصص"))
+        delete_item = menu.Append(wx.ID_ANY, tr("حذف المجلد دون حذف الرسائل"))
+
+        def update_folder(operation: str) -> None:
+            try:
+                store = self.folder_store()
+                if operation == "rename":
+                    dialog = wx.TextEntryDialog(self, tr("اسم المجلد الجديد:"), tr("إعادة تسمية المجلد"), value=folder.name)
+                    try:
+                        if dialog.ShowModal() != wx.ID_OK:
+                            return
+                        store.rename_folder(account.id, folder_id, dialog.GetValue())
+                    finally:
+                        dialog.Destroy()
+                elif operation == "pin":
+                    store.set_pinned(account.id, folder_id, not folder.pinned)
+                elif operation == "star":
+                    store.set_starred(account.id, folder_id, not folder.starred)
+                elif operation == "archive":
+                    store.set_archived(account.id, folder_id, not folder.archived)
+                elif operation == "delete":
+                    self.delete_folder_by_id(folder_id)
+                    return
+                if self.selected_folder_id() == folder_id:
+                    if operation == "delete":
+                        self.on_leave_message_folder()
+                    else:
+                        self.refresh_folder_choices(folder_id)
+                else:
+                    self.refresh_section_folder_choices("folders", folder_id)
+                self.refresh_local_category_visibility()
+                self.refresh_custom_categories()
+            except Exception as exc:
+                wx.MessageBox(tr(str(exc)), tr("تعذر تعديل المجلد"), wx.OK | wx.ICON_ERROR, self)
+
+        for item, operation in (
+            (rename_item, "rename"), (pin_item, "pin"), (star_item, "star"),
+            (archive_item, "archive"), (delete_item, "delete"),
+        ):
+            menu.Bind(wx.EVT_MENU, lambda _event, action=operation: wx.CallAfter(update_folder, action), item)
+        menu.Bind(wx.EVT_MENU, lambda _event: wx.CallAfter(self.toggle_folder_lock, account.id, folder_id), lock_item)
+        try:
+            owner = popup_owner or self.pages["folders"].list
+            announce_context_menu(owner)
+            owner.PopupMenu(menu)
+        finally:
+            menu.Destroy()
+
+    def ask_local_lock_password(self, message: str) -> str | None:
+        dialog = wx.TextEntryDialog(
+            self, tr(message), tr("قفل الرسائل المحلي"),
+            style=wx.OK | wx.CANCEL | wx.TE_PASSWORD,
+        )
+        try:
+            if dialog.ShowModal() != wx.ID_OK:
+                return None
+            return dialog.GetValue()
+        finally:
+            dialog.Destroy()
+
+    def new_local_lock_password(self) -> str | None:
+        if wx.MessageBox(
+            tr("لا توجد طريقة لاستعادة كلمة مرور هذا القفل إذا نسيتها. ستبقى الرسائل في حساب البريد، لكن قد يتعذر استعادة تنظيمها المحلي. هل تريد المتابعة؟"),
+            tr("قفل الرسائل المحلي"), wx.YES_NO | wx.NO_DEFAULT | wx.ICON_WARNING, self,
+        ) != wx.YES:
+            return None
+        first = self.ask_local_lock_password("اكتب كلمة مرور جديدة للقفل (8 أحرف على الأقل):")
+        if first is None:
+            return None
+        second = self.ask_local_lock_password("أعد كتابة كلمة مرور القفل للتأكيد:")
+        if second is None:
+            return None
+        if first != second:
+            wx.MessageBox(tr("كلمتا المرور غير متطابقتين."), tr("قفل الرسائل المحلي"), wx.OK | wx.ICON_ERROR, self)
+            return None
+        return first
+
+    def toggle_folder_lock(self, account_id: str, folder_id: str) -> None:
+        store = self.folder_store()
+        locked = store.is_locked(account_id, "folder", folder_id)
+        password = (self.ask_local_lock_password("أدخل كلمة المرور لإزالة قفل المجلد:")
+                    if locked else self.new_local_lock_password())
+        if password is None:
+            return
+        try:
+            if locked:
+                store.unlock_target(account_id, "folder", folder_id, password)
+                store.remove_lock(account_id, "folder", folder_id)
+            else:
+                store.lock_target(account_id, "folder", folder_id, password)
+                self.clear_locked_message_previews(account_id)
+                if self.selected_folder_id() == folder_id:
+                    self.on_leave_message_folder()
+            self.refresh_section_folder_choices()
+            self.refresh_local_category_visibility()
+            self.refresh_custom_categories()
+            self.SetStatusText("أُزيل قفل المجلد." if locked else "قُفل المجلد وأُخفيت رسائله من القوائم.")
+        except Exception as exc:
+            wx.MessageBox(tr(str(exc)), tr("تعذر تعديل قفل المجلد"), wx.OK | wx.ICON_ERROR, self)
+
+    def toggle_section_lock(self, account_id: str, section_id: str) -> None:
+        store = self.folder_store()
+        locked = store.is_locked(account_id, "section", section_id)
+        password = (self.ask_local_lock_password("أدخل كلمة المرور لإزالة قفل القسم:")
+                    if locked else self.new_local_lock_password())
+        if password is None:
+            return
+        try:
+            if locked:
+                store.unlock_target(account_id, "section", section_id, password)
+                store.remove_lock(account_id, "section", section_id)
+            else:
+                store.lock_target(account_id, "section", section_id, password)
+                self.clear_locked_message_previews(account_id)
+                if self.page_key_for_page(self.notebook.GetCurrentPage()) == f"section:{section_id}":
+                    self.notebook.SetSelection(0)
+            self.refresh_custom_sections()
+            self.refresh_local_category_visibility()
+            self.refresh_custom_categories()
+            self.SetStatusText("أُزيل قفل القسم." if locked else "قُفل القسم وأُخفيت رسائله من القوائم.")
+        except Exception as exc:
+            wx.MessageBox(tr(str(exc)), tr("تعذر تعديل قفل القسم"), wx.OK | wx.ICON_ERROR, self)
+
+    def on_locked_section_changing(self, event: wx.BookCtrlEvent) -> None:
+        account = self.selected_account()
+        target_index = event.GetSelection()
+        if account is None or target_index < 0 or target_index >= self.notebook.GetPageCount():
+            event.Skip()
+            return
+        target_key = self.page_key_for_page(self.notebook.GetPage(target_index))
+        if target_key.startswith("section:"):
+            section_id = target_key.removeprefix("section:")
+            store = self.folder_store()
+            if store.is_locked(account.id, "section", section_id) and not store.is_open(account.id, "section", section_id):
+                page = self.pages.get(target_key)
+                if page is not None:
+                    MainFrame.clear_closed_section_page(page)
+        old_index = event.GetOldSelection()
+        if 0 <= old_index < self.notebook.GetPageCount() and old_index != target_index:
+            old_key = self.page_key_for_page(self.notebook.GetPage(old_index))
+            if old_key.startswith("section:"):
+                old_id = old_key.removeprefix("section:")
+                if not (target_key == "folders" and getattr(self, "_folder_parent_section_id", "") == old_id):
+                    self.folder_store().close_target("section", old_id)
+                    old_page = self.pages.get(old_key)
+                    if old_page is not None:
+                        if self.folder_store().is_locked(account.id, "section", old_id):
+                            MainFrame.clear_closed_section_page(old_page)
+                        else:
+                            old_page.set_messages([])
+                            old_page.folder_rows = []
+            elif old_key == "folders" and getattr(self, "_folder_parent_section_id", ""):
+                parent_id = self._folder_parent_section_id
+                if target_key != f"section:{parent_id}":
+                    self.folder_store().close_target("section", parent_id)
+                self._folder_parent_section_id = ""
+                self.pages["folders"].set_messages([])
+        if target_key.startswith("section:"):
+            section_id = target_key.removeprefix("section:")
+            store = self.folder_store()
+            if not store.is_locked(account.id, "section", section_id) or store.is_open(account.id, "section", section_id):
+                call_after_if_open(self, self.load_custom_sections)
+                call_after_if_open(self, self.refresh_section_folder_choices)
+        event.Skip()
+
+    @staticmethod
+    def clear_closed_section_page(page: MailPage) -> None:
+        page.folder_rows = []
+        page.archive_messages = []
+        page.trash_messages = []
+        page.allowed_locked_hashes = set()
+        page.deactivate_html_viewer()
+        page.set_messages([])
+        # Hide controls, but keep the page and its background enabled.
+        page.set_section_locked(True)
+
+    def open_selected_locked_section(self) -> bool:
+        account = self.selected_account()
+        page = self.current_page()
+        if account is None or page is None:
+            return False
+        key = self.page_key_for_page(page)
+        if not key.startswith("section:"):
+            return False
+        section_id = key.removeprefix("section:")
+        store = self.folder_store()
+        if not store.is_locked(account.id, "section", section_id):
+            return False
+        if not store.is_open(account.id, "section", section_id):
+            password = self.ask_local_lock_password("أدخل كلمة مرور القسم لعرض رسائله:")
+            if password is None:
+                return True
+            try:
+                store.unlock_target(account.id, "section", section_id, password)
+            except Exception as exc:
+                wx.MessageBox(tr(str(exc)), tr("تعذر فتح قفل القسم"), wx.OK | wx.ICON_ERROR, self)
+                return True
+        self.load_custom_sections()
+        self.refresh_section_folder_choices()
+        self.refresh_local_category_visibility()
+        call_after_if_open(self, page.focus_message_list)
+        return True
+
+    def clear_locked_message_previews(self, account_id: str) -> None:
+        self.cancel_pending_message_load()
+        dialog = getattr(self, "_search_dialog", None)
+        if dialog is not None:
+            dialog.Close()
+        for cache_key in list(self.content_cache):
+            cached_account, mailbox, uid = cache_key
+            if cached_account != account_id:
+                continue
+            if self.folder_store().lock_context_for_message(account_id, mailbox, uid)[0]:
+                self.content_cache.pop(cache_key, None)
+        self.current_content = None
+        for page in self.pages.values():
+            page.set_viewer_text("")
+            page.set_links([])
+            page.current_content_key = None
+
+    def delete_folder_by_id(self, folder_id: str) -> None:
+        account = self.selected_account()
+        if account is None or not folder_id:
+            return
+        try:
+            self.folder_store().get_folder(account.id, folder_id)
+        except Exception as exc:
+            self.SetStatusText(f"تعذر العثور على المجلد: {exc}")
+            return
+        if wx.MessageBox(
+            tr("سيُحذف المجلد فقط، وتبقى الرسائل في حساب البريد. هل تريد المتابعة؟"),
+            tr("حذف المجلد"), wx.YES_NO | wx.NO_DEFAULT | wx.ICON_WARNING, self,
+        ) != wx.YES:
+            return
+        try:
+            self.folder_store().delete_folder(account.id, folder_id)
+            if self.selected_folder_id() == folder_id:
+                self.on_leave_message_folder()
+            self.refresh_section_folder_choices()
+            self.refresh_local_category_visibility()
+            self.refresh_custom_categories()
+            self.SetStatusText("حُذف المجلد محلياً وبقيت الرسائل في حساب البريد.")
+        except Exception as exc:
+            wx.MessageBox(tr(str(exc)), tr("تعذر تعديل المجلد"), wx.OK | wx.ICON_ERROR, self)
+
+    def choose_folder_section(self, account: Account, folder_id: str) -> None:
+        sections = self.folder_store().list_sections(account.id)
+        if not sections:
+            wx.MessageBox(tr("لا توجد أقسام مخصصة. أنشئ قسماً من قائمة سياق الأقسام أولاً."),
+                          tr("الأقسام المخصصة"), wx.OK | wx.ICON_INFORMATION, self)
+            return
+        dialog = wx.SingleChoiceDialog(
+            self, tr("اختر القسم الذي ستُنقل إليه الرسائل محلياً:"),
+            tr("نقل المجلد إلى قسم مخصص"),
+            [tr("إعادة إلى قسم المجلدات"), *(section.name for section in sections)],
+        )
+        try:
+            if dialog.ShowModal() != wx.ID_OK:
+                return
+            selection = dialog.GetSelection()
+        finally:
+            dialog.Destroy()
+        self.move_folder_to_section(account, folder_id, sections[selection - 1].id if selection > 0 else None)
+
+    def move_folder_to_section(self, account: Account, folder_id: str, section_id: str | None) -> None:
+        try:
+            self.folder_store().set_folder_section(account.id, folder_id, section_id)
+            self.refresh_section_folder_choices()
+            self.SetStatusText("نُقل المجلد إلى القسم محلياً؛ لم تتغير الرسائل لدى مزوّد البريد.")
+        except Exception as exc:
+            wx.MessageBox(tr(str(exc)), tr("تعذر نقل المجلد"), wx.OK | wx.ICON_ERROR, self)
+
+    def refresh_local_category_visibility(self) -> None:
+        account = self.selected_account()
+        excluded: set[tuple[str, str]] = set()
+        excluded_uids: set[str] = set()
+        excluded_message_ids: set[str] = set()
+        locked_hashes: set[str] = set()
+        locked_uid_hashes: set[str] = set()
+        if account is not None:
+            value = self.folder_store().locked_message_hashes(account.id)
+            locked_hashes = set(value) if isinstance(value, (set, frozenset, list, tuple)) else set()
+            if account.oauth_provider == "google_gmail_api":
+                locked_uid_hashes = {value.removeprefix("uid:") for value in locked_hashes if value.startswith("uid:")}
+            excluded = {
+                parsed for key in (
+                    self.folder_store().message_folder_keys(account.id)
+                    + self.folder_store().section_message_keys(account.id)
+                )
+                if (parsed := parse_message_folder_key(key)) is not None
+            }
+            if account.oauth_provider == "google_gmail_api":
+                excluded_uids = {uid for _mailbox, uid in excluded}
+            else:
+                live = {
+                    (summary.mailbox, summary.uid): summary
+                    for page_key in self.pages
+                    for summary in self.pages[page_key].messages
+                }
+                missing: dict[str, list[str]] = {}
+                for mailbox, uid in excluded:
+                    if (mailbox, uid) not in live:
+                        missing.setdefault(mailbox, []).append(uid)
+                for mailbox, uids in missing.items():
+                    live.update({
+                        (mailbox, uid): summary
+                        for uid, summary in self.service.cache.summaries_by_uids(account.id, mailbox, uids).items()
+                    })
+                excluded_message_ids = {
+                    live[key].message_id for key in excluded
+                    if key in live and live[key].message_id
+                }
+        for page_key in ("inbox", "spam", "sent", "all"):
+            page = self.pages[page_key]
+            page.locked_message_hashes = locked_hashes
+            page.locked_message_uid_hashes = locked_uid_hashes
+            page.locked_account_id = account.id if account else ""
+            page.allowed_locked_hashes = set()
+            page.excluded_message_keys = excluded
+            page.excluded_message_uids = excluded_uids
+            page.excluded_message_ids = excluded_message_ids
+            page.apply_filter()
+        for page_key, page in self.pages.items():
+            if page_key in {"inbox", "spam", "sent", "all"}:
+                continue
+            page.locked_message_hashes = locked_hashes
+            page.locked_message_uid_hashes = locked_uid_hashes
+            page.locked_account_id = account.id if account else ""
+            if page_key == "folders" and getattr(self, "selected_folder_id", lambda: "")() and account:
+                try:
+                    keys = self.folder_store().list_items(account.id, self.selected_folder_id())
+                except ValueError:
+                    keys = []
+                page.allowed_locked_hashes = self.folder_store()._indexed_hashes(account.id, keys)
+            elif page_key.startswith("section:") and account:
+                section_id = page_key.removeprefix("section:")
+                store = self.folder_store()
+                if store.is_locked(account.id, "section", section_id) and not store.is_open(account.id, "section", section_id):
+                    MainFrame.clear_closed_section_page(page)
+                    continue
+                keys = store.section_message_keys(account.id, section_id)
+                page.allowed_locked_hashes = store._indexed_hashes(account.id, keys)
+            else:
+                page.allowed_locked_hashes = set()
+            page.apply_filter()
+
+    def refresh_custom_categories(self) -> None:
+        account = self.selected_account()
+        try:
+            categories = self.folder_store().list_categories(account.id) if account else []
+            for key in [key for key in self.pages if key.startswith("custom:")]:
+                page = self.pages.pop(key)
+                index = self.notebook.FindPage(page)
+                if index != wx.NOT_FOUND:
+                    self.notebook.DeletePage(index)
+            self._visible_category_ids = [category.id for category in categories]
+            for page in self.pages.values():
+                selected = page.selected_filter_key()
+                base_labels = page.filter_choices
+                page.base_filter_count = len(base_labels)
+                page.local_category_ids = list(self._visible_category_ids)
+                page.local_category_names = [category.name for category in categories]
+                page.local_category_rules = {category.id: category.rules for category in categories}
+                page.local_category_emails = {category.id: category.email_addresses for category in categories}
+                page.filter_choice.Set([tr(label) for label in base_labels] + [category.name for category in categories])
+                base_keys = ("all", "starred", "unread", "read", "trash", "archive")
+                if selected.startswith("custom:") and selected.removeprefix("custom:") in self._visible_category_ids:
+                    index = page.base_filter_count + self._visible_category_ids.index(selected.removeprefix("custom:"))
+                elif selected in base_keys and base_keys.index(selected) < page.base_filter_count:
+                    index = base_keys.index(selected)
+                else:
+                    index = 0
+                page.filter_choice.SetSelection(index)
+            self.load_selected_custom_category()
+            self.refresh_section_folder_choices()
+        except Exception as exc:
+            self.SetStatusText(f"تعذر عرض التصنيفات المحلية: {exc}")
+
+    def refresh_custom_sections(self) -> None:
+        account = self.selected_account()
+        try:
+            sections = self.folder_store().list_sections(account.id) if account else []
+            desired = {f"section:{section.id}" for section in sections}
+            for key in [key for key in self.pages if key.startswith("section:") and key not in desired]:
+                page = self.pages.pop(key)
+                index = self.notebook.FindPage(page)
+                if index != wx.NOT_FOUND:
+                    self.notebook.DeletePage(index)
+            for section in sections:
+                key = f"section:{section.id}"
+                display_name = (tr("القسم {name} مقفول؛ اضغط Enter لكتابة رمز الدخول").format(name=section.name)
+                                if section.locked else section.name)
+                if key not in self.pages:
+                    self.create_custom_section_page(section.id, display_name)
+                else:
+                    page = self.pages[key]
+                    page.title = display_name
+                    self.notebook.SetPageText(self.notebook.FindPage(page), display_name)
+            self._visible_section_ids = [section.id for section in sections]
+            self.load_custom_sections()
+            self.refresh_section_folder_choices()
+        except Exception as exc:
+            self.SetStatusText(f"تعذر عرض الأقسام المخصصة: {exc}")
+
+    def create_custom_section_page(self, section_id: str, name: str) -> None:
+        page = MailPage(
+            self.notebook, name, self.on_message_selected, self.on_toggle_message_read,
+            self.on_translate_current_message, self.on_reply,
+            self.on_toggle_star_current_message, self.on_toggle_pin_current_message,
+            self.on_delete_current_message, self.on_bulk_message_action,
+            self.on_mail_page_filter_changed,
+            on_viewer_opened=self.on_message_viewer_opened,
+            on_viewer_enter=self.on_message_viewer_enter,
+            on_end_reached=self.on_message_list_end_reached,
+            on_attachment_transfer=self.on_attachment_transfer,
+            on_forward=self.on_forward_message,
+            on_archive=self.on_archive_message,
+            on_toggle_expanded=self.on_toggle_expanded_viewer,
+            on_html_focus_state=self.on_html_focus_state_changed,
+            on_search_request=self.on_search,
+            on_item_viewer_opened=self.on_item_viewer_opened,
+        )
+        page.folder_rows = []
+        page.filter_choices = FILTER_CHOICES
+        page.filter_choice.Set([tr(label) for label in page.filter_choices])
+        page.filter_choice.SetSelection(0)
+        page.on_folder_open = lambda folder_id: self.open_section_folder(f"section:{section_id}", folder_id)
+        page.on_folder_context = lambda folder_id: self.on_folder_context_menu(
+            folder_id_override=folder_id, popup_owner=page.list,
+        )
+        page.filter_choice.Bind(wx.EVT_CONTEXT_MENU, self.on_category_notebook_context)
+        page.filter_choice.Bind(wx.EVT_CHAR_HOOK, self.on_category_notebook_key)
+        page.set_theme(self.settings.theme)
+        page.set_visual_accessibility(self.settings)
+        page.set_viewer_mode(self.settings.message_viewer)
+        page.set_message_read_mode(self.settings.message_read_mode)
+        page.set_search_mode(self.settings.search_mode)
+        key = f"section:{section_id}"
+        self.pages[key] = page
+        self.notebook.AddPage(page, name)
+
+    def load_custom_sections(self) -> None:
+        account = self.selected_account()
+        if account is None:
+            return
+        live = {
+            (summary.mailbox, summary.uid): summary
+            for page in self.pages.values() for summary in page.messages
+            if self.folder_store().message_identity_matches(account.id, summary)
+        }
+        folder_keys = set(self.folder_store().message_folder_keys(account.id))
+        for section_id in self._visible_section_ids:
+            page = self.pages.get(f"section:{section_id}")
+            if page is None:
+                continue
+            if self.folder_store().is_locked(account.id, "section", section_id) and not self.folder_store().is_open(account.id, "section", section_id):
+                MainFrame.clear_closed_section_page(page)
+                continue
+            page.Enable(True)
+            page.set_section_locked(False)
+            references = [
+                parsed for key in self.folder_store().section_message_keys(account.id, section_id)
+                if key not in folder_keys and (parsed := parse_message_folder_key(key)) is not None
+            ]
+            missing: dict[str, list[str]] = {}
+            for mailbox, uid in references:
+                if (mailbox, uid) not in live:
+                    missing.setdefault(mailbox, []).append(uid)
+            for mailbox, uids in missing.items():
+                for uid, summary in self.service.cache.summaries_by_uids(account.id, mailbox, uids).items():
+                    live[(mailbox, uid)] = summary
+            page.allowed_locked_hashes = self.folder_store()._indexed_hashes(
+                account.id, self.folder_store().section_message_keys(account.id, section_id),
+            )
+            page.set_messages([live[ref] for ref in references if ref in live])
+
+            MainFrame.backfill_local_summaries(self, page, account, references, live)
+
+    def load_selected_custom_category(self) -> None:
+        account = self.selected_account()
+        if account is None:
+            return
+        categories = self.folder_store().list_categories(account.id)
+        rules = {category.id: category.rules for category in categories}
+        emails = {category.id: category.email_addresses for category in categories}
+        read_keys = frozenset(
+            parsed for key in self.folder_store().recent_read_keys(account.id, since=time.time() - 7 * 86400)
+            if (parsed := parse_message_folder_key(key)) is not None
+        )
+        read_uids = frozenset(uid for _mailbox, uid in read_keys) if account.oauth_provider == "google_gmail_api" else frozenset()
+        sender_frequency: dict[str, int] = {}
+        seen_messages: set[str] = set()
+        for page in self.pages.values():
+            for message in page.messages:
+                sender = message.sender_email.strip().casefold()
+                if not sender or sender == account.email_address.casefold():
+                    continue
+                identity = message.message_id or f"{message.mailbox}:{message.uid}"
+                if identity in seen_messages:
+                    continue
+                seen_messages.add(identity)
+                sender_frequency[sender] = sender_frequency.get(sender, 0) + 1
+        for page in self.pages.values():
+            page.local_category_rules = rules
+            page.local_category_emails = emails
+            page.recent_read_keys = read_keys
+            page.recent_read_uids = read_uids
+            page.sender_frequency = sender_frequency
+            page.apply_filter()
+
+    def filter_local_section_results(
+        self, account: Account, page: MailPage, messages: list[MessageSummary],
+    ) -> list[MessageSummary]:
+        page_key = self.page_key_for_page(page)
+        if not page_key.startswith("section:"):
+            return messages
+        references = {
+            parsed for key in self.folder_store().section_message_keys(
+                account.id, page_key.removeprefix("section:"),
+            ) if (parsed := parse_message_folder_key(key)) is not None
+        }
+        known_ids = {
+            summary.message_id for source_page in self.pages.values()
+            for summary in source_page.messages
+            if (summary.mailbox, summary.uid) in references and summary.message_id
+        }
+        return [
+            summary for summary in messages
+            if (summary.mailbox, summary.uid) in references
+            or (summary.message_id and summary.message_id in known_ids)
+        ]
 
     def load_archive_messages(self, page: MailPage, older: bool = False) -> None:
         account = self.selected_account()
@@ -1154,7 +2320,8 @@ class MainFrame(wx.Frame):
         def done(result: tuple[str, list[MessageSummary]]) -> None:
             if not finished():
                 return
-            page.archive_mailbox, page.archive_messages = result
+            page.archive_mailbox, archived = result
+            page.archive_messages = self.filter_local_section_results(account, page, archived)
             page.apply_filter()
             self.SetStatusText(f"عدد الرسائل المؤرشفة المعروضة: {len(page.archive_messages)}")
 
@@ -1218,7 +2385,7 @@ class MainFrame(wx.Frame):
                 self.SetStatusText("لم يتم العثور على صندوق سلة المحذوفات لهذا الحساب.")
                 return
             self._trash_mailboxes_by_account[account.id] = trash_mailbox
-            page.set_trash_messages(messages, trash_mailbox)
+            page.set_trash_messages(self.filter_local_section_results(account, page, messages), trash_mailbox)
             self.set_transfer_progress(100, "اكتمل فحص سلة المحذوفات")
             if warning:
                 self.SetStatusText(
@@ -1250,7 +2417,12 @@ class MainFrame(wx.Frame):
             self.on_settings()
 
     def on_address_book(self, _event: wx.Event | None = None) -> None:
-        dialog = AddressBookDialog(self, self.address_message_matches)
+        account = self.selected_account()
+        play_sound_if_available(self, SOUND_ADDRESS_BOOK)
+        dialog = AddressBookDialog(
+            self, self.address_message_matches,
+            account_id=account.id if account else "",
+        )
         compose_address = ""
         selected_message_match: AddressMessageMatch | None = None
         try:
@@ -1264,6 +2436,315 @@ class MainFrame(wx.Frame):
         elif selected_message_match:
             self.open_address_message(selected_message_match)
 
+    def on_custom_categories(self, _event: wx.Event | None = None) -> None:
+        account = self.selected_account()
+        if not account:
+            return
+        dialog = CustomCategoryDialog(self, account, self.folder_store(), self.run_worker)
+        try:
+            dialog.ShowModal()
+        finally:
+            dialog.Destroy()
+        self.refresh_custom_categories()
+        self.refresh_local_category_visibility()
+
+    def on_section_notebook_key(self, event: wx.KeyEvent) -> None:
+        key = event.GetKeyCode()
+        if (key in {wx.WXK_RETURN, wx.WXK_NUMPAD_ENTER}
+                and not (event.ControlDown() or event.AltDown() or event.ShiftDown())
+                and wx.Window.FindFocus() is self.notebook
+                and self.open_selected_locked_section()):
+            return
+        if (wx.Window.FindFocus() is self.notebook
+                and (key in {wx.WXK_MENU, wx.WXK_WINDOWS_MENU}
+                     or (key == wx.WXK_F10 and event.ShiftDown()))):
+            self.on_section_notebook_context()
+            return
+        event.Skip()
+
+    def on_section_notebook_context(self, event: wx.Event | None = None) -> None:
+        if isinstance(event, wx.ContextMenuEvent):
+            if event.GetEventObject() is not self.notebook:
+                event.Skip()
+                return
+            if event.GetPosition() == wx.DefaultPosition and wx.Window.FindFocus() is not self.notebook:
+                event.Skip()
+                return
+            if event.GetPosition() != wx.DefaultPosition:
+                hit = self.notebook.HitTest(self.notebook.ScreenToClient(event.GetPosition()))
+                index = hit[0] if isinstance(hit, tuple) else hit
+                if not isinstance(index, int) or not 0 <= index < self.notebook.GetPageCount():
+                    return
+        account = self.selected_account()
+        if account is None:
+            self.SetStatusText("أضف حساباً قبل إنشاء قسم مخصص.")
+            return
+        if isinstance(event, wx.ContextMenuEvent) and event.GetPosition() != wx.DefaultPosition:
+            hit = self.notebook.HitTest(self.notebook.ScreenToClient(event.GetPosition()))
+            index = hit[0] if isinstance(hit, tuple) else hit
+            if isinstance(index, int) and 0 <= index < self.notebook.GetPageCount():
+                self.notebook.SetSelection(index)
+        page_key = self.page_key_for_page(self.notebook.GetCurrentPage())
+        section_id = page_key.removeprefix("section:") if page_key.startswith("section:") else ""
+        menu = wx.Menu()
+        create_item = menu.Append(wx.ID_ANY, tr("إنشاء قسم مخصص"))
+        rename_item = menu.Append(wx.ID_ANY, tr("إعادة تسمية القسم المخصص"))
+        delete_item = menu.Append(wx.ID_ANY, tr("حذف القسم المخصص"))
+        is_locked = bool(section_id and self.folder_store().is_locked(account.id, "section", section_id))
+        lock_item = menu.Append(wx.ID_ANY, tr("إزالة قفل القسم" if is_locked else "قفل القسم بكلمة مرور"))
+        rename_item.Enable(bool(section_id))
+        delete_item.Enable(bool(section_id))
+        lock_item.Enable(bool(section_id))
+        menu.Bind(wx.EVT_MENU, lambda _event: wx.CallAfter(self.create_local_section), create_item)
+        menu.Bind(wx.EVT_MENU, lambda _event: wx.CallAfter(self.rename_local_section, section_id), rename_item)
+        menu.Bind(wx.EVT_MENU, lambda _event: wx.CallAfter(self.delete_local_section, section_id), delete_item)
+        menu.Bind(wx.EVT_MENU, lambda _event: wx.CallAfter(self.toggle_section_lock, account.id, section_id), lock_item)
+        try:
+            announce_context_menu(self.notebook)
+            self.notebook.PopupMenu(menu)
+        finally:
+            menu.Destroy()
+
+    def create_local_section(self) -> None:
+        account = self.selected_account()
+        if account is None:
+            return
+        dialog = wx.TextEntryDialog(self, tr("اسم القسم المخصص:"), tr("إنشاء قسم مخصص"))
+        try:
+            if dialog.ShowModal() != wx.ID_OK:
+                return
+            name = dialog.GetValue()
+        finally:
+            dialog.Destroy()
+        try:
+            section = self.folder_store().create_section(account.id, name)
+            self.refresh_custom_sections()
+            self.refresh_custom_categories()
+            self.notebook.SetSelection(list(self.pages).index(f"section:{section.id}"))
+            self.notebook.SetFocus()
+        except Exception as exc:
+            wx.MessageBox(tr(str(exc)), tr("تعذر إنشاء القسم المخصص"), wx.OK | wx.ICON_ERROR, self)
+
+    def rename_local_section(self, section_id: str) -> None:
+        account = self.selected_account()
+        if account is None or not section_id:
+            return
+        section = next((item for item in self.folder_store().list_sections(account.id) if item.id == section_id), None)
+        if section is None:
+            return
+        dialog = wx.TextEntryDialog(self, tr("اسم القسم المخصص:"), tr("إعادة تسمية القسم المخصص"), value=section.name)
+        try:
+            if dialog.ShowModal() != wx.ID_OK:
+                return
+            name = dialog.GetValue()
+        finally:
+            dialog.Destroy()
+        try:
+            self.folder_store().rename_section(account.id, section_id, name)
+            self.refresh_custom_sections()
+        except Exception as exc:
+            wx.MessageBox(tr(str(exc)), tr("تعذر إعادة تسمية القسم المخصص"), wx.OK | wx.ICON_ERROR, self)
+
+    def delete_local_section(self, section_id: str) -> None:
+        account = self.selected_account()
+        if account is None or not section_id:
+            return
+        if wx.MessageBox(
+            tr("سيُحذف القسم المحلي فقط. ستبقى الرسائل والمجلدات في البرنامج وحساب البريد. هل تريد المتابعة؟"),
+            tr("حذف القسم المخصص"), wx.YES_NO | wx.NO_DEFAULT | wx.ICON_WARNING, self,
+        ) != wx.YES:
+            return
+        try:
+            self.folder_store().delete_section(account.id, section_id)
+            self.notebook.SetSelection(0)
+            self.refresh_custom_sections()
+            self.refresh_custom_categories()
+            self.refresh_local_category_visibility()
+        except Exception as exc:
+            wx.MessageBox(tr(str(exc)), tr("تعذر حذف القسم المخصص"), wx.OK | wx.ICON_ERROR, self)
+
+    def on_category_notebook_key(self, event: wx.KeyEvent) -> None:
+        key = event.GetKeyCode()
+        page = self.current_page()
+        if page is None:
+            event.Skip()
+            return
+        if event.ControlDown() and not (event.AltDown() or event.ShiftDown()):
+            if key == wx.WXK_DOWN:
+                if self._visible_category_ids:
+                    page.filter_choice.SetSelection(page.base_filter_count)
+                    page.on_filter(wx.CommandEvent())
+                    self.show_notification("تم الانتقال إلى التصنيفات المخصصة.")
+                else:
+                    self.show_notification("لا توجد تصنيفات مخصصة بعد. افتح قائمة السياق لإنشاء تصنيف.")
+                return
+            if key == wx.WXK_UP:
+                page.filter_choice.SetSelection(0)
+                page.on_filter(wx.CommandEvent())
+                self.show_notification("تم الانتقال إلى تصنيفات البرنامج.")
+                return
+        if key in {wx.WXK_MENU, wx.WXK_WINDOWS_MENU} or (key == wx.WXK_F10 and event.ShiftDown()):
+            self.on_category_notebook_context()
+            return
+        event.Skip()
+
+    def on_category_notebook_context(self, _event: wx.Event | None = None) -> None:
+        page = self.current_page()
+        if isinstance(_event, wx.ContextMenuEvent) and (page is None or _event.GetEventObject() is not page.filter_choice):
+            _event.Skip()
+            return
+        account = self.selected_account()
+        if account is None:
+            self.SetStatusText("أضف حساباً قبل إنشاء تصنيف.")
+            return
+        page = self.current_page()
+        if page is None:
+            return
+        page_key = page.selected_filter_key()
+        category_id = page_key.removeprefix("custom:") if page_key.startswith("custom:") else ""
+        menu = wx.Menu()
+        create_item = menu.Append(wx.ID_ANY, tr("إنشاء تصنيف جديد"))
+        rename_item = menu.Append(wx.ID_ANY, tr("إعادة تسمية التصنيف"))
+        rules_item = menu.Append(wx.ID_ANY, tr("تعديل شروط تصفية التصنيف"))
+        delete_item = menu.Append(wx.ID_ANY, tr("حذف التصنيف"))
+        rename_item.Enable(bool(category_id))
+        rules_item.Enable(bool(category_id))
+        delete_item.Enable(bool(category_id))
+        menu.Bind(wx.EVT_MENU, lambda _event: wx.CallAfter(self.create_local_category), create_item)
+        menu.Bind(wx.EVT_MENU, lambda _event: wx.CallAfter(self.rename_local_category, category_id), rename_item)
+        menu.Bind(wx.EVT_MENU, lambda _event: wx.CallAfter(self.edit_local_category_rules, category_id), rules_item)
+        menu.Bind(wx.EVT_MENU, lambda _event: wx.CallAfter(self.delete_local_category, category_id), delete_item)
+        try:
+            announce_context_menu(page.filter_choice)
+            page.filter_choice.PopupMenu(menu)
+        finally:
+            menu.Destroy()
+
+    def create_local_category(self) -> None:
+        account = self.selected_account()
+        if account is None:
+            return
+        selection = self.choose_custom_category_rules()
+        if selection is None:
+            return
+        rules, email_addresses = selection
+        dialog = wx.TextEntryDialog(self, tr("اسم التصنيف:"), tr("إنشاء تصنيف جديد"))
+        try:
+            if dialog.ShowModal() != wx.ID_OK:
+                return
+            name = dialog.GetValue()
+        finally:
+            dialog.Destroy()
+        try:
+            category = self.folder_store().create_category(account.id, name, rules, email_addresses)
+            self.refresh_custom_categories()
+            page = self.current_page()
+            if page is not None:
+                page.filter_choice.SetSelection(page.base_filter_count + self._visible_category_ids.index(category.id))
+                page.on_filter(wx.CommandEvent())
+                page.filter_choice.SetFocus()
+        except Exception as exc:
+            wx.MessageBox(tr(str(exc)), tr("تعذر إنشاء التصنيف"), wx.OK | wx.ICON_ERROR, self)
+
+    def choose_custom_category_rules(
+        self, initial: tuple[str, ...] = (), initial_emails: tuple[str, ...] = (),
+    ) -> tuple[tuple[str, ...], tuple[str, ...]] | None:
+        options = (
+            ("recent_read", tr("الرسائل التي قرأتها خلال آخر 7 أيام")),
+            ("promotional", tr("الرسائل الترويجية")),
+            ("organization", tr("رسائل الشركات والمؤسسات")),
+            ("specific_email", tr("الرسائل المرتبطة بعناوين بريد محددة")),
+            ("frequent_sender", tr("رسائل المرسلين كثيري الاستلام (5 رسائل أو أكثر)")),
+            ("locked_messages", tr("الرسائل المقفولة")),
+            ("message_folders", tr("مجلدات الرسائل")),
+            ("attachments", tr("الرسائل التي تحتوي على مرفقات")),
+            ("no_attachments", tr("الرسائل التي لا تحتوي على مرفقات")),
+        )
+        dialog = CategoryRulesDialog(self, options, initial)
+        try:
+            if dialog.ShowModal() != wx.ID_OK:
+                return None
+            rules = dialog.selected_rules()
+        finally:
+            dialog.Destroy()
+        if not rules:
+            wx.MessageBox(tr("اختر مرشحاً واحداً لإنشاء التصنيف."),
+                          tr("شروط تصفية التصنيف"), wx.OK | wx.ICON_INFORMATION, self)
+            return None
+        if "specific_email" not in rules:
+            return rules, ()
+        dialog = wx.TextEntryDialog(
+            self, tr("أدخل عنوان بريد واحداً أو عدة عناوين، وافصل بينها بفاصلة أو سطر جديد:"),
+            tr("عناوين البريد للتصنيف"), value=", ".join(initial_emails),
+        )
+        try:
+            if dialog.ShowModal() != wx.ID_OK:
+                return None
+            email_addresses = tuple(dict.fromkeys(
+                value.strip().casefold() for value in re.split(r"[,;\n]+", dialog.GetValue()) if value.strip()
+            ))
+        finally:
+            dialog.Destroy()
+        try:
+            email_addresses = self.folder_store()._clean_category_emails(rules, email_addresses)
+        except ValueError as exc:
+            wx.MessageBox(tr(str(exc)), tr("عناوين البريد للتصنيف"), wx.OK | wx.ICON_ERROR, self)
+            return None
+        return rules, email_addresses
+
+    def edit_local_category_rules(self, category_id: str) -> None:
+        account = self.selected_account()
+        if account is None or not category_id:
+            return
+        category = next((item for item in self.folder_store().list_categories(account.id) if item.id == category_id), None)
+        if category is None:
+            return
+        selection = self.choose_custom_category_rules(category.rules, category.email_addresses)
+        if selection is None:
+            return
+        rules, email_addresses = selection
+        try:
+            self.folder_store().set_category_rules(account.id, category_id, rules, email_addresses)
+            self.refresh_custom_categories()
+        except Exception as exc:
+            wx.MessageBox(tr(str(exc)), tr("تعذر تعديل شروط التصنيف"), wx.OK | wx.ICON_ERROR, self)
+
+    def rename_local_category(self, category_id: str) -> None:
+        account = self.selected_account()
+        if account is None or not category_id:
+            return
+        category = next((item for item in self.folder_store().list_categories(account.id) if item.id == category_id), None)
+        if category is None:
+            return
+        dialog = wx.TextEntryDialog(self, tr("اسم التصنيف:"), tr("إعادة تسمية التصنيف"), value=category.name)
+        try:
+            if dialog.ShowModal() != wx.ID_OK:
+                return
+            name = dialog.GetValue()
+        finally:
+            dialog.Destroy()
+        try:
+            self.folder_store().rename_category(account.id, category_id, name)
+            self.refresh_custom_categories()
+        except Exception as exc:
+            wx.MessageBox(tr(str(exc)), tr("تعذر إعادة تسمية التصنيف"), wx.OK | wx.ICON_ERROR, self)
+
+    def delete_local_category(self, category_id: str) -> None:
+        account = self.selected_account()
+        if account is None or not category_id:
+            return
+        if wx.MessageBox(
+            tr("سيُحذف التصنيف المحلي فقط. ستبقى الرسائل والمجلدات. هل تريد المتابعة؟"),
+            tr("حذف التصنيف"), wx.YES_NO | wx.NO_DEFAULT | wx.ICON_WARNING, self,
+        ) != wx.YES:
+            return
+        try:
+            self.folder_store().delete_category(account.id, category_id)
+            self.refresh_custom_categories()
+            self.refresh_local_category_visibility()
+        except Exception as exc:
+            wx.MessageBox(tr(str(exc)), tr("تعذر حذف التصنيف"), wx.OK | wx.ICON_ERROR, self)
+
     def address_message_matches(self, email: str) -> list[AddressMessageMatch]:
         target = email.casefold()
         matches: list[AddressMessageMatch] = []
@@ -1271,6 +2752,14 @@ class MainFrame(wx.Frame):
         for page_key in ("inbox", "spam", "sent", "all"):
             page = self.pages[page_key]
             for summary in [*page.messages, *page.trash_messages]:
+                if not MainFrame.message_access_allowed(self, summary, page):
+                    continue
+                if (
+                    (summary.mailbox, summary.uid) in getattr(page, "excluded_message_keys", set())
+                    or summary.uid in getattr(page, "excluded_message_uids", set())
+                    or (summary.message_id and summary.message_id in getattr(page, "excluded_message_ids", set()))
+                ):
+                    continue
                 recipients = {address.casefold() for address in summary.recipient_emails}
                 direction = ""
                 if target in recipients:
@@ -1368,6 +2857,7 @@ class MainFrame(wx.Frame):
         menu.Destroy()
 
     def on_settings(self, _event: wx.Event | None = None) -> None:
+        play_sound_if_available(self, SOUND_SETTINGS)
         page = self.current_page()
         if page:
             self.settings.message_viewer = page.viewer_mode
@@ -1392,11 +2882,12 @@ class MainFrame(wx.Frame):
         )
         set_language(self.settings.language)
         set_localized_items(self.command_list, self.command_labels())
-        page_labels = ("الرسائل الواردة", "الرسائل غير المرغوب بها", "الرسائل المرسلة", "كل الرسائل")
+        page_labels = ("الرسائل الواردة", "الرسائل غير المرغوب بها", "الرسائل المرسلة", "كل الرسائل", "مجلدات الرسائل")
         for index, label in enumerate(page_labels):
             self.notebook.SetPageText(index, tr(label))
         for page in self.pages.values():
             page.set_theme(self.settings.theme)
+            page.set_visual_accessibility(self.settings)
             page.set_viewer_mode(self.settings.message_viewer)
             page.set_message_read_mode(self.settings.message_read_mode)
             page.set_search_mode(self.settings.search_mode)
@@ -1409,22 +2900,10 @@ class MainFrame(wx.Frame):
         self.Layout()
 
     def apply_theme_to_window(self, window: wx.Window) -> None:
-        background, foreground, field_background = self.theme_colours()
-        if not isinstance(window, wx.html2.WebView):
-            try:
-                window.SetBackgroundColour(field_background if self.is_field_control(window) else background)
-                window.SetForegroundColour(foreground)
-            except Exception:
-                pass
-        for child in window.GetChildren():
-            self.apply_theme_to_window(child)
-        try:
-            window.Refresh()
-        except Exception:
-            pass
+        apply_visual_accessibility(window, self.settings)
 
     def theme_colours(self) -> tuple[wx.Colour, wx.Colour, wx.Colour]:
-        return theme_palette(self.settings.theme)
+        return visual_palette(self.settings)
 
     def is_field_control(self, window: wx.Window) -> bool:
         return isinstance(
@@ -1591,10 +3070,27 @@ class MainFrame(wx.Frame):
             wx.MessageBox("اختر حسابا أولا.", "لا يوجد حساب", wx.OK | wx.ICON_INFORMATION, self)
             return
 
+        store = getattr(self, "_folder_store", None)
+        try:
+            if store is not None:
+                store.require_account_removal(account.id)
+        except ProtectedAddressBookError as exc:
+            wx.MessageBox(tr(str(exc)), tr("تعذر إزالة الحساب بأمان"), wx.OK | wx.ICON_ERROR, self)
+            return
+
+        revocation_supported = supports_oauth_revocation(account)
+        removal_details = (
+            "سيُلغي البرنامج صلاحية تسجيل الدخول لدى Google أولا، ثم يزيل "
+            "بيانات الحساب المحفوظة محليا. لن يتم حذف حساب البريد نفسه."
+            if revocation_supported
+            else
+            "لن يتم حذف حساب البريد نفسه من Google أو Microsoft، لكن ستتم "
+            "إزالة بياناته المحفوظة محليا من هذا البرنامج."
+        )
         answer = wx.MessageBox(
             (
                 f"هل تريد إزالة الحساب التالي من البرنامج؟\n{account.label}\n\n"
-                "لن يتم حذف حساب البريد نفسه من Google أو Microsoft، لكن ستتم إزالة بياناته المحفوظة محليا من هذا البرنامج."
+                f"{removal_details}"
             ),
             "إزالة حساب",
             wx.YES_NO | wx.NO_DEFAULT | wx.ICON_WARNING,
@@ -1604,17 +3100,43 @@ class MainFrame(wx.Frame):
             return
 
         remove_index = self.account_choice.GetSelection()
+        if revocation_supported:
+            def failed(exc: Exception) -> bool:
+                wx.MessageBox(
+                    (
+                        "لم تتم إزالة الحساب لأن إلغاء صلاحية تسجيل الدخول لدى "
+                        f"Google لم ينجح. أعد المحاولة بعد التأكد من الاتصال.\n\n{exc}"
+                    ),
+                    "تعذر إزالة الحساب بأمان",
+                    wx.OK | wx.ICON_ERROR,
+                    self,
+                )
+                return True
+
+            self.run_worker(
+                "جار إلغاء صلاحية تسجيل الدخول لدى Google...",
+                lambda: revoke_account_oauth_token(account),
+                lambda _result: self._remove_account_locally(account, remove_index),
+                failed,
+            )
+            return
+
+        self._remove_account_locally(account, remove_index)
+
+    def _remove_account_locally(self, account: Account, remove_index: int) -> None:
+        cache_error = ""
+        try:
+            self.service.delete_cached_account(account)
+        except ProtectedAddressBookError as exc:
+            wx.MessageBox(tr(str(exc)), tr("تعذر إزالة الحساب بأمان"), wx.OK | wx.ICON_ERROR, self)
+            return
+        except Exception as exc:
+            cache_error = str(exc)
         if 0 <= remove_index < len(self.accounts) and self.accounts[remove_index].id == account.id:
             del self.accounts[remove_index]
         else:
             self.accounts = [existing for existing in self.accounts if existing.id != account.id]
         save_accounts(self.accounts)
-
-        cache_error = ""
-        try:
-            self.service.delete_cached_account(account)
-        except Exception as exc:
-            cache_error = str(exc)
 
         self.content_cache.clear()
         self._known_inbox_uids.pop(account.id, None)
@@ -1647,9 +3169,15 @@ class MainFrame(wx.Frame):
         self.refresh_all()
 
     def on_account_changed(self, _event: wx.Event | None = None) -> None:
+        if getattr(self, "_folder_store", None) is not None:
+            self._folder_store.close_all_locks()
         dialog = getattr(self, "_search_dialog", None)
         if dialog is not None:
             dialog.Close()
+        self.notebook.SetSelection(0)
+        inbox_page = self.pages["inbox"]
+        inbox_page.filter_choice.SetSelection(0)
+        inbox_page.apply_filter()
         account = self.selected_account()
         if account:
             self.remember_selected_account(account)
@@ -1657,7 +3185,29 @@ class MainFrame(wx.Frame):
         self.refresh_all()
         self.account_choice.SetFocus()
 
+    def switch_account_by_offset(self, offset: int) -> None:
+        count = self.account_choice.GetCount()
+        if count == 0:
+            self.SetStatusText("لا توجد حسابات مضافة للتبديل بينها.")
+            return
+        if count == 1:
+            self.SetStatusText("يوجد حساب واحد فقط.")
+            self.account_choice.SetFocus()
+            return
+        current = self.account_choice.GetSelection()
+        if current == wx.NOT_FOUND:
+            current = 0 if offset < 0 else -1
+        self.account_choice.SetSelection((current + offset) % count)
+        self.on_account_changed()
+
+    def on_next_account(self, _event: wx.Event | None = None) -> None:
+        self.switch_account_by_offset(1)
+
+    def on_previous_account(self, _event: wx.Event | None = None) -> None:
+        self.switch_account_by_offset(-1)
+
     def begin_account_switch(self, account: Account) -> None:
+        self._account_view_generation = getattr(self, "_account_view_generation", 0) + 1
         self._account_switch_target_id = account.id
         if self._notification_timer and self._notification_timer.IsRunning():
             self._notification_timer.Stop()
@@ -1689,8 +3239,22 @@ class MainFrame(wx.Frame):
             if self._account_switch_target_id == account.id:
                 self._account_switch_target_id = None
             return
+        self._refresh_generation = getattr(self, "_refresh_generation", 0) + 1
+        generation = self._refresh_generation
+
+        def is_current() -> bool:
+            selected = self.selected_account()
+            return (generation == self._refresh_generation
+                    and self.displayed_account_id == account.id
+                    and selected is not None and selected.id == account.id)
+
+        def show_progress(percent: int, status: str) -> None:
+            if is_current():
+                self.set_transfer_progress(percent, status)
+
         account_changed = self.displayed_account_id != account.id
         if account_changed:
+            self._account_view_generation = getattr(self, "_account_view_generation", 0) + 1
             dialog = getattr(self, "_search_dialog", None)
             if dialog is not None:
                 dialog.Close()
@@ -1704,8 +3268,13 @@ class MainFrame(wx.Frame):
                 page.archive_mailbox = ""
                 page._archive_generation = getattr(page, "_archive_generation", 0) + 1
                 page._archive_loading = False
+                page.local_category_messages = {}
                 page.set_messages([])
                 page.set_trash_messages([])
+            self.refresh_folder_choices(preserve=False)
+            self.refresh_custom_sections()
+            self.refresh_custom_categories()
+            self.refresh_local_category_visibility()
 
         all_mailbox = self._all_mailboxes_by_account.get(account.id, "")
         self.set_transfer_progress(0, "بدء تحديث الرسائل")
@@ -1716,7 +3285,7 @@ class MainFrame(wx.Frame):
             cached_sent: list[MessageSummary],
             cached_all: list[MessageSummary],
         ) -> None:
-            if self.displayed_account_id != account.id:
+            if not is_current():
                 return
             if not (cached_inbox or cached_spam or cached_sent or cached_all):
                 return
@@ -1724,6 +3293,9 @@ class MainFrame(wx.Frame):
             self.pages["spam"].merge_messages(cached_spam)
             self.pages["sent"].merge_messages(cached_sent)
             self.pages["all"].merge_messages(cached_all)
+            self.load_custom_sections()
+            self.refresh_local_category_visibility()
+            self.load_selected_custom_category()
             self.SetStatusText(
                 f"تم عرض الرسائل المحفوظة محليا. الوارد {len(cached_inbox)}، غير المرغوب {len(cached_spam)}، المرسلة {len(cached_sent)}، كل الرسائل {len(cached_all)}."
             )
@@ -1766,7 +3338,7 @@ class MainFrame(wx.Frame):
 
             call_after_if_open(
                 self,
-                self.set_transfer_progress,
+                show_progress,
                 10,
                 "جار استلام رسائل الوارد من الخادم",
             )
@@ -1811,7 +3383,7 @@ class MainFrame(wx.Frame):
             active_jobs = [(key, mailbox) for key, mailbox in mailbox_jobs.items() if mailbox]
             call_after_if_open(
                 self,
-                self.set_transfer_progress,
+                show_progress,
                 45,
                 "جار فحص بقية أقسام الرسائل بالتوازي",
             )
@@ -1841,7 +3413,7 @@ class MainFrame(wx.Frame):
                 sent_mailbox = ""
             call_after_if_open(
                 self,
-                self.set_transfer_progress,
+                show_progress,
                 100,
                 "انتهى استلام أحدث الرسائل",
             )
@@ -1868,7 +3440,7 @@ class MainFrame(wx.Frame):
             set[str],
             dict[str, str],
         ]) -> None:
-            if self.displayed_account_id != account.id:
+            if not is_current():
                 return
             (
                 inbox,
@@ -1889,6 +3461,11 @@ class MainFrame(wx.Frame):
                 self.pages["sent"].reconcile_recent_messages(sent)
             if mailbox_jobs["all"] and "all" not in failed_mailboxes:
                 self.pages["all"].reconcile_recent_messages(all_messages)
+            self.load_selected_folder()
+            self.load_custom_sections()
+            self.refresh_local_category_visibility()
+            if self._visible_category_ids:
+                self.load_selected_custom_category()
             self.remember_inbox_messages(account, self.pages["inbox"].messages)
             inbox_count = len(self.pages["inbox"].messages)
             spam_count = len(self.pages["spam"].messages)
@@ -1911,6 +3488,8 @@ class MainFrame(wx.Frame):
                 self.notify_new_mail(new_inbox_count)
 
         def failed(exc: Exception) -> bool:
+            if not is_current():
+                return True
             if self._account_switch_target_id != account.id:
                 return False
             self.finish_account_switch(account, exc)
@@ -1920,7 +3499,7 @@ class MainFrame(wx.Frame):
         self.run_worker("جار تحديث الرسائل...", work, done, failed)
 
     def on_message_list_end_reached(self, page: MailPage) -> None:
-        if page is not self.current_page() or page.selected_filter_key() == "trash":
+        if page is not self.current_page() or page is getattr(self, "pages", {}).get("folders") or page.selected_filter_key() == "trash":
             return
         self.load_older_messages(automatic=True)
 
@@ -1933,6 +3512,14 @@ class MainFrame(wx.Frame):
         if not account or not page:
             if not automatic:
                 wx.MessageBox("اختر حسابا وقسم رسائل أولا.", "لا يوجد قسم", wx.OK | wx.ICON_INFORMATION, self)
+            return
+        if page is getattr(self, "pages", {}).get("folders"):
+            if not automatic:
+                self.SetStatusText("رسائل المجلد تظهر مما حُمّل من أقسام البريد. حمّل رسائل أقدم من القسم الأصلي أولا.")
+            return
+        if self.page_key_for_page(page).startswith("section:"):
+            if not automatic:
+                self.SetStatusText("القسم المخصص محلي. حمّل رسائل أقدم من قسم البريد الأصلي أولاً.")
             return
         if page.selected_filter_key() == "trash":
             return
@@ -1951,6 +3538,7 @@ class MainFrame(wx.Frame):
         if automatic and load_key in self._older_messages_exhausted:
             return
         self._loading_older_keys.add(load_key)
+        generation = getattr(self, "_account_view_generation", 0)
         mailbox = self.mailbox_for_page_key(account, page_key)
         if automatic:
             self.SetStatusText("جاري تحميل المزيد من الرسائل...")
@@ -1958,20 +3546,24 @@ class MainFrame(wx.Frame):
         else:
             self.set_transfer_progress(0, "بدء تحميل رسائل أقدم")
 
+        def show_progress(percent: int, status: str) -> None:
+            if account_operation_is_current(self, account.id, generation):
+                self.set_transfer_progress(percent, status)
+
         def work() -> tuple[str, list[MessageSummary], str]:
             resolved_mailbox = mailbox or self.resolve_mailbox_for_page_key(account, page_key)
             if not resolved_mailbox:
                 return page_key, [], ""
             call_after_if_open(
                 self,
-                self.set_transfer_progress,
+                show_progress,
                 35,
                 "جار طلب دفعة أقدم من الخادم",
             )
             messages = self.service.load_older_messages(account, resolved_mailbox)
             call_after_if_open(
                 self,
-                self.set_transfer_progress,
+                show_progress,
                 100,
                 "انتهى تحميل الدفعة",
             )
@@ -1979,7 +3571,7 @@ class MainFrame(wx.Frame):
 
         def done(result: tuple[str, list[MessageSummary], str]) -> None:
             self._loading_older_keys.discard(load_key)
-            if self.displayed_account_id != account.id:
+            if not account_operation_is_current(self, account.id, generation):
                 return
             result_page_key, messages, resolved_mailbox = result
             target_page = self.pages[result_page_key]
@@ -2002,7 +3594,7 @@ class MainFrame(wx.Frame):
 
         def failed(_exc: Exception) -> bool:
             self._loading_older_keys.discard(load_key)
-            return False
+            return not account_operation_is_current(self, account.id, generation)
 
         worker_message = (
             "جاري تحميل المزيد من الرسائل..."
@@ -2017,16 +3609,24 @@ class MainFrame(wx.Frame):
         if not account or not page:
             wx.MessageBox("اختر حسابا وقسم رسائل أولا.", "لا يوجد قسم", wx.OK | wx.ICON_INFORMATION, self)
             return
+        if page is getattr(self, "pages", {}).get("folders"):
+            self.SetStatusText("زامن القسم الأصلي للرسائل؛ المجلدات تعرض الرسائل الموجودة في تلك الأقسام.")
+            return
+        if self.page_key_for_page(page).startswith("section:"):
+            self.SetStatusText("القسم المخصص محلي. زامن قسم البريد الأصلي للرسائل أولاً.")
+            return
         if not self.ensure_password(account):
             return
 
         page_key = self.page_key_for_page(page)
-        if page_key in self._syncing_page_keys:
+        sync_key = (account.id, page_key)
+        if sync_key in self._syncing_page_keys:
             self.SetStatusText("المزامنة الكاملة تعمل بالفعل لهذا القسم.")
             return
 
         mailbox = self.mailbox_for_page_key(account, page_key)
-        self._syncing_page_keys.add(page_key)
+        self._syncing_page_keys.add(sync_key)
+        generation = getattr(self, "_account_view_generation", 0)
         self.set_transfer_progress(0, "بدء مزامنة كل الرسائل")
 
         def progress(
@@ -2037,7 +3637,7 @@ class MainFrame(wx.Frame):
             total_count: int,
         ) -> None:
             def update() -> None:
-                if self.displayed_account_id != account.id:
+                if not account_operation_is_current(self, account.id, generation):
                     return
                 target_page = self.pages[page_key]
                 before_count = len(target_page.messages)
@@ -2073,10 +3673,10 @@ class MainFrame(wx.Frame):
                 )
                 return page_key, result, resolved_mailbox
             finally:
-                call_after_if_open(self, self._syncing_page_keys.discard, page_key)
+                call_after_if_open(self, self._syncing_page_keys.discard, sync_key)
 
         def done(result: tuple[str, MailSyncResult, str]) -> None:
-            if self.displayed_account_id != account.id:
+            if not account_operation_is_current(self, account.id, generation):
                 return
             result_page_key, sync_result, resolved_mailbox = result
             target_page = self.pages[result_page_key]
@@ -2096,11 +3696,26 @@ class MainFrame(wx.Frame):
                     f"اكتملت المزامنة. لا توجد رسائل أقدم جديدة. العدد المحفوظ {sync_result.cached_count}."
                 )
 
-        self.run_worker("جار مزامنة كل الرسائل...", work, done)
+        def failed(_exc: Exception) -> bool:
+            return not account_operation_is_current(self, account.id, generation)
+
+        self.run_worker("جار مزامنة كل الرسائل...", work, done, failed)
 
     def on_message_selected(self, page: MailPage, summary: MessageSummary) -> None:
+        if isinstance(summary, FolderRow):
+            self.cancel_pending_message_load()
+            self.current_content = None
+            page.deactivate_html_viewer()
+            page.set_viewer_text("ادخل على المجلد لعرض الرسائل")
+            page.set_links([])
+            page.current_content_key = None
+            return
         account = self.selected_account()
         if not account:
+            return
+        if not MainFrame.message_access_allowed(self, summary, page):
+            page.set_viewer_text("")
+            page.set_links([])
             return
         self.current_content = None
         self._message_load_generation += 1
@@ -2204,6 +3819,8 @@ class MainFrame(wx.Frame):
     ) -> bool:
         if generation != self._message_load_generation or self.displayed_account_id != account.id:
             return False
+        if not MainFrame.message_access_allowed(self, summary, page):
+            return False
         selected = page.selected_summary()
         return bool(selected and page.message_key(selected) == page.message_key(summary))
 
@@ -2218,6 +3835,9 @@ class MainFrame(wx.Frame):
         cache_key: tuple[str, str, str],
         content: MessageContent,
     ) -> None:
+        account_id, mailbox, uid = cache_key
+        if self.folder_store().lock_context_for_message(account_id, mailbox, uid)[0]:
+            return
         self.content_cache[cache_key] = content
         self.content_cache.move_to_end(cache_key)
         while len(self.content_cache) > MAX_MEMORY_MESSAGE_CONTENTS:
@@ -2285,6 +3905,8 @@ class MainFrame(wx.Frame):
         def done(is_read: bool) -> None:
             if self.displayed_account_id != account.id:
                 return
+            self.folder_store().record_read_event(account.id, message_folder_key(summary), is_read)
+            self.load_selected_custom_category()
             state_label = "مقروءة" if is_read else "غير مقروءة"
             self.SetStatusText(f"تم حفظ حالة الرسالة كـ {state_label}.")
 
@@ -2403,6 +4025,89 @@ class MainFrame(wx.Frame):
         operation = self.service.restore_archived_message if restoring else self.service.archive_message
         self.run_worker("جار إعادة الرسالة إلى الوارد..." if restoring else "جار أرشفة الرسالة...", lambda: operation(account, summary), done)
 
+    def on_archive_selected_messages(
+        self,
+        page: MailPage,
+        summaries: list[MessageSummary],
+        *,
+        restoring: bool,
+    ) -> None:
+        account = self.selected_account()
+        if account is None or not summaries:
+            return
+        if page.selected_filter_key() == "trash":
+            wx.MessageBox(
+                tr("استعد الرسائل من سلة المحذوفات قبل أرشفتها."),
+                tr("الأرشفة"), wx.OK | wx.ICON_INFORMATION, self,
+            )
+            return
+        prompt = (
+            tr("هل تريد إعادة {count} رسالة إلى الوارد؟")
+            if restoring else tr("هل تريد أرشفة {count} رسالة؟ ستبقى محفوظة في الحساب ولن تُحذف.")
+        ).format(count=len(summaries))
+        if wx.MessageBox(prompt, tr("الأرشفة"), wx.YES_NO | wx.NO_DEFAULT | wx.ICON_QUESTION, self) != wx.YES:
+            call_after_if_open(self, page.focus_message_list)
+            return
+
+        selected_indices = page.selected_indices()
+        first_index = min(selected_indices) if selected_indices else 0
+        operation = self.service.restore_archived_message if restoring else self.service.archive_message
+
+        def work() -> tuple[list[MessageSummary], list[tuple[MessageSummary, Exception]]]:
+            return run_bulk_operations(summaries, lambda summary: operation(account, summary))
+
+        def done(result: tuple[list[MessageSummary], list[tuple[MessageSummary, Exception]]]) -> None:
+            succeeded, failed = result
+            if not page_operation_is_current(self, page, account.id):
+                return
+            if succeeded:
+                targets = list(self.pages.values())
+                dialog = getattr(self, "_search_dialog", None)
+                if dialog is not None:
+                    targets.append(dialog.page)
+                if page not in targets:
+                    targets.append(page)
+                successful_keys = {(summary.mailbox, summary.uid) for summary in succeeded}
+                successful_uids = {summary.uid for summary in succeeded}
+                for target in targets:
+                    if restoring:
+                        target.archive_messages = [
+                            message for message in target.archive_messages
+                            if (message.mailbox, message.uid) not in successful_keys
+                        ]
+                        target.apply_filter()
+                    elif account.oauth_provider == "google_gmail_api":
+                        for message in list(target.messages):
+                            if message.uid in successful_uids and message.mailbox.upper() == "INBOX":
+                                target.remove_message(message)
+                    else:
+                        for summary in succeeded:
+                            target.remove_message(summary)
+                page.exit_multi_selection_mode(restore_single_selection=False)
+                page.focus_list_index(page.previous_message_index(first_index))
+                if restoring:
+                    self.refresh_all()
+            else:
+                page.focus_message_list()
+            if failed:
+                message = tr("اكتمل الإجراء على {succeeded} رسالة وتعذر تطبيقه على {failed} رسالة.").format(
+                    succeeded=len(succeeded), failed=len(failed),
+                )
+                self.SetStatusText(message)
+                wx.MessageBox(message, tr("تعذر إكمال الأرشفة"), wx.OK | wx.ICON_WARNING, self)
+            else:
+                message = (
+                    tr("تمت إعادة {count} رسالة إلى الوارد.")
+                    if restoring else tr("تمت أرشفة {count} رسالة.")
+                ).format(count=len(succeeded))
+                self.SetStatusText(message)
+
+        progress = (
+            tr("جار إعادة {count} رسالة إلى الوارد...")
+            if restoring else tr("جار أرشفة {count} رسالة...")
+        ).format(count=len(summaries))
+        self.run_worker(progress, work, done)
+
     def on_delete_current_message(self, page: MailPage) -> None:
         account = self.selected_account()
         summary = page.selected_summary()
@@ -2451,8 +4156,151 @@ class MainFrame(wx.Frame):
                         target_page.remove_message(summary)
             page.focus_list_index(page.previous_message_index(deleted_index))
             self.SetStatusText("تم نقل الرسالة إلى سلة المحذوفات.")
+            play_sound_if_available(self, SOUND_TRASH)
 
         self.run_worker("جار نقل الرسالة إلى سلة المحذوفات...", work, done)
+
+    def on_create_message_folder(
+        self,
+        page: MailPage,
+        account: Account,
+        summaries: list[MessageSummary],
+    ) -> None:
+        source_page_key = self.page_key_for_page(page)
+        dialog = wx.TextEntryDialog(
+            self,
+            tr("اكتب اسما للمجلد الذي سيضم الرسائل المحددة:"),
+            tr("إنشاء مجلد للرسائل"),
+        )
+        try:
+            if dialog.ShowModal() != wx.ID_OK:
+                return
+            name = dialog.GetValue()
+        finally:
+            dialog.Destroy()
+        try:
+            folder = self.folder_store().create_folder(
+                account.id,
+                FOLDER_MESSAGES,
+                name,
+                [message_folder_key(summary) for summary in summaries],
+                section_key=source_page_key if source_page_key in {"inbox", "spam", "sent", "all"} else "",
+                category_id=None,
+                section_id=source_page_key.removeprefix("section:")
+                if source_page_key.startswith("section:") else None,
+            )
+        except Exception as exc:
+            wx.MessageBox(tr(str(exc)), tr("تعذر إنشاء المجلد"), wx.OK | wx.ICON_ERROR, self)
+            return
+        page.exit_multi_selection_mode()
+        target_key = source_page_key if source_page_key in self.pages else "folders"
+        self._folder_return_page_key = target_key
+        self._open_folder_id = ""
+        self.pages["folders"].is_message_folder_page = False
+        self.pages["folders"].set_folder_collection_layout(True)
+        self.pages["folders"].filter_choice.SetSelection(0)
+        self.refresh_folder_choices(preserve=False)
+        self.refresh_local_category_visibility()
+        self.load_selected_custom_category()
+        self.refresh_section_folder_choices(target_key, folder.id)
+        self.notebook.SetSelection(list(self.pages).index(target_key))
+        self.pages[target_key].focus_message_list()
+        self.SetStatusText(f"تم إنشاء المجلد {folder.name} وفيه {len(summaries)} رسالة.")
+
+    def on_add_messages_to_folder(
+        self,
+        account: Account,
+        summaries: list[MessageSummary],
+    ) -> None:
+        try:
+            folders = self.folder_store().list_folders(account.id, FOLDER_MESSAGES)
+        except Exception as exc:
+            wx.MessageBox(tr(str(exc)), tr("تعذر عرض مجلدات الرسائل"), wx.OK | wx.ICON_ERROR, self)
+            return
+        if not folders:
+            wx.MessageBox(
+                tr("لا يوجد مجلد نشط. أنشئ مجلدا من قائمة سياق الرسالة أولا."),
+                tr("مجلدات الرسائل"), wx.OK | wx.ICON_INFORMATION, self,
+            )
+            return
+        dialog = wx.SingleChoiceDialog(
+            self,
+            tr("اختر المجلد الذي ستضاف إليه الرسائل:"),
+            tr("إضافة إلى مجلد"),
+            [folder.name for folder in folders],
+        )
+        try:
+            if dialog.ShowModal() != wx.ID_OK:
+                return
+            folder = folders[dialog.GetSelection()]
+        finally:
+            dialog.Destroy()
+        try:
+            self.folder_store().add_items(
+                account.id, folder.id,
+                [message_folder_key(summary) for summary in summaries],
+            )
+            if self.selected_folder_id() == folder.id:
+                self.load_selected_folder()
+            self.refresh_section_folder_choices()
+            self.refresh_local_category_visibility()
+            self.load_selected_custom_category()
+            self.SetStatusText(f"أُضيفت {len(summaries)} رسالة إلى المجلد {folder.name}.")
+        except Exception as exc:
+            wx.MessageBox(tr(str(exc)), tr("تعذر إضافة الرسائل"), wx.OK | wx.ICON_ERROR, self)
+
+    def on_move_messages_to_section(self, account: Account, summaries: list[MessageSummary]) -> None:
+        sections = self.folder_store().list_sections(account.id)
+        if not sections:
+            wx.MessageBox(tr("لا توجد أقسام مخصصة. أنشئ قسماً من قائمة سياق الأقسام أولاً."),
+                          tr("الأقسام المخصصة"), wx.OK | wx.ICON_INFORMATION, self)
+            return
+        dialog = wx.SingleChoiceDialog(
+            self, tr("اختر القسم الذي ستُنقل إليه الرسائل محلياً:"),
+            tr("نقل الرسائل إلى قسم مخصص"),
+            [tr("إعادة إلى الأقسام الأصلية"), *(section.name for section in sections)],
+        )
+        try:
+            if dialog.ShowModal() != wx.ID_OK:
+                return
+            selection = dialog.GetSelection()
+        finally:
+            dialog.Destroy()
+        section_id = sections[selection - 1].id if selection > 0 else None
+        try:
+            self.folder_store().move_items_to_section(
+                account.id, section_id, [message_folder_key(summary) for summary in summaries],
+            )
+            self.load_custom_sections()
+            self.refresh_local_category_visibility()
+            self.load_selected_custom_category()
+            self.SetStatusText("نُقلت الرسائل داخل البرنامج فقط؛ لم تتغير لدى مزوّد البريد.")
+        except Exception as exc:
+            wx.MessageBox(tr(str(exc)), tr("تعذر نقل الرسائل"), wx.OK | wx.ICON_ERROR, self)
+
+    def choose_message_destination(self) -> str:
+        from .message_destination_dialog import choose_message_destination
+        return choose_message_destination(self)
+
+    def on_remove_messages_from_folder(
+        self,
+        account: Account,
+        summaries: list[MessageSummary],
+    ) -> None:
+        folder_id = self.selected_folder_id()
+        if not folder_id:
+            return
+        try:
+            for summary in summaries:
+                self.folder_store().remove_item(
+                    account.id, folder_id, message_folder_key(summary),
+                )
+            self.load_selected_folder()
+            self.refresh_local_category_visibility()
+            self.load_selected_custom_category()
+            self.SetStatusText(f"أُزيلت {len(summaries)} رسالة من المجلد، وبقيت في حساب البريد.")
+        except Exception as exc:
+            wx.MessageBox(tr(str(exc)), tr("تعذر إزالة الرسائل من المجلد"), wx.OK | wx.ICON_ERROR, self)
 
     def on_bulk_message_action(
         self,
@@ -2470,8 +4318,29 @@ class MainFrame(wx.Frame):
         if not account or not unique_summaries:
             page.announce_selection_count()
             return
+        if action == "create_folder":
+            self.on_create_message_folder(page, account, unique_summaries)
+            return
+        if action == "add_to_folder":
+            destination = self.choose_message_destination()
+            if destination == "folder":
+                self.on_add_messages_to_folder(account, unique_summaries)
+            elif destination == "section":
+                self.on_move_messages_to_section(account, unique_summaries)
+            return
+        if action == "move_to_section":
+            self.on_move_messages_to_section(account, unique_summaries)
+            return
+        if action == "remove_from_folder":
+            self.on_remove_messages_from_folder(account, unique_summaries)
+            return
         if action == BULK_ACTION_DELETE:
             self.on_delete_selected_messages(page, unique_summaries)
+            return
+        if action in {BULK_ACTION_ARCHIVE, BULK_ACTION_RESTORE_ARCHIVED}:
+            self.on_archive_selected_messages(
+                page, unique_summaries, restoring=action == BULK_ACTION_RESTORE_ARCHIVED,
+            )
             return
 
         action_settings: dict[str, tuple[str, bool, str, str]] = {
@@ -2557,6 +4426,8 @@ class MainFrame(wx.Frame):
                 summary.is_pinned = old_pinned
             for summary in succeeded:
                 self.update_cached_summary_flags(account, summary)
+                if flag_name == "read":
+                    self.folder_store().record_read_event(account.id, message_folder_key(summary), target_state)
 
             match_uid = account.oauth_provider == "google_gmail_api"
             target_pages = list(self.pages.values()) if match_uid else [page]
@@ -2567,6 +4438,8 @@ class MainFrame(wx.Frame):
                     unique_summaries,
                     match_uid=match_uid,
                 )
+            if flag_name == "read" and succeeded:
+                self.load_selected_custom_category()
             if succeeded:
                 self.SetStatusText(
                     success_message
@@ -2681,6 +4554,7 @@ class MainFrame(wx.Frame):
                 self.SetStatusText(
                     f"تم نقل {len(succeeded)} رسالة إلى سلة المحذوفات."
                 )
+            play_sound_if_available(self, SOUND_TRASH)
 
         self.run_worker(
             f"جار نقل {len(summaries)} رسالة إلى سلة المحذوفات...",
@@ -2735,6 +4609,14 @@ class MainFrame(wx.Frame):
             return
         if not self.ensure_password(account):
             return
+        play_sound_if_available(self, SOUND_COMPOSE)
+        set_status = getattr(self, "SetStatusText", None)
+        if callable(set_status):
+            set_status(
+                "تم فتح نافذة إعادة توجيه الرسالة."
+                if forward_comment
+                else "تم فتح نافذة إنشاء الرسالة."
+            )
         dialog_arguments = {
             "to_address": to_address,
             "subject": subject,
@@ -2808,6 +4690,8 @@ class MainFrame(wx.Frame):
         quoted = ""
         if self.current_content and self.current_content.summary.uid == summary.uid:
             quoted = "\n\n----- الرسالة الأصلية -----\n" + self.current_content.text
+        play_sound_if_available(self, SOUND_COMPOSE)
+        announce_to_screen_reader(self, "تم فتح نافذة الرد على الرسالة.", EVENT_COMPOSE_OPEN)
         dialog = ComposeDialog(
             self,
             title="رد على رسالة",
@@ -2895,10 +4779,14 @@ class MainFrame(wx.Frame):
         recipient: str,
         summary: MessageSummary,
     ) -> None:
+        if not MainFrame.message_access_allowed(self, summary, self.current_page()):
+            self.SetStatusText("افتح القفل بكلمة المرور أولاً.")
+            return
         cache_key = (account.id, summary.mailbox, summary.uid)
         cached = self.content_cache.get(cache_key)
 
         def work() -> tuple[MessageContent, list[Path]]:
+            self.service.cache.require_message_access(account, summary)
             content = cached or self.service.fetch_message(
                 account,
                 summary,
@@ -2909,6 +4797,8 @@ class MainFrame(wx.Frame):
 
         def done(result: tuple[MessageContent, list[Path]]) -> None:
             content, attachments = result
+            if not MainFrame.message_access_allowed(self, summary, self.current_page()):
+                return
             self.remember_message_content(cache_key, content)
             self.open_forward_compose(recipient, content, attachments)
 
@@ -3013,6 +4903,7 @@ class MainFrame(wx.Frame):
 
         def done(_result: None) -> None:
             self.SetStatusText("تم إرسال الرسالة.")
+            play_sound_if_available(self, SOUND_SEND)
             wx.MessageBox("تم إرسال الرسالة بنجاح.", "تم الإرسال", wx.OK | wx.ICON_INFORMATION, self)
             self.refresh_all()
 
@@ -3245,12 +5136,38 @@ class MainFrame(wx.Frame):
     def on_show_guide(self, _event: wx.Event) -> None:
         dialog = wx.Dialog(self, title="دليل Power Accessible Mail", size=(760, 620))
         root = wx.BoxSizer(wx.VERTICAL)
+        root.Add(
+            wx.StaticText(dialog, label=tr("داخل الدليل: 1 للعنوان التالي، و2 للعنوان السابق.")),
+            0, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.TOP, 10,
+        )
         guide = wx.TextCtrl(
             dialog,
             value=self.program_guide_text(),
             style=wx.TE_MULTILINE | wx.TE_READONLY | wx.TE_RICH2,
         )
-        set_accessible(guide, "نص دليل البرنامج")
+        set_accessible(
+            guide, "نص دليل البرنامج",
+            "اضغط 1 للانتقال إلى العنوان التالي، و2 للعودة إلى العنوان السابق.",
+        )
+        headings = guide_heading_ranges(guide.GetValue())
+
+        def on_guide_key(event: wx.KeyEvent) -> None:
+            key = event.GetKeyCode()
+            if not (event.AltDown() or event.ControlDown() or event.ShiftDown()) and key in {
+                ord("1"), ord("2"), ord("١"), ord("٢"),
+                ord("۱"), ord("۲"), wx.WXK_NUMPAD1, wx.WXK_NUMPAD2,
+            }:
+                direction = 1 if key in {ord("1"), ord("١"), ord("۱"), wx.WXK_NUMPAD1} else -1
+                selected = guide.GetSelection()
+                position = selected[0] if selected in headings else guide.GetInsertionPoint()
+                heading = adjacent_guide_heading(headings, position, direction)
+                if heading is not None:
+                    guide.SetSelection(*heading)
+                    guide.ShowPosition(heading[0])
+                    return
+            event.Skip()
+
+        guide.Bind(wx.EVT_CHAR_HOOK, on_guide_key)
         root.Add(guide, 1, wx.EXPAND | wx.ALL, 10)
         buttons = dialog.CreateSeparatedButtonSizer(wx.OK)
         if buttons:
@@ -3358,7 +5275,8 @@ Alt+2 returns to the viewer of the last message you actually opened. If no messa
 Alt+3 moves to the mail sections.
 Alt+4 moves to the application command list.
 Alt+D opens the application shortcut guide.
-Ctrl+A opens account options and management.
+Alt+A opens account options and management.
+Ctrl+A selects all visible messages in the current message list.
 Ctrl+N composes a new message.
 Ctrl+R replies to the focused message.
 Ctrl+T translates the current message.
@@ -3403,7 +5321,7 @@ Power Accessible Mail برنامج صمم ليجعل قراءة البريد و�
 تعامل مع عدة رسائل في خطوة واحدة
 في الوضع العادي تظهر الرسائل كعناصر قائمة من دون مربعات اختيار. اضغط Ctrl+Shift+Space للدخول إلى وضع التحديد المتعدد، وعندها تتحول الرسائل إلى مربعات اختيار. تنقل بالأسهم واضغط Space لتحديد الرسالة أو إلغاء تحديدها، أو استخدم الفأرة.
 
-ينطق البرنامج الدخول إلى هذا الوضع أو الخروج منه بعد 150 مللي ثانية. اضغط Control وحده لسماع عدد الرسائل المحددة بعد المهلة نفسها. اخرج بالضغط على Escape أو Ctrl+Shift+Space مرة أخرى. وعند محاولة تجاوز أول عنصر أو آخر عنصر ينطق البرنامج بداية القائمة أو نهايتها. تعرض قائمة السياق أوامر القراءة والنجمة والتثبيت والحذف المناسبة للمجموعة، ويطلب Delete تأكيدا يذكر عدد الرسائل.
+ينطق البرنامج الدخول إلى هذا الوضع أو الخروج منه بعد 150 مللي ثانية. اضغط Control وحده لسماع عدد الرسائل المحددة بعد المهلة نفسها. اخرج بالضغط على Escape أو Ctrl+Shift+Space مرة أخرى. وعند محاولة تجاوز أول عنصر أو آخر عنصر ينطق البرنامج بداية القائمة أو نهايتها. تعرض قائمة السياق أوامر القراءة والنجمة والتثبيت والأرشفة أو الإعادة إلى الوارد والحذف المناسبة للمجموعة، ويطلب الحذف والأرشفة تأكيدا قبل التنفيذ.
 
 اكتب ونفذ الأوامر من لوحة المفاتيح
 إنشاء بريد إلكتروني يفتح نافذة كاملة لكتابة رسالتك. تتوفر أوامر الرد والتمييز بنجمة والترجمة والتثبيت في الأعلى والنقل إلى سلة مزود البريد من قائمة سياق الرسالة. داخل مستعرض العناصر تعرض قائمة السياق أو زر إجراءات العنصر أوامر الروابط والمرفقات والصور مباشرة من دون قائمة فرعية.
@@ -3423,7 +5341,8 @@ Alt+2 يرجع إلى مستعرض آخر رسالة فتحتها فعليا. و
 Alt+3 ينقل التركيز إلى أقسام البريد.
 Alt+4 ينقل التركيز إلى قائمة أوامر البرنامج.
 Alt+D يفتح دليل اختصارات البرنامج.
-Ctrl+A يفتح خيارات الحسابات وإدارتها.
+Alt+A يفتح خيارات الحسابات وإدارتها.
+Ctrl+A يحدد كل الرسائل الظاهرة في قائمة الرسائل الحالية.
 Ctrl+N ينشئ رسالة جديدة.
 Ctrl+R يرد على الرسالة المحددة.
 Ctrl+T يترجم الرسالة الحالية.
@@ -3493,6 +5412,7 @@ Power Accessible Mail
         if self._update_dialog_open:
             return
         self._update_dialog_open = True
+        play_sound_if_available(self, SOUND_UPDATE_AVAILABLE)
         dialog = UpdateAvailableDialog(self, result)
         try:
             if dialog.ShowModal() == wx.ID_OK:
@@ -3516,14 +5436,20 @@ Power Accessible Mail
         self._update_download_active = True
         cancel_event = threading.Event()
         self._update_cancel_event = cancel_event
+
+        def cancel_update() -> None:
+            cancel_event.set()
+            stop_update_background_music()
+
         dialog = UpdateDownloadDialog(
             self,
             result.latest_version,
             result.release_date,
-            cancel_event.set,
+            cancel_update,
         )
         self._update_progress_dialog = dialog
         dialog.Show()
+        start_update_background_music(self.settings)
         self.SetStatusText(tr("جار تنزيل التحديث داخل البرنامج."))
 
         def progress(downloaded: int, total: int) -> None:
@@ -3565,6 +5491,7 @@ Power Accessible Mail
         self._update_progress_dialog = None
         self._update_cancel_event = None
         self._update_download_active = False
+        stop_update_background_music()
         if dialog is not None:
             dialog.Destroy()
 
@@ -3616,6 +5543,15 @@ Power Accessible Mail
         seen: set[tuple[str, ...]] = set()
         for page_key in ("inbox", "sent", "spam", "all"):
             for summary in self.pages[page_key].messages:
+                page = self.pages[page_key]
+                if not MainFrame.message_access_allowed(self, summary, page):
+                    continue
+                if (
+                    (summary.mailbox, summary.uid) in getattr(page, "excluded_message_keys", set())
+                    or summary.uid in getattr(page, "excluded_message_uids", set())
+                    or (summary.message_id and summary.message_id in getattr(page, "excluded_message_ids", set()))
+                ):
+                    continue
                 key = (
                     (summary.uid,)
                     if account.oauth_provider == "google_gmail_api"
@@ -3626,6 +5562,23 @@ Power Accessible Mail
                 seen.add(key)
                 messages.append(summary)
         return MailPage.sort_newest_first(messages)
+
+    def message_access_allowed(self, summary: MessageSummary, page: MailPage | None = None) -> bool:
+        store = getattr(self, "_folder_store", None)
+        if store is None:
+            return True
+        account = self.selected_account()
+        if account is None:
+            return False
+        locked, entropy = store.lock_context_for_message(account.id, summary.mailbox, summary.uid)
+        if not store.message_identity_matches(account.id, summary):
+            return False
+        if not locked:
+            return True
+        if entropy is None or page is None:
+            return False
+        hashes = store._indexed_hashes(account.id, [message_folder_key(summary)])
+        return bool(hashes & set(getattr(page, "allowed_locked_hashes", ())))
 
     def on_search(self, source: wx.Event | MailPage | None = None) -> None:
         page = source if isinstance(source, MailPage) else self.current_page()
@@ -3701,6 +5654,7 @@ Power Accessible Mail
         ):
             return
         self._polling_new_mail = True
+        generation = getattr(self, "_account_view_generation", 0)
 
         def work() -> None:
             try:
@@ -3713,6 +5667,7 @@ Power Accessible Mail
                     [],
                     0,
                     False,
+                    generation,
                 )
                 return
             new_count = self.new_inbox_count(account, messages, False)
@@ -3723,6 +5678,7 @@ Power Accessible Mail
                 messages,
                 new_count,
                 True,
+                generation,
             )
 
         threading.Thread(target=work, daemon=True).start()
@@ -3733,9 +5689,10 @@ Power Accessible Mail
         messages: list[MessageSummary],
         new_count: int,
         success: bool,
+        generation: int,
     ) -> None:
         self._polling_new_mail = False
-        if not success or self.displayed_account_id != account.id:
+        if not success or not account_operation_is_current(self, account.id, generation):
             return
         self.pages["inbox"].reconcile_recent_messages(messages)
         self.remember_inbox_messages(account, self.pages["inbox"].messages)
@@ -3805,19 +5762,23 @@ Power Accessible Mail
         failed: Callable[[Exception], bool | None] | None = None,
     ) -> None:
         self._active_worker_count = max(0, self._active_worker_count - 1)
-        if self._active_worker_count == 0:
-            self.set_busy(False, "حدث خطأ")
-        else:
-            self.SetStatusText("حدث خطأ")
         handled = False
         if failed:
             try:
                 handled = bool(failed(exc))
             except Exception:
                 pass
-        self.reset_transfer_progress()
+        # An ignored, obsolete result must not clear progress or announce an
+        # error over a newer background task that is still running.
         if handled:
+            if self._active_worker_count == 0:
+                self.reset_transfer_progress()
             return
+        if self._active_worker_count == 0:
+            self.set_busy(False, "حدث خطأ")
+        else:
+            self.SetStatusText("حدث خطأ")
+        self.reset_transfer_progress()
         if isinstance(exc, OAuthReauthenticationRequired):
             self.handle_oauth_reauthentication_required(exc)
             return

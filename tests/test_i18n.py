@@ -177,6 +177,7 @@ class TranslationTests(unittest.TestCase):
 
     def test_new_language_catalogs_cover_the_full_english_catalog(self) -> None:
         for exact_catalog, dynamic_catalog in (
+            (FRENCH_TRANSLATIONS, FRENCH_DYNAMIC_TEMPLATES),
             (SPANISH_TRANSLATIONS, SPANISH_DYNAMIC_TEMPLATES),
             (TURKISH_TRANSLATIONS, TURKISH_DYNAMIC_TEMPLATES),
             (HINDI_TRANSLATIONS, HINDI_DYNAMIC_TEMPLATES),
@@ -185,13 +186,14 @@ class TranslationTests(unittest.TestCase):
             (JAPANESE_TRANSLATIONS, JAPANESE_DYNAMIC_TEMPLATES),
             (GERMAN_TRANSLATIONS, GERMAN_DYNAMIC_TEMPLATES),
         ):
-            self.assertLessEqual(set(exact_catalog), set(ENGLISH_TRANSLATIONS))
+            self.assertEqual(set(exact_catalog), set(ENGLISH_TRANSLATIONS))
             self.assertEqual(len(dynamic_catalog), len(_DYNAMIC_ENGLISH))
 
     def test_new_language_catalogs_preserve_placeholders_and_have_no_generator_artifacts(self) -> None:
-        placeholder_pattern = re.compile(r"\{\d+\}")
+        placeholder_pattern = re.compile(r"\{[^{}\n]+\}")
         english_dynamic = [replacement for _pattern, replacement in _DYNAMIC_ENGLISH]
         for exact_catalog, dynamic_catalog in (
+            (FRENCH_TRANSLATIONS, FRENCH_DYNAMIC_TEMPLATES),
             (SPANISH_TRANSLATIONS, SPANISH_DYNAMIC_TEMPLATES),
             (TURKISH_TRANSLATIONS, TURKISH_DYNAMIC_TEMPLATES),
             (HINDI_TRANSLATIONS, HINDI_DYNAMIC_TEMPLATES),
@@ -201,7 +203,7 @@ class TranslationTests(unittest.TestCase):
             (GERMAN_TRANSLATIONS, GERMAN_DYNAMIC_TEMPLATES),
         ):
             for arabic, english in ENGLISH_TRANSLATIONS.items():
-                translated = exact_catalog.get(arabic, english)
+                translated = exact_catalog[arabic]
                 self.assertTrue(translated.strip())
                 self.assertEqual(
                     sorted(placeholder_pattern.findall(translated)),
@@ -222,7 +224,7 @@ class TranslationTests(unittest.TestCase):
                 self.assertNotIn("PAM_CATALOG_SEPARATOR", translated)
 
     def test_french_catalog_keys_belong_to_the_english_catalog(self) -> None:
-        self.assertLessEqual(set(FRENCH_TRANSLATIONS), set(ENGLISH_TRANSLATIONS))
+        self.assertEqual(set(FRENCH_TRANSLATIONS), set(ENGLISH_TRANSLATIONS))
         self.assertEqual(len(FRENCH_DYNAMIC_TEMPLATES), len(_DYNAMIC_ENGLISH))
 
     def test_literal_interface_translations_have_an_english_fallback(self) -> None:

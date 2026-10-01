@@ -32,14 +32,19 @@ class ExternalNavigationTests(unittest.TestCase):
             event = self.event(url)
             MailPage.on_html_viewer_navigating(page, event)
             event.Veto.assert_called_once()
-            self.assertEqual(later.call_args.args[1], url)
+            self.assertIs(later.call_args.args[0], MailPage.open_confirmed_external_url)
+            self.assertIs(later.call_args.args[1], page)
+            self.assertEqual(later.call_args.args[2], url)
 
     @patch('accessible_mail.mail_page.wx.CallAfter')
     def test_new_window_links_are_external(self, later):
         event = self.event('https://example.com/new')
-        MailPage.on_html_viewer_new_window(SimpleNamespace(), event)
+        page = SimpleNamespace()
+        MailPage.on_html_viewer_new_window(page, event)
         event.Veto.assert_called_once()
-        self.assertEqual(later.call_args.args[1], event.GetURL())
+        self.assertIs(later.call_args.args[0], MailPage.open_confirmed_external_url)
+        self.assertIs(later.call_args.args[1], page)
+        self.assertEqual(later.call_args.args[2], event.GetURL())
 
     @patch('accessible_mail.mail_page.wx.CallAfter')
     def test_document_and_anchors_stay_local(self, later):

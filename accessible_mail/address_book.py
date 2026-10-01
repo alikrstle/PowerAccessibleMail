@@ -4,7 +4,11 @@ import re
 from dataclasses import dataclass
 from email.utils import parseaddr
 
-from .config import _atomic_write_json, _read_json_with_backup, data_dir
+from .config import data_dir
+from .address_book_storage import (
+    address_connection, address_hash, entry_payload, prepare_storage,
+    public_entries, write_public_entries,
+)
 
 
 EMAIL_PATTERN = re.compile(r"^[^\s@<>]+@[^\s@<>]+\.[^\s@<>]+$")
@@ -39,39 +43,19 @@ def address_book_path():
 
 
 def load_address_book() -> list[AddressEntry]:
-    payload = _read_json_with_backup(address_book_path())
-    if not isinstance(payload, list):
-        return []
-    entries: list[AddressEntry] = []
-    known: set[str] = set()
-    for item in payload:
-        if not isinstance(item, dict):
-            continue
-        email = normalize_email_address(str(item.get("email", "")))
-        key = email.casefold()
-        if not email or key in known:
-            continue
-        known.add(key)
-        name = " ".join(str(item.get("name", "")).split()).strip()
-        entries.append(
-            AddressEntry(
-                email=email,
-                pinned=bool(item.get("pinned", False)),
-                name=name,
-            )
-        )
-    return sort_address_book(entries)
+    path = address_book_path().with_name("folders.db")
+    prepare_storage(path)
+    with address_connection(path) as conn:
+        return public_entries(conn)
 
 
 def save_address_book(entries: list[AddressEntry]) -> None:
     clean_entries = unique_address_entries(entries)
-    _atomic_write_json(
-        address_book_path(),
-        [
-            {"email": entry.email, "pinned": entry.pinned, "name": entry.name}
-            for entry in clean_entries
-        ],
-    )
+    path = address_book_path().with_name("folders.db")
+    prepare_storage(path)
+    with address_connection(path) as conn:
+        conn.execute("BEGIN IMMEDIATE")
+        write_public_entries(conn, clean_entries)
 
 
 def sort_address_book(entries: list[AddressEntry]) -> list[AddressEntry]:
@@ -103,10 +87,12 @@ def add_address(email: str, name: str = "") -> tuple[bool, str]:
     normalized = normalize_email_address(email)
     if not normalized:
         return False, "invalid"
-    entries = load_address_book()
-    if any(entry.email.casefold() == normalized.casefold() for entry in entries):
-        return False, "duplicate"
     clean_name = " ".join(str(name or "").split()).strip()
-    entries.append(AddressEntry(normalized, name=clean_name))
-    save_address_book(entries)
+    path = address_book_path().with_name("folders.db")
+    prepare_storage(path)
+    with address_connection(path) as conn:
+        inserted = conn.execute("INSERT OR IGNORE INTO address_records(entry_hash, payload) VALUES (?, ?)",
+                                (address_hash(normalized), entry_payload(AddressEntry(normalized, name=clean_name)))).rowcount
+    if not inserted:
+        return False, "duplicate"
     return True, normalized

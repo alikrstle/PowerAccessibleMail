@@ -2,6 +2,11 @@ from __future__ import annotations
 
 import re
 
+from .i18n_complete import CATALOG_ADDITIONS, ENGLISH_CATALOG_ADDITIONS
+from .address_book_lock_text import LOCK_TRANSLATIONS
+from .download_text import DOWNLOAD_TRANSLATIONS
+from .learning_organization_text import APPROVED_INSTRUCTION_TEXT, LATEST_INSTRUCTION_TEXT, REVISED_ORGANIZATION_TEXT
+
 from .i18n_fr import FRENCH_DYNAMIC_TEMPLATES, FRENCH_TRANSLATIONS
 from .i18n_hi import HINDI_DYNAMIC_TEMPLATES, HINDI_TRANSLATIONS
 from .i18n_es import SPANISH_DYNAMIC_TEMPLATES, SPANISH_TRANSLATIONS
@@ -43,6 +48,9 @@ _language = LANGUAGE_ARABIC
 
 
 ENGLISH_TRANSLATIONS: dict[str, str] = {
+    "تأكيد فتح رابط خارجي": "Confirm opening an external link",
+    "سيتم فتح الرابط خارج البرنامج.\n\nالوجهة: {destination}\n\nالرابط الكامل:\n{url}\n\nهل تريد المتابعة؟": "The link will open outside the application.\n\nDestination: {destination}\n\nFull link:\n{url}\n\nDo you want to continue?",
+    "تم إلغاء فتح الرابط.": "Opening the link was canceled.",
     "تعذر تشغيل التحديث لأن توقيع Authenticode غير صالح أو غير موثوق.": "The update installer Authenticode signature is invalid or untrusted.",
     "اختر اللغة التي سيتم ترجمة رسائل البريد إليها": "Choose the language to translate email messages into",
     "العربية": "Arabic",
@@ -206,9 +214,9 @@ ENGLISH_TRANSLATIONS: dict[str, str] = {
     "الإجراءات العامة": "General actions",
     "رسالة": "Message",
     "المساعدة": "Help",
-    "خيارات الحسابات وإدارتها\tCtrl+A": "Account options and management\tCtrl+A",
+    "خيارات الحسابات وإدارتها\tAlt+A": "Account options and management\tAlt+A",
     "إنشاء بريد\tCtrl+N": "Compose\tCtrl+N",
-    "تحديث\tF5": "Refresh\tF5",
+    "تحديث المحتوى المعروض\tF5": "Refresh displayed content\tF5",
     "خروج\tAlt+F4": "Exit\tAlt+F4",
     "رد\tCtrl+R": "Reply\tCtrl+R",
     "ترجمة الرسالة\tCtrl+T": "Translate message\tCtrl+T",
@@ -351,6 +359,8 @@ ENGLISH_TRANSLATIONS: dict[str, str] = {
     "يرجى كتابة بريد إلكتروني صالح أولاً.": "Enter a valid email address first.",
     "عنوان غير صالح": "Invalid address",
     "تمت إضافة عنوان البريد الإلكتروني.": "The email address was added.",
+    "حُفظ العنوان، لكن تعذرت إضافته إلى المجلد: {error}": "The address was saved, but it could not be added to the folder: {error}",
+    "تعذرت إضافة العنوان إلى المجلد": "Could not add the address to the folder",
     "تعديل البريد الإلكتروني": "Edit email address",
     "تم تعديل عنوان البريد الإلكتروني.": "The email address was updated.",
     "تثبيت البريد الإلكتروني بالأعلى": "Pin email address to the top",
@@ -627,6 +637,18 @@ ENGLISH_TRANSLATIONS: dict[str, str] = {
     "تم تفعيل وضع التحديد المتعدد. لا توجد رسائل محددة.": "Multiple-selection mode is active. No messages are selected.",
     "تم إنهاء وضع التحديد المتعدد.": "Multiple-selection mode ended.",
     "الرسائل المحددة موجودة بالفعل في سلة المحذوفات.": "The selected messages are already in Trash.",
+    "أرشفة الرسائل": "Archive messages",
+    "الأرشفة": "Archiving",
+    "إعادة الرسائل إلى الوارد": "Restore messages to Inbox",
+    "استعد الرسائل من سلة المحذوفات قبل أرشفتها.": "Restore messages from Trash before archiving them.",
+    "هل تريد أرشفة {count} رسالة؟ ستبقى محفوظة في الحساب ولن تُحذف.": "Archive {count} messages? They will remain in the account and will not be deleted.",
+    "هل تريد إعادة {count} رسالة إلى الوارد؟": "Restore {count} messages to Inbox?",
+    "جار أرشفة {count} رسالة...": "Archiving {count} messages...",
+    "جار إعادة {count} رسالة إلى الوارد...": "Restoring {count} messages to Inbox...",
+    "تمت أرشفة {count} رسالة.": "Archived {count} messages.",
+    "تمت إعادة {count} رسالة إلى الوارد.": "Restored {count} messages to Inbox.",
+    "اكتمل الإجراء على {succeeded} رسالة وتعذر تطبيقه على {failed} رسالة.": "Completed for {succeeded} messages; failed for {failed} messages.",
+    "تعذر إكمال الأرشفة": "Could not complete archiving",
     "تمت إزالة الحساب من البرنامج.": "The account was removed from the application.",
     "هذه الرسالة موجودة بالفعل في سلة المحذوفات.": "This message is already in Trash.",
     "هل تريد حذف الرسالة ونقلها إلى سلة المحذوفات؟": "Do you want to delete this message and move it to Trash?",
@@ -1033,6 +1055,687 @@ HINDI_TRANSLATIONS.update({
     "يساعدك هذا المعالج على إضافة حساب Gmail باستخدام كلمة مرور تطبيق. هذه هي الطريقة الموصى بها حاليا لإضافة Gmail إلى البرنامج. لا تستخدم كلمة مرور حساب Google العادية.": "यह विज़ार्ड ऐप पासवर्ड से Gmail जोड़ने में मदद करता है। इस प्रोग्राम में फिलहाल यही अनुशंसित तरीका है। अपने Google खाते का सामान्य पासवर्ड इस्तेमाल न करें।",
 })
 
+_EXTERNAL_LINK_TRANSLATIONS = {
+    "fr": {
+        "تأكيد فتح رابط خارجي": "Confirmer l’ouverture d’un lien externe",
+        "سيتم فتح الرابط خارج البرنامج.\n\nالوجهة: {destination}\n\nالرابط الكامل:\n{url}\n\nهل تريد المتابعة؟": "Le lien va s’ouvrir en dehors de l’application.\n\nDestination : {destination}\n\nLien complet :\n{url}\n\nVoulez-vous continuer ?",
+        "تم إلغاء فتح الرابط.": "L’ouverture du lien a été annulée.",
+    },
+    "es": {
+        "تأكيد فتح رابط خارجي": "Confirmar la apertura de un enlace externo",
+        "سيتم فتح الرابط خارج البرنامج.\n\nالوجهة: {destination}\n\nالرابط الكامل:\n{url}\n\nهل تريد المتابعة؟": "El enlace se abrirá fuera de la aplicación.\n\nDestino: {destination}\n\nEnlace completo:\n{url}\n\n¿Desea continuar?",
+        "تم إلغاء فتح الرابط.": "Se canceló la apertura del enlace.",
+    },
+    "tr": {
+        "تأكيد فتح رابط خارجي": "Harici bağlantıyı açmayı onayla",
+        "سيتم فتح الرابط خارج البرنامج.\n\nالوجهة: {destination}\n\nالرابط الكامل:\n{url}\n\nهل تريد المتابعة؟": "Bağlantı uygulamanın dışında açılacak.\n\nHedef: {destination}\n\nTam bağlantı:\n{url}\n\nDevam etmek istiyor musunuz?",
+        "تم إلغاء فتح الرابط.": "Bağlantının açılması iptal edildi.",
+    },
+    "hi": {
+        "تأكيد فتح رابط خارجي": "बाहरी लिंक खोलने की पुष्टि करें",
+        "سيتم فتح الرابط خارج البرنامج.\n\nالوجهة: {destination}\n\nالرابط الكامل:\n{url}\n\nهل تريد المتابعة؟": "लिंक एप्लिकेशन के बाहर खुलेगा।\n\nगंतव्य: {destination}\n\nपूरा लिंक:\n{url}\n\nक्या आप जारी रखना चाहते हैं?",
+        "تم إلغاء فتح الرابط.": "लिंक खोलना रद्द कर दिया गया।",
+    },
+    "zh-CN": {
+        "تأكيد فتح رابط خارجي": "确认打开外部链接",
+        "سيتم فتح الرابط خارج البرنامج.\n\nالوجهة: {destination}\n\nالرابط الكامل:\n{url}\n\nهل تريد المتابعة؟": "此链接将在应用程序外部打开。\n\n目标：{destination}\n\n完整链接：\n{url}\n\n是否继续？",
+        "تم إلغاء فتح الرابط.": "已取消打开链接。",
+    },
+    "ru": {
+        "تأكيد فتح رابط خارجي": "Подтверждение открытия внешней ссылки",
+        "سيتم فتح الرابط خارج البرنامج.\n\nالوجهة: {destination}\n\nالرابط الكامل:\n{url}\n\nهل تريد المتابعة؟": "Ссылка будет открыта вне приложения.\n\nНазначение: {destination}\n\nПолная ссылка:\n{url}\n\nПродолжить?",
+        "تم إلغاء فتح الرابط.": "Открытие ссылки отменено.",
+    },
+    "ja": {
+        "تأكيد فتح رابط خارجي": "外部リンクを開く確認",
+        "سيتم فتح الرابط خارج البرنامج.\n\nالوجهة: {destination}\n\nالرابط الكامل:\n{url}\n\nهل تريد المتابعة؟": "リンクはアプリケーションの外部で開かれます。\n\n接続先: {destination}\n\n完全なリンク:\n{url}\n\n続行しますか？",
+        "تم إلغاء فتح الرابط.": "リンクを開く操作をキャンセルしました。",
+    },
+    "de": {
+        "تأكيد فتح رابط خارجي": "Öffnen eines externen Links bestätigen",
+        "سيتم فتح الرابط خارج البرنامج.\n\nالوجهة: {destination}\n\nالرابط الكامل:\n{url}\n\nهل تريد المتابعة؟": "Der Link wird außerhalb der Anwendung geöffnet.\n\nZiel: {destination}\n\nVollständiger Link:\n{url}\n\nMöchten Sie fortfahren?",
+        "تم إلغاء فتح الرابط.": "Das Öffnen des Links wurde abgebrochen.",
+    },
+}
+FRENCH_TRANSLATIONS.update(_EXTERNAL_LINK_TRANSLATIONS["fr"])
+SPANISH_TRANSLATIONS.update(_EXTERNAL_LINK_TRANSLATIONS["es"])
+TURKISH_TRANSLATIONS.update(_EXTERNAL_LINK_TRANSLATIONS["tr"])
+HINDI_TRANSLATIONS.update(_EXTERNAL_LINK_TRANSLATIONS["hi"])
+SIMPLIFIED_CHINESE_TRANSLATIONS.update(_EXTERNAL_LINK_TRANSLATIONS["zh-CN"])
+RUSSIAN_TRANSLATIONS.update(_EXTERNAL_LINK_TRANSLATIONS["ru"])
+JAPANESE_TRANSLATIONS.update(_EXTERNAL_LINK_TRANSLATIONS["ja"])
+GERMAN_TRANSLATIONS.update(_EXTERNAL_LINK_TRANSLATIONS["de"])
+
+_LOW_VISION_ENGLISH = {
+    "ميزات وخيارات ضعاف البصر": "Low-vision features and options",
+    "يمكنك تكبير عناصر البرنامج وزيادة وضوحها. تطبق الخيارات داخل Power Accessible Mail فقط ولا تغيّر إعدادات Windows.": "You can enlarge application elements and make them easier to see. These options apply only inside Power Accessible Mail and do not change Windows settings.",
+    "حجم الخط وعناصر الواجهة:": "Text and interface size:",
+    "حجم الخط وعناصر الواجهة": "Text and interface size",
+    "اختر نسبة التكبير التي تناسب قدرتك على الرؤية.": "Choose the magnification level that best suits your vision.",
+    "استخدام تباين عالٍ": "Use high contrast",
+    "يعرض خلفية سوداء ونصاً أبيض بأعلى تباين.": "Displays a black background and white text for maximum contrast.",
+    "حجم المؤشر داخل البرنامج:": "Pointer size inside the application:",
+    "حجم المؤشر داخل البرنامج": "Pointer size inside the application",
+    "يكبّر مؤشر الفأرة ومؤشر الكتابة داخل نوافذ البرنامج.": "Enlarges the mouse pointer and text cursor inside application windows.",
+    "عادي": "Normal",
+    "كبير": "Large",
+    "كبير جداً": "Extra large",
+    "تمييز العنصر الذي عليه التركيز": "Highlight the focused item",
+    "يضع لوناً واضحاً خلف الزر أو الحقل أو القائمة المستخدمة حالياً.": "Places a clear color behind the button, field, or list currently in use.",
+    "استخدام ألوان مخصصة": "Use custom colors",
+    "خيارات العرض:": "Display options:",
+    "خيارات العرض": "Display options",
+    "حالة الألوان المخصصة": "Custom color status",
+    "استخدم الأسهم للتنقل وSpace لتفعيل الخيار أو إيقافه. اضغط Tab للانتقال إلى الألوان أو أزرار الحفظ.":
+        "Use the arrows to move and Space to turn an option on or off. Press Tab to reach the colors or save buttons.",
+    "الألوان المخصصة لا تُطبّق أثناء تشغيل التباين العالي.":
+        "Custom colors do not apply while high contrast is enabled.",
+    "لون النص:": "Text color:",
+    "لون الخلفية:": "Background color:",
+    "اختيار لون النص": "Choose text color",
+    "اختيار لون الخلفية": "Choose background color",
+    "يفتح خيارات تكبير الخط والتباين والمؤشر وتمييز التركيز والألوان.": "Opens text size, contrast, pointer, focus highlight, and color options.",
+}
+ENGLISH_TRANSLATIONS.update(_LOW_VISION_ENGLISH)
+
+_LOW_VISION_VISIBLE_TRANSLATIONS = {
+    "fr": {
+        "ميزات وخيارات ضعاف البصر": "Fonctions et options pour la basse vision",
+        "حجم الخط وعناصر الواجهة:": "Taille du texte et de l’interface :",
+        "حجم الخط وعناصر الواجهة": "Taille du texte et de l’interface",
+        "استخدام تباين عالٍ": "Utiliser un contraste élevé",
+        "حجم المؤشر داخل البرنامج:": "Taille du pointeur dans l’application :",
+        "حجم المؤشر داخل البرنامج": "Taille du pointeur dans l’application",
+        "عادي": "Normale", "كبير": "Grande", "كبير جداً": "Très grande",
+        "تمييز العنصر الذي عليه التركيز": "Mettre en évidence l’élément actif",
+        "استخدام ألوان مخصصة": "Utiliser des couleurs personnalisées",
+        "خيارات العرض:": "Options d’affichage :", "خيارات العرض": "Options d’affichage",
+        "حالة الألوان المخصصة": "État des couleurs personnalisées",
+        "استخدم الأسهم للتنقل وSpace لتفعيل الخيار أو إيقافه. اضغط Tab للانتقال إلى الألوان أو أزرار الحفظ.": "Utilisez les flèches pour vous déplacer et Espace pour activer ou désactiver une option. Appuyez sur Tab pour accéder aux couleurs ou aux boutons d’enregistrement.",
+        "الألوان المخصصة لا تُطبّق أثناء تشغيل التباين العالي.": "Les couleurs personnalisées ne s’appliquent pas lorsque le contraste élevé est activé.",
+        "لون النص:": "Couleur du texte :", "لون الخلفية:": "Couleur d’arrière-plan :",
+    },
+    "es": {
+        "ميزات وخيارات ضعاف البصر": "Funciones y opciones para baja visión",
+        "حجم الخط وعناصر الواجهة:": "Tamaño del texto y de la interfaz:",
+        "حجم الخط وعناصر الواجهة": "Tamaño del texto y de la interfaz",
+        "استخدام تباين عالٍ": "Usar contraste alto",
+        "حجم المؤشر داخل البرنامج:": "Tamaño del puntero dentro de la aplicación:",
+        "حجم المؤشر داخل البرنامج": "Tamaño del puntero dentro de la aplicación",
+        "عادي": "Normal", "كبير": "Grande", "كبير جداً": "Muy grande",
+        "تمييز العنصر الذي عليه التركيز": "Resaltar el elemento con el foco",
+        "استخدام ألوان مخصصة": "Usar colores personalizados",
+        "خيارات العرض:": "Opciones de visualización:", "خيارات العرض": "Opciones de visualización",
+        "حالة الألوان المخصصة": "Estado de los colores personalizados",
+        "استخدم الأسهم للتنقل وSpace لتفعيل الخيار أو إيقافه. اضغط Tab للانتقال إلى الألوان أو أزرار الحفظ.": "Usa las flechas para moverte y Espacio para activar o desactivar una opción. Pulsa Tab para ir a los colores o a los botones de guardar.",
+        "الألوان المخصصة لا تُطبّق أثناء تشغيل التباين العالي.": "Los colores personalizados no se aplican mientras el contraste alto está activado.",
+        "لون النص:": "Color del texto:", "لون الخلفية:": "Color de fondo:",
+    },
+    "tr": {
+        "ميزات وخيارات ضعاف البصر": "Az görenler için özellikler ve seçenekler",
+        "حجم الخط وعناصر الواجهة:": "Metin ve arayüz boyutu:",
+        "حجم الخط وعناصر الواجهة": "Metin ve arayüz boyutu",
+        "استخدام تباين عالٍ": "Yüksek karşıtlık kullan",
+        "حجم المؤشر داخل البرنامج:": "Uygulama içindeki işaretçi boyutu:",
+        "حجم المؤشر داخل البرنامج": "Uygulama içindeki işaretçi boyutu",
+        "عادي": "Normal", "كبير": "Büyük", "كبير جداً": "Çok büyük",
+        "تمييز العنصر الذي عليه التركيز": "Odaklanan öğeyi vurgula",
+        "استخدام ألوان مخصصة": "Özel renkler kullan",
+        "خيارات العرض:": "Görünüm seçenekleri:", "خيارات العرض": "Görünüm seçenekleri",
+        "حالة الألوان المخصصة": "Özel renk durumu",
+        "استخدم الأسهم للتنقل وSpace لتفعيل الخيار أو إيقافه. اضغط Tab للانتقال إلى الألوان أو أزرار الحفظ.": "Ok tuşlarıyla gezinin ve bir seçeneği açmak veya kapatmak için Boşluk tuşuna basın. Renklere veya kaydetme düğmelerine geçmek için Tab tuşuna basın.",
+        "الألوان المخصصة لا تُطبّق أثناء تشغيل التباين العالي.": "Yüksek karşıtlık açıkken özel renkler uygulanmaz.",
+        "لون النص:": "Metin rengi:", "لون الخلفية:": "Arka plan rengi:",
+    },
+    "hi": {
+        "ميزات وخيارات ضعاف البصر": "कम दृष्टि के लिए सुविधाएँ और विकल्प",
+        "حجم الخط وعناصر الواجهة:": "टेक्स्ट और इंटरफ़ेस का आकार:",
+        "حجم الخط وعناصر الواجهة": "टेक्स्ट और इंटरफ़ेस का आकार",
+        "استخدام تباين عالٍ": "उच्च कंट्रास्ट का उपयोग करें",
+        "حجم المؤشر داخل البرنامج:": "एप्लिकेशन के अंदर पॉइंटर का आकार:",
+        "حجم المؤشر داخل البرنامج": "एप्लिकेशन के अंदर पॉइंटर का आकार",
+        "عادي": "सामान्य", "كبير": "बड़ा", "كبير جداً": "बहुत बड़ा",
+        "تمييز العنصر الذي عليه التركيز": "फ़ोकस किए गए आइटम को हाइलाइट करें",
+        "استخدام ألوان مخصصة": "कस्टम रंगों का उपयोग करें",
+        "خيارات العرض:": "प्रदर्शन विकल्प:", "خيارات العرض": "प्रदर्शन विकल्प",
+        "حالة الألوان المخصصة": "कस्टम रंगों की स्थिति",
+        "استخدم الأسهم للتنقل وSpace لتفعيل الخيار أو إيقافه. اضغط Tab للانتقال إلى الألوان أو أزرار الحفظ.": "विकल्प बदलने के लिए तीर कुंजियों और उसे चालू या बंद करने के लिए Space दबाएँ। रंगों या सहेजने के बटनों तक जाने के लिए Tab दबाएँ।",
+        "الألوان المخصصة لا تُطبّق أثناء تشغيل التباين العالي.": "उच्च कंट्रास्ट चालू होने पर कस्टम रंग लागू नहीं होते।",
+        "لون النص:": "टेक्स्ट का रंग:", "لون الخلفية:": "पृष्ठभूमि का रंग:",
+    },
+    "zh-CN": {
+        "ميزات وخيارات ضعاف البصر": "低视力功能和选项",
+        "حجم الخط وعناصر الواجهة:": "文本和界面大小：",
+        "حجم الخط وعناصر الواجهة": "文本和界面大小",
+        "استخدام تباين عالٍ": "使用高对比度",
+        "حجم المؤشر داخل البرنامج:": "应用程序内的指针大小：",
+        "حجم المؤشر داخل البرنامج": "应用程序内的指针大小",
+        "عادي": "正常", "كبير": "大", "كبير جداً": "特大",
+        "تمييز العنصر الذي عليه التركيز": "突出显示焦点项目",
+        "استخدام ألوان مخصصة": "使用自定义颜色",
+        "خيارات العرض:": "显示选项：", "خيارات العرض": "显示选项",
+        "حالة الألوان المخصصة": "自定义颜色状态",
+        "استخدم الأسهم للتنقل وSpace لتفعيل الخيار أو إيقافه. اضغط Tab للانتقال إلى الألوان أو أزرار الحفظ.": "使用方向键移动，按空格键开启或关闭选项。按 Tab 键前往颜色或保存按钮。",
+        "الألوان المخصصة لا تُطبّق أثناء تشغيل التباين العالي.": "启用高对比度时不会应用自定义颜色。",
+        "لون النص:": "文本颜色：", "لون الخلفية:": "背景颜色：",
+    },
+    "ru": {
+        "ميزات وخيارات ضعاف البصر": "Функции и параметры для слабовидящих",
+        "حجم الخط وعناصر الواجهة:": "Размер текста и интерфейса:",
+        "حجم الخط وعناصر الواجهة": "Размер текста и интерфейса",
+        "استخدام تباين عالٍ": "Использовать высокую контрастность",
+        "حجم المؤشر داخل البرنامج:": "Размер указателя в приложении:",
+        "حجم المؤشر داخل البرنامج": "Размер указателя в приложении",
+        "عادي": "Обычный", "كبير": "Большой", "كبير جداً": "Очень большой",
+        "تمييز العنصر الذي عليه التركيز": "Выделять элемент в фокусе",
+        "استخدام ألوان مخصصة": "Использовать свои цвета",
+        "خيارات العرض:": "Параметры отображения:", "خيارات العرض": "Параметры отображения",
+        "حالة الألوان المخصصة": "Состояние пользовательских цветов",
+        "استخدم الأسهم للتنقل وSpace لتفعيل الخيار أو إيقافه. اضغط Tab للانتقال إلى الألوان أو أزرار الحفظ.": "Перемещайтесь стрелками и нажимайте Пробел, чтобы включить или выключить параметр. Нажмите Tab для перехода к цветам или кнопкам сохранения.",
+        "الألوان المخصصة لا تُطبّق أثناء تشغيل التباين العالي.": "При включённой высокой контрастности пользовательские цвета не применяются.",
+        "لون النص:": "Цвет текста:", "لون الخلفية:": "Цвет фона:",
+    },
+    "ja": {
+        "ميزات وخيارات ضعاف البصر": "ロービジョン向け機能とオプション",
+        "حجم الخط وعناصر الواجهة:": "文字とインターフェイスのサイズ:",
+        "حجم الخط وعناصر الواجهة": "文字とインターフェイスのサイズ",
+        "استخدام تباين عالٍ": "ハイコントラストを使用する",
+        "حجم المؤشر داخل البرنامج:": "アプリ内のポインターサイズ:",
+        "حجم المؤشر داخل البرنامج": "アプリ内のポインターサイズ",
+        "عادي": "標準", "كبير": "大", "كبير جداً": "特大",
+        "تمييز العنصر الذي عليه التركيز": "フォーカス項目を強調表示する",
+        "استخدام ألوان مخصصة": "カスタムカラーを使用する",
+        "خيارات العرض:": "表示オプション:", "خيارات العرض": "表示オプション",
+        "حالة الألوان المخصصة": "カスタムカラーの状態",
+        "استخدم الأسهم للتنقل وSpace لتفعيل الخيار أو إيقافه. اضغط Tab للانتقال إلى الألوان أو أزرار الحفظ.": "矢印キーで移動し、Space キーで設定をオンまたはオフにします。Tab キーで色または保存ボタンへ移動します。",
+        "الألوان المخصصة لا تُطبّق أثناء تشغيل التباين العالي.": "ハイコントラストが有効な間、カスタムカラーは適用されません。",
+        "لون النص:": "文字色:", "لون الخلفية:": "背景色:",
+    },
+    "de": {
+        "ميزات وخيارات ضعاف البصر": "Funktionen und Optionen für Sehbehinderte",
+        "حجم الخط وعناصر الواجهة:": "Text- und Oberflächengröße:",
+        "حجم الخط وعناصر الواجهة": "Text- und Oberflächengröße",
+        "استخدام تباين عالٍ": "Hohen Kontrast verwenden",
+        "حجم المؤشر داخل البرنامج:": "Zeigergröße in der Anwendung:",
+        "حجم المؤشر داخل البرنامج": "Zeigergröße in der Anwendung",
+        "عادي": "Normal", "كبير": "Groß", "كبير جداً": "Sehr groß",
+        "تمييز العنصر الذي عليه التركيز": "Fokussiertes Element hervorheben",
+        "استخدام ألوان مخصصة": "Benutzerdefinierte Farben verwenden",
+        "خيارات العرض:": "Anzeigeoptionen:", "خيارات العرض": "Anzeigeoptionen",
+        "حالة الألوان المخصصة": "Status benutzerdefinierter Farben",
+        "استخدم الأسهم للتنقل وSpace لتفعيل الخيار أو إيقافه. اضغط Tab للانتقال إلى الألوان أو أزرار الحفظ.": "Mit den Pfeiltasten navigieren und mit der Leertaste eine Option ein- oder ausschalten. Mit Tab zu den Farben oder den Schaltflächen zum Speichern wechseln.",
+        "الألوان المخصصة لا تُطبّق أثناء تشغيل التباين العالي.": "Bei aktiviertem hohen Kontrast werden benutzerdefinierte Farben nicht angewendet.",
+        "لون النص:": "Textfarbe:", "لون الخلفية:": "Hintergrundfarbe:",
+    },
+}
+FRENCH_TRANSLATIONS.update(_LOW_VISION_VISIBLE_TRANSLATIONS["fr"])
+SPANISH_TRANSLATIONS.update(_LOW_VISION_VISIBLE_TRANSLATIONS["es"])
+TURKISH_TRANSLATIONS.update(_LOW_VISION_VISIBLE_TRANSLATIONS["tr"])
+HINDI_TRANSLATIONS.update(_LOW_VISION_VISIBLE_TRANSLATIONS["hi"])
+SIMPLIFIED_CHINESE_TRANSLATIONS.update(_LOW_VISION_VISIBLE_TRANSLATIONS["zh-CN"])
+RUSSIAN_TRANSLATIONS.update(_LOW_VISION_VISIBLE_TRANSLATIONS["ru"])
+JAPANESE_TRANSLATIONS.update(_LOW_VISION_VISIBLE_TRANSLATIONS["ja"])
+GERMAN_TRANSLATIONS.update(_LOW_VISION_VISIBLE_TRANSLATIONS["de"])
+
+_PROGRAM_SOUNDS_ENGLISH = {
+    "تشغيل أصوات البرنامج": "Play application sounds",
+    "تخصيص أصوات البرنامج": "Customize application sounds",
+    "يشغّل أصواتاً قصيرة عند تنفيذ أحداث محددة في البرنامج.": "Plays short sounds when selected events occur in the application.",
+    "يفتح قائمة الأصوات مع إمكانية تشغيل كل صوت للتجربة.": "Opens the sound list and lets you preview each sound.",
+    "حدد الأصوات التي تريد سماعها. اختر صوتاً من القائمة ثم اضغط تجربة الصوت لسماعه قبل الحفظ.": "Select the sounds you want to hear. Choose a sound from the list, then press Preview selected sound before saving.",
+    "قائمة أصوات البرنامج": "Application sound list",
+    "استخدم الأسهم للتصفح وSpace لتفعيل الصوت أو تعطيله.": "Use the arrow keys to browse and Space to enable or disable a sound.",
+    "تجربة الصوت المحدد": "Preview selected sound",
+    "إنشاء رسالة": "Compose message",
+    "إرسال رسالة": "Send message",
+    "الإرسال إلى سلة المحذوفات": "Move to Trash",
+    "فتح الإعدادات": "Open settings",
+    "فتح سجل العناوين": "Open address book",
+    "فتح مستعرض العناصر": "Open item viewer",
+    "فتح المرشد التفاعلي": "Open interactive guide",
+    "إكمال المرشد التفاعلي": "Complete interactive guide",
+    "وصول تحديث": "Update available",
+    "إنجاز مهمة في المرشد التفاعلي": "Complete a task in the interactive guide",
+    "تشغيل": "Enable",
+    "حدد الأصوات التي تريد سماعها. انتقل إلى اسم الصوت واضغط Enter لتشغيله، أو انقر على اسمه بزر الفأرة.": "Select the sounds you want to hear. Move to a sound name and press Enter to play it, or click its name with the mouse.",
+    "تشغيل الصوت: {name}": "Enable sound: {name}",
+    "اضغط Space لتفعيل هذا الصوت أو تعطيله.": "Press Space to enable or disable this sound.",
+    "اضغط Enter لتشغيل الصوت.": "Press Enter to play the sound.",
+    "استبدال": "Replace",
+    "استبدال الصوت: {name}": "Replace sound: {name}",
+    "اختر ملف MP3 لاستبدال الصوت": "Choose an MP3 file to replace the sound",
+    "ملفات MP3 (*.mp3)|*.mp3": "MP3 files (*.mp3)|*.mp3",
+    "تعذر استبدال الصوت.\n\n{error}": "The sound could not be replaced.\n\n{error}",
+    "استبدال الصوت": "Replace sound",
+    "تم استبدال صوت {name}.": "The {name} sound was replaced.",
+    "أرشفة الرسائل واستعادتها إلى الوارد": "Archive messages and restore them to Inbox",
+    "فتح نوافذ إنشاء الرسالة والرد وإعادة التوجيه": "Open compose, reply, and forward windows",
+    "حفظ الإعدادات وتخصيص أصوات البرنامج": "Save settings and customize application sounds",
+    "تقدم المرشد التفاعلي وإكماله": "Interactive guide progress and completion",
+    "الإعدادات والتدريب": "Settings and training",
+    "تتضمن القائمة {count} نوعاً من إشعارات البرنامج.": "The list contains {count} types of application notifications.",
+}
+ENGLISH_TRANSLATIONS.update(_PROGRAM_SOUNDS_ENGLISH)
+
+_PROGRAM_SOUNDS_VISIBLE_TRANSLATIONS = {
+    "fr": {
+        "تشغيل أصوات البرنامج": "Lire les sons de l’application", "تخصيص أصوات البرنامج": "Personnaliser les sons de l’application",
+        "قائمة أصوات البرنامج": "Liste des sons de l’application", "تجربة الصوت المحدد": "Écouter le son sélectionné",
+        "إنشاء رسالة": "Créer un message", "إرسال رسالة": "Envoyer un message", "الإرسال إلى سلة المحذوفات": "Déplacer vers la corbeille",
+        "إنجاز مهمة في المرشد التفاعلي": "Terminer une tâche du guide interactif",
+        "فتح الإعدادات": "Ouvrir les paramètres", "فتح سجل العناوين": "Ouvrir le carnet d’adresses", "فتح مستعرض العناصر": "Ouvrir la visionneuse d’éléments",
+        "فتح المرشد التفاعلي": "Ouvrir le guide interactif", "إكمال المرشد التفاعلي": "Terminer le guide interactif", "وصول تحديث": "Mise à jour disponible",
+    },
+    "es": {
+        "تشغيل أصوات البرنامج": "Reproducir sonidos de la aplicación", "تخصيص أصوات البرنامج": "Personalizar sonidos de la aplicación",
+        "قائمة أصوات البرنامج": "Lista de sonidos de la aplicación", "تجربة الصوت المحدد": "Probar sonido seleccionado",
+        "إنشاء رسالة": "Redactar mensaje", "إرسال رسالة": "Enviar mensaje", "الإرسال إلى سلة المحذوفات": "Mover a la papelera",
+        "إنجاز مهمة في المرشد التفاعلي": "Completar una tarea de la guía interactiva",
+        "فتح الإعدادات": "Abrir configuración", "فتح سجل العناوين": "Abrir la libreta de direcciones", "فتح مستعرض العناصر": "Abrir visor de elementos",
+        "فتح المرشد التفاعلي": "Abrir guía interactiva", "إكمال المرشد التفاعلي": "Completar guía interactiva", "وصول تحديث": "Actualización disponible",
+    },
+    "tr": {
+        "تشغيل أصوات البرنامج": "Uygulama seslerini çal", "تخصيص أصوات البرنامج": "Uygulama seslerini özelleştir",
+        "قائمة أصوات البرنامج": "Uygulama sesleri listesi", "تجربة الصوت المحدد": "Seçili sesi dinle",
+        "إنشاء رسالة": "İleti oluştur", "إرسال رسالة": "İleti gönder", "الإرسال إلى سلة المحذوفات": "Çöp Kutusuna taşı",
+        "إنجاز مهمة في المرشد التفاعلي": "Etkileşimli kılavuz görevini tamamlama",
+        "فتح الإعدادات": "Ayarları aç", "فتح سجل العناوين": "Adres defterini aç", "فتح مستعرض العناصر": "Öğe görüntüleyiciyi aç",
+        "فتح المرشد التفاعلي": "Etkileşimli kılavuzu aç", "إكمال المرشد التفاعلي": "Etkileşimli kılavuzu tamamla", "وصول تحديث": "Güncelleme var",
+    },
+    "hi": {
+        "تشغيل أصوات البرنامج": "ऐप की ध्वनियाँ चलाएँ", "تخصيص أصوات البرنامج": "ऐप की ध्वनियाँ अनुकूलित करें",
+        "قائمة أصوات البرنامج": "ऐप ध्वनि सूची", "تجربة الصوت المحدد": "चुनी हुई ध्वनि सुनें",
+        "إنشاء رسالة": "संदेश लिखें", "إرسال رسالة": "संदेश भेजें", "الإرسال إلى سلة المحذوفات": "ट्रैश में भेजें",
+        "إنجاز مهمة في المرشد التفاعلي": "इंटरैक्टिव गाइड का कार्य पूरा करें",
+        "فتح الإعدادات": "सेटिंग खोलें", "فتح سجل العناوين": "पता पुस्तिका खोलें", "فتح مستعرض العناصر": "आइटम व्यूअर खोलें",
+        "فتح المرشد التفاعلي": "इंटरैक्टिव गाइड खोलें", "إكمال المرشد التفاعلي": "इंटरैक्टिव गाइड पूरा करें", "وصول تحديث": "अपडेट उपलब्ध",
+    },
+    "zh-CN": {
+        "تشغيل أصوات البرنامج": "播放应用声音", "تخصيص أصوات البرنامج": "自定义应用声音",
+        "قائمة أصوات البرنامج": "应用声音列表", "تجربة الصوت المحدد": "试听所选声音",
+        "إنشاء رسالة": "撰写邮件", "إرسال رسالة": "发送邮件", "الإرسال إلى سلة المحذوفات": "移至垃圾箱",
+        "إنجاز مهمة في المرشد التفاعلي": "完成交互式指南任务",
+        "فتح الإعدادات": "打开设置", "فتح سجل العناوين": "打开通讯录", "فتح مستعرض العناصر": "打开项目查看器",
+        "فتح المرشد التفاعلي": "打开交互式指南", "إكمال المرشد التفاعلي": "完成交互式指南", "وصول تحديث": "有可用更新",
+    },
+    "ru": {
+        "تشغيل أصوات البرنامج": "Воспроизводить звуки приложения", "تخصيص أصوات البرنامج": "Настроить звуки приложения",
+        "قائمة أصوات البرنامج": "Список звуков приложения", "تجربة الصوت المحدد": "Прослушать выбранный звук",
+        "إنشاء رسالة": "Создать сообщение", "إرسال رسالة": "Отправить сообщение", "الإرسال إلى سلة المحذوفات": "Переместить в корзину",
+        "إنجاز مهمة في المرشد التفاعلي": "Завершение задания интерактивного руководства",
+        "فتح الإعدادات": "Открыть настройки", "فتح سجل العناوين": "Открыть адресную книгу", "فتح مستعرض العناصر": "Открыть просмотр элементов",
+        "فتح المرشد التفاعلي": "Открыть интерактивное руководство", "إكمال المرشد التفاعلي": "Завершить интерактивное руководство", "وصول تحديث": "Доступно обновление",
+    },
+    "ja": {
+        "تشغيل أصوات البرنامج": "アプリのサウンドを再生", "تخصيص أصوات البرنامج": "アプリのサウンドをカスタマイズ",
+        "قائمة أصوات البرنامج": "アプリのサウンド一覧", "تجربة الصوت المحدد": "選択したサウンドを試聴",
+        "إنشاء رسالة": "メッセージを作成", "إرسال رسالة": "メッセージを送信", "الإرسال إلى سلة المحذوفات": "ごみ箱に移動",
+        "إنجاز مهمة في المرشد التفاعلي": "対話型ガイドのタスクを完了",
+        "فتح الإعدادات": "設定を開く", "فتح سجل العناوين": "アドレス帳を開く", "فتح مستعرض العناصر": "項目ビューアーを開く",
+        "فتح المرشد التفاعلي": "対話型ガイドを開く", "إكمال المرشد التفاعلي": "対話型ガイドを完了", "وصول تحديث": "更新があります",
+    },
+    "de": {
+        "تشغيل أصوات البرنامج": "Programmtöne wiedergeben", "تخصيص أصوات البرنامج": "Programmtöne anpassen",
+        "قائمة أصوات البرنامج": "Liste der Programmtöne", "تجربة الصوت المحدد": "Ausgewählten Ton anhören",
+        "إنشاء رسالة": "Nachricht verfassen", "إرسال رسالة": "Nachricht senden", "الإرسال إلى سلة المحذوفات": "In den Papierkorb verschieben",
+        "إنجاز مهمة في المرشد التفاعلي": "Aufgabe der interaktiven Anleitung abschließen",
+        "فتح الإعدادات": "Einstellungen öffnen", "فتح سجل العناوين": "Adressbuch öffnen", "فتح مستعرض العناصر": "Elementanzeige öffnen",
+        "فتح المرشد التفاعلي": "Interaktive Anleitung öffnen", "إكمال المرشد التفاعلي": "Interaktive Anleitung abschließen", "وصول تحديث": "Update verfügbar",
+    },
+}
+FRENCH_TRANSLATIONS.update(_PROGRAM_SOUNDS_VISIBLE_TRANSLATIONS["fr"])
+SPANISH_TRANSLATIONS.update(_PROGRAM_SOUNDS_VISIBLE_TRANSLATIONS["es"])
+TURKISH_TRANSLATIONS.update(_PROGRAM_SOUNDS_VISIBLE_TRANSLATIONS["tr"])
+HINDI_TRANSLATIONS.update(_PROGRAM_SOUNDS_VISIBLE_TRANSLATIONS["hi"])
+SIMPLIFIED_CHINESE_TRANSLATIONS.update(_PROGRAM_SOUNDS_VISIBLE_TRANSLATIONS["zh-CN"])
+RUSSIAN_TRANSLATIONS.update(_PROGRAM_SOUNDS_VISIBLE_TRANSLATIONS["ru"])
+JAPANESE_TRANSLATIONS.update(_PROGRAM_SOUNDS_VISIBLE_TRANSLATIONS["ja"])
+GERMAN_TRANSLATIONS.update(_PROGRAM_SOUNDS_VISIBLE_TRANSLATIONS["de"])
+
+_NEW_ACCESSIBILITY_VISIBLE_TRANSLATIONS = {
+    "fr": {
+        "تشغيل": "Activer", "استبدال": "Remplacer", "استبدال الصوت": "Remplacer le son",
+        "اختر ملف MP3 لاستبدال الصوت": "Choisir un fichier MP3 pour remplacer le son",
+        "أرشفة الرسائل واستعادتها إلى الوارد": "Archiver les messages et les restaurer dans la boîte de réception",
+        "فتح نوافذ إنشاء الرسالة والرد وإعادة التوجيه": "Ouvrir les fenêtres de rédaction, réponse et transfert",
+        "حفظ الإعدادات وتخصيص أصوات البرنامج": "Enregistrer les paramètres et personnaliser les sons",
+        "تقدم المرشد التفاعلي وإكماله": "Progression et achèvement du guide interactif", "الإعدادات والتدريب": "Paramètres et formation",
+    },
+    "es": {
+        "تشغيل": "Activar", "استبدال": "Reemplazar", "استبدال الصوت": "Reemplazar sonido",
+        "اختر ملف MP3 لاستبدال الصوت": "Elige un archivo MP3 para reemplazar el sonido",
+        "أرشفة الرسائل واستعادتها إلى الوارد": "Archivar mensajes y restaurarlos a Recibidos",
+        "فتح نوافذ إنشاء الرسالة والرد وإعادة التوجيه": "Abrir ventanas de redacción, respuesta y reenvío",
+        "حفظ الإعدادات وتخصيص أصوات البرنامج": "Guardar ajustes y personalizar sonidos",
+        "تقدم المرشد التفاعلي وإكماله": "Progreso y finalización de la guía interactiva", "الإعدادات والتدريب": "Configuración y formación",
+    },
+    "tr": {
+        "تشغيل": "Etkinleştir", "استبدال": "Değiştir", "استبدال الصوت": "Sesi değiştir",
+        "اختر ملف MP3 لاستبدال الصوت": "Sesi değiştirmek için bir MP3 dosyası seçin",
+        "أرشفة الرسائل واستعادتها إلى الوارد": "İletileri arşivleme ve Gelen Kutusuna geri yükleme",
+        "فتح نوافذ إنشاء الرسالة والرد وإعادة التوجيه": "Oluşturma, yanıtlama ve iletme pencerelerini açma",
+        "حفظ الإعدادات وتخصيص أصوات البرنامج": "Ayarları kaydetme ve uygulama seslerini özelleştirme",
+        "تقدم المرشد التفاعلي وإكماله": "Etkileşimli kılavuz ilerlemesi ve tamamlanması", "الإعدادات والتدريب": "Ayarlar ve eğitim",
+    },
+    "hi": {
+        "تشغيل": "सक्षम करें", "استبدال": "बदलें", "استبدال الصوت": "ध्वनि बदलें",
+        "اختر ملف MP3 لاستبدال الصوت": "ध्वनि बदलने के लिए MP3 फ़ाइल चुनें",
+        "أرشفة الرسائل واستعادتها إلى الوارد": "संदेश संग्रहित करें और इनबॉक्स में लौटाएँ",
+        "فتح نوافذ إنشاء الرسالة والرد وإعادة التوجيه": "लिखने, उत्तर और अग्रेषण की विंडो खोलें",
+        "حفظ الإعدادات وتخصيص أصوات البرنامج": "सेटिंग सहेजें और ऐप ध्वनियाँ अनुकूलित करें",
+        "تقدم المرشد التفاعلي وإكماله": "इंटरैक्टिव गाइड की प्रगति और पूर्णता", "الإعدادات والتدريب": "सेटिंग और प्रशिक्षण",
+    },
+    "zh-CN": {
+        "تشغيل": "启用", "استبدال": "替换", "استبدال الصوت": "替换声音",
+        "اختر ملف MP3 لاستبدال الصوت": "选择用于替换声音的 MP3 文件",
+        "أرشفة الرسائل واستعادتها إلى الوارد": "归档邮件并恢复到收件箱",
+        "فتح نوافذ إنشاء الرسالة والرد وإعادة التوجيه": "打开撰写、回复和转发窗口",
+        "حفظ الإعدادات وتخصيص أصوات البرنامج": "保存设置并自定义应用声音",
+        "تقدم المرشد التفاعلي وإكماله": "交互式指南进度和完成", "الإعدادات والتدريب": "设置和培训",
+    },
+    "ru": {
+        "تشغيل": "Включить", "استبدال": "Заменить", "استبدال الصوت": "Заменить звук",
+        "اختر ملف MP3 لاستبدال الصوت": "Выберите файл MP3 для замены звука",
+        "أرشفة الرسائل واستعادتها إلى الوارد": "Архивация сообщений и восстановление во входящие",
+        "فتح نوافذ إنشاء الرسالة والرد وإعادة التوجيه": "Открытие окон создания, ответа и пересылки",
+        "حفظ الإعدادات وتخصيص أصوات البرنامج": "Сохранение настроек и настройка звуков",
+        "تقدم المرشد التفاعلي وإكماله": "Ход и завершение интерактивного руководства", "الإعدادات والتدريب": "Настройки и обучение",
+    },
+    "ja": {
+        "تشغيل": "有効", "استبدال": "置き換え", "استبدال الصوت": "サウンドを置き換え",
+        "اختر ملف MP3 لاستبدال الصوت": "置き換える MP3 ファイルを選択",
+        "أرشفة الرسائل واستعادتها إلى الوارد": "メッセージのアーカイブと受信トレイへの復元",
+        "فتح نوافذ إنشاء الرسالة والرد وإعادة التوجيه": "作成、返信、転送ウィンドウを開く",
+        "حفظ الإعدادات وتخصيص أصوات البرنامج": "設定の保存とアプリサウンドのカスタマイズ",
+        "تقدم المرشد التفاعلي وإكماله": "対話型ガイドの進行と完了", "الإعدادات والتدريب": "設定とトレーニング",
+    },
+    "de": {
+        "تشغيل": "Aktivieren", "استبدال": "Ersetzen", "استبدال الصوت": "Ton ersetzen",
+        "اختر ملف MP3 لاستبدال الصوت": "MP3-Datei zum Ersetzen des Tons auswählen",
+        "أرشفة الرسائل واستعادتها إلى الوارد": "Nachrichten archivieren und im Posteingang wiederherstellen",
+        "فتح نوافذ إنشاء الرسالة والرد وإعادة التوجيه": "Fenster zum Verfassen, Antworten und Weiterleiten öffnen",
+        "حفظ الإعدادات وتخصيص أصوات البرنامج": "Einstellungen speichern und Programmtöne anpassen",
+        "تقدم المرشد التفاعلي وإكماله": "Fortschritt und Abschluss der interaktiven Anleitung", "الإعدادات والتدريب": "Einstellungen und Training",
+    },
+}
+FRENCH_TRANSLATIONS.update(_NEW_ACCESSIBILITY_VISIBLE_TRANSLATIONS["fr"])
+SPANISH_TRANSLATIONS.update(_NEW_ACCESSIBILITY_VISIBLE_TRANSLATIONS["es"])
+TURKISH_TRANSLATIONS.update(_NEW_ACCESSIBILITY_VISIBLE_TRANSLATIONS["tr"])
+HINDI_TRANSLATIONS.update(_NEW_ACCESSIBILITY_VISIBLE_TRANSLATIONS["hi"])
+SIMPLIFIED_CHINESE_TRANSLATIONS.update(_NEW_ACCESSIBILITY_VISIBLE_TRANSLATIONS["zh-CN"])
+RUSSIAN_TRANSLATIONS.update(_NEW_ACCESSIBILITY_VISIBLE_TRANSLATIONS["ru"])
+JAPANESE_TRANSLATIONS.update(_NEW_ACCESSIBILITY_VISIBLE_TRANSLATIONS["ja"])
+GERMAN_TRANSLATIONS.update(_NEW_ACCESSIBILITY_VISIBLE_TRANSLATIONS["de"])
+
+_FOLDER_ENGLISH = {
+    "التصنيفات المخصصة": "Custom categories",
+    "التصنيف المخصص:": "Custom category:",
+    "إدارة التصنيفات": "Manage categories",
+    "تصنيفات الحساب:": "Account categories:",
+    "تصنيفات محلية لهذا الحساب، لا تغيّر البريد لدى المزوّد:": "Local categories for this account; they do not change mail at the provider:",
+    "إنشاء تصنيف": "Create category",
+    "إنشاء تصنيف جديد": "Create new category",
+    "قفل التصنيف (قيد التطوير)": "Lock category (in development)",
+    "تعذر إنشاء التصنيف": "Could not create category",
+    "تعذر إعادة تسمية التصنيف": "Could not rename category",
+    "تعذر حذف التصنيف": "Could not delete category",
+    "سيُحذف التصنيف المحلي فقط. ستبقى الرسائل والمجلدات. هل تريد المتابعة؟":
+        "Only the local category will be deleted. Messages and folders will remain. Continue?",
+    "إعادة تسمية التصنيف": "Rename category",
+    "حذف التصنيف": "Delete category",
+    "اسم التصنيف:": "Category name:",
+    "هل تريد حذف التصنيف {name}؟ قد تختلف طريقة التعامل مع الرسائل حسب مزود البريد.":
+        "Delete category {name}? Message handling may differ by mail provider.",
+    "هل تريد حذف التصنيف {name}؟ ستعود مجلداته ورسائله إلى قوائمها المعتادة داخل البرنامج، ولن يتغير شيء لدى مزوّد البريد.":
+        "Delete category {name}? Its folders and messages will return to their usual lists in the app. Nothing changes at the mail provider.",
+    "مجلدات الرسائل": "Message folders",
+    "مجلد": "Folder",
+    "عنوان": "addresses",
+    "مجلدات هذا القسم:": "Folders in this section:",
+    "فتح المجلد": "Open folder",
+    "مجلدات المحادثات": "Conversation folders",
+    "المحادثة": "Conversation",
+    "عدد المحادثات المحددة": "Selected conversations count",
+    "عدد المحادثات المحددة: {count}.": "Selected conversations: {count}.",
+    "إزالة المحادثة من المجلد دون حذفها": "Remove conversation from folder without deleting it",
+    "تعديل العنوان": "Edit address",
+    "تثبيت العنوان بالأعلى": "Pin address to top",
+    "إلغاء تثبيت العنوان من الأعلى": "Unpin address from top",
+    "عرض الرسائل المرسلة والمستلمة من العنوان": "Show messages sent to and received from this address",
+    "حذف العنوان": "Delete address",
+    "وضع التحديد المتعدد. تنقل بالأسهم واضغط Space لتحديد المحادثة أو إلغاء تحديدها. اضغط Ctrl+A لتحديد الكل، وTab للوصول إلى إنشاء المجلد أو إلغاء، وEscape للخروج.":
+        "Multi-selection mode. Use the arrows and Space to select or deselect a conversation. Press Ctrl+A to select all, Tab for Create folder or Cancel, and Escape to leave.",
+    "مجلد المحادثات:": "Conversation folder:",
+    "كل العناوين": "All addresses",
+    "العودة إلى جميع العناوين": "Return to all addresses",
+    "داخل الدليل: 1 للعنوان التالي، و2 للعنوان السابق.":
+        "In the guide, press 1 for the next heading and 2 for the previous heading.",
+    "إظهار مجلدات المحادثات النشطة": "Show active conversation folders",
+    "إظهار مجلدات المحادثات المؤرشفة": "Show archived conversation folders",
+    "إنشاء مجلد للمحادثات": "Create a conversation folder",
+    "إضافة المحادثة إلى مجلد موجود": "Add conversation to an existing folder",
+    "إضافة المحادثات المحددة إلى مجلد موجود": "Add selected conversations to an existing folder",
+    "تحديد كل المحادثات": "Select all conversations",
+    "إلغاء التحديد والعودة": "Cancel selection and return",
+    "إضافة إلى مجلد المحادثات": "Add to conversation folder",
+    "اختر مجلد المحادثات:": "Choose a conversation folder:",
+    "حذف المجلد دون حذف المحادثات": "Delete folder without deleting conversations",
+    "سيُحذف المجلد فقط، وتبقى المحادثات والعناوين. هل تريد المتابعة؟":
+        "Only the folder will be deleted; conversations and addresses remain. Continue?",
+    "حدد المحادثات بمفتاح Space، ثم اضغط Tab إلى إنشاء المجلد أو إلغاء.":
+        "Select conversations with Space, then press Tab to reach Create folder or Cancel.",
+    "تحديد المحادثات للمجلد": "Select conversations for folder",
+    "اكتب اسم مجلد المحادثات:": "Enter a name for the conversation folder:",
+    "المجلد:": "Folder:",
+    "عرض المجلدات المؤرشفة": "Show archived folders",
+    "مؤرشف": "Archived",
+    "عدد الرسائل": "Message count",
+    "إضافة الرسالة إلى مجلد أو تصنيف": "Add message to a folder or category",
+    "إضافة الرسائل إلى مجلد أو تصنيف": "Add messages to a folder or category",
+    "أين تريد إضافة الرسائل؟": "Where do you want to add the messages?",
+    "إلى مجلد": "To a folder",
+    "إلى تصنيف": "To a category",
+    "لا توجد تصنيفات مخصصة. أنشئ تصنيفاً من صندوق التصنيفات أولاً.":
+        "There are no custom categories. Create one from the category box first.",
+    "التصنيفات": "Categories",
+    "اختر التصنيف:": "Choose a category:",
+    "إضافة إلى تصنيف": "Add to category",
+    "تم الانتقال إلى التصنيفات المخصصة.": "Moved to custom categories.",
+    "تم الانتقال إلى تصنيفات البرنامج.": "Moved to program categories.",
+    "إنشاء قسم مخصص": "Create custom section",
+    "إعادة تسمية القسم المخصص": "Rename custom section",
+    "حذف القسم المخصص": "Delete custom section",
+    "اسم القسم المخصص:": "Custom section name:",
+    "تعذر إنشاء القسم المخصص": "Could not create custom section",
+    "تعذر إعادة تسمية القسم المخصص": "Could not rename custom section",
+    "تعذر حذف القسم المخصص": "Could not delete custom section",
+    "سيُحذف القسم المحلي فقط. ستبقى الرسائل والمجلدات في البرنامج وحساب البريد. هل تريد المتابعة؟":
+        "Only the local section will be deleted. Messages and folders will remain in the program and mail account. Continue?",
+    "إعادة إلى قسم المجلدات": "Return to Folders section",
+    "نقل المجلد إلى قسم مخصص": "Move folder to custom section",
+    "نقل الرسالة إلى قسم مخصص": "Move message to custom section",
+    "نقل الرسائل إلى قسم مخصص": "Move messages to custom section",
+    "لا توجد أقسام مخصصة. أنشئ قسماً من قائمة سياق الأقسام أولاً.":
+        "There are no custom sections. Create one from the section context menu first.",
+    "الأقسام المخصصة": "Custom sections",
+    "اختر القسم الذي ستُنقل إليه الرسائل محلياً:": "Choose the section to move the messages to locally:",
+    "إعادة إلى الأقسام الأصلية": "Return to original sections",
+    "أضف حساباً قبل إنشاء قسم مخصص.": "Add an account before creating a custom section.",
+    "القسم المخصص محلي. حمّل رسائل أقدم من قسم البريد الأصلي أولاً.":
+        "The custom section is local. Load older messages from the original mail section first.",
+    "القسم المخصص محلي. زامن قسم البريد الأصلي للرسائل أولاً.":
+        "The custom section is local. Sync the original mail section first.",
+    "نُقلت الرسائل داخل البرنامج فقط؛ لم تتغير لدى مزوّد البريد.":
+        "Messages were moved only inside the program; nothing changed at the mail provider.",
+    "تعذر نقل الرسائل": "Could not move messages",
+    "إضافة الرسالة إلى مجلد أو قسم": "Add message to a folder or section",
+    "إضافة الرسائل إلى مجلد أو قسم": "Add messages to a folder or section",
+    "إلى قسم": "To a section",
+    "تعديل شروط تصفية التصنيف": "Edit category filter rules",
+    "شروط تصفية التصنيف": "Category filter rules",
+    "خيارات تمييز الرسائل بنجمة": "Message star options",
+    "خيارات تثبيت الرسالة": "Message pinning options",
+    "خيارات حالة قراءة الرسائل": "Message read status options",
+    "خيارات المجلد": "Folder options",
+    "تحديد كل الرسائل الظاهرة في القائمة الحالية.": "Select all visible messages in the current list.",
+    "قفل القسم (يتطلب تشفير الرسائل المحلية)": "Lock section (requires local message encryption)",
+    "إنشاء مجلد للرسائل.": "Create a message folder.",
+    "إضافة الرسالة المحددة إلى مجلد.": "Add the selected message to a folder.",
+    "حذف المجلد المحدد دون حذف رسائله.": "Delete the selected folder without deleting its messages.",
+    "إنشاء قسم مخصص.": "Create a custom section.",
+    "نقل العنصر المحدد إلى قسم مخصص.": "Move the selected item to a custom section.",
+    "حذف القسم المخصص الحالي.": "Delete the current custom section.",
+    "إنشاء تصنيف مخصص.": "Create a custom category.",
+    "تعديل مرشح التصنيف المخصص الحالي.": "Edit the current custom category filter.",
+    "حذف التصنيف المخصص الحالي.": "Delete the current custom category.",
+    "قائمة شروط تصفية التصنيف": "Category filter rules list",
+    "قائمة مرشحات التصنيف": "Category filters list",
+    "اختر مرشحاً واحداً بالنقر عليه أو بالضغط على Enter.":
+        "Choose one filter by clicking it or pressing Enter.",
+    "استخدم الأسهم للتنقل، ثم Enter لاختيار المرشح، أو انقر عليه بالفأرة. Escape للإلغاء.":
+        "Use the arrow keys to move, then Enter to choose a filter, or click it. Escape cancels.",
+    "اختر مرشحاً واحداً لإنشاء التصنيف.": "Choose one filter to create the category.",
+    "استخدم الأسهم للتنقل، وEnter أو Space لتحديد الشرط أو إلغاء تحديده، ثم Tab للوصول إلى موافق.":
+        "Use the arrow keys to move, Enter or Space to select or clear a rule, then Tab to reach OK.",
+    "الرسائل غير المقروءة": "Unread messages",
+    "الرسائل المقروءة": "Read messages",
+    "الرسائل المثبتة": "Pinned messages",
+    "الرسائل التي تحتوي على مرفقات": "Messages with attachments",
+    "الرسائل التي لا تحتوي على مرفقات": "Messages without attachments",
+    "الرسائل التي قرأتها خلال آخر 7 أيام": "Messages read in the last 7 days",
+    "الرسائل الترويجية": "Promotional messages",
+    "رسائل الشركات والمؤسسات": "Messages from companies and organizations",
+    "الرسائل المرتبطة بعناوين بريد محددة": "Messages associated with specific email addresses",
+    "رسائل المرسلين كثيري الاستلام (5 رسائل أو أكثر)": "Frequently received senders (5 or more messages)",
+    "الرسائل المقفولة": "Locked messages",
+    "مقفول": "Locked",
+    "قفل المجلد بكلمة مرور": "Lock folder with a password",
+    "إزالة قفل المجلد": "Remove folder lock",
+    "قفل القسم بكلمة مرور": "Lock section with a password",
+    "إزالة قفل القسم": "Remove section lock",
+    "قفل الرسائل المحلي": "Local message lock",
+    "تعذر فتح قفل المجلد": "Could not unlock folder",
+    "تعذر فتح قفل القسم": "Could not unlock section",
+    "كلمتا المرور غير متطابقتين.": "The passwords do not match.",
+    "تعذر تعديل قفل المجلد": "Could not change the folder lock",
+    "تعذر تعديل قفل القسم": "Could not change the section lock",
+    "لا توجد طريقة لاستعادة كلمة مرور هذا القفل إذا نسيتها. ستبقى الرسائل في حساب البريد، لكن قد يتعذر استعادة تنظيمها المحلي. هل تريد المتابعة؟": "There is no way to recover this lock password if you forget it. Messages remain in your mail account, but their local organization may not be recoverable. Continue?",
+    "أدخل عنوان بريد واحداً أو عدة عناوين، وافصل بينها بفاصلة أو سطر جديد:":
+        "Enter one or more email addresses, separated by commas or new lines:",
+    "عناوين البريد للتصنيف": "Category email addresses",
+    "اختر شرطاً واحداً على الأقل، ولا تجمع بين الرسائل ذات المرفقات والرسائل دون مرفقات.":
+        "Choose at least one rule; do not combine with-attachment and without-attachment rules.",
+    "اختر شرطاً واحداً أو أكثر. تنطبق جميع الشروط المختارة على التصنيف.":
+        "Choose one or more rules. All selected rules must match.",
+    "اختر شرطاً واحداً على الأقل، ولا تجمع بين المقروءة وغير المقروءة.":
+        "Choose at least one rule, and do not combine read and unread.",
+    "تعذر تعديل شروط التصنيف": "Could not update category filter rules",
+    "فلاتر محلية لهذا الحساب، لا تنقل الرسائل ولا تغيّر البريد لدى المزوّد:":
+        "Local filters for this account; they do not move messages or change mail at the provider:",
+    "هل تريد حذف التصنيف {name}؟ سيُحذف الفلتر فقط، ولن تُنقل الرسائل أو تتغير لدى مزوّد البريد.":
+        "Delete category {name}? Only the filter will be removed; messages will not move or change at the mail provider.",
+    "اختر تصنيفاً لإعادة تسميته أو تعديل شروط تصفيته أو حذفه.":
+        "Choose a category to rename it, edit its filter rules, or delete it.",
+    "نُقل المجلد إلى القسم محلياً؛ لم تتغير الرسائل لدى مزوّد البريد.":
+        "The folder moved to the local section; messages at the mail provider did not change.",
+    "إنشاء مجلد للرسائل": "Create a message folder",
+    "إضافة الرسالة إلى مجلد موجود": "Add message to an existing folder",
+    "إضافة الرسائل إلى مجلد موجود": "Add messages to an existing folder",
+    "إزالة الرسالة من المجلد دون حذفها": "Remove message from folder without deleting it",
+    "إزالة الرسائل من المجلد دون حذفها": "Remove messages from folder without deleting them",
+    "تعذر إزالة الرسائل من المجلد": "Could not remove messages from folder",
+    "إضافة إلى مجلد": "Add to folder",
+    "اختر المجلد الذي ستضاف إليه الرسائل:": "Choose the folder for the messages:",
+    "تعذر عرض مجلدات الرسائل": "Could not show message folders",
+    "لا يوجد مجلد نشط. أنشئ مجلدا من قائمة سياق الرسالة أولا.":
+        "There is no active folder. Create one from a message's context menu first.",
+    "تعذر إضافة الرسائل": "Could not add messages",
+    "إنشاء المجلد": "Create folder",
+    "إنشاء مجلد": "Create folder",
+    "إلغاء إنشاء المجلد": "Cancel folder creation",
+    "إنشاء المجلد من الرسائل المحددة": "Create folder from selected messages",
+    "إعادة تسمية المجلد": "Rename folder",
+    "اسم المجلد الجديد:": "New folder name:",
+    "تثبيت المجلد في الأعلى": "Pin folder to the top",
+    "إلغاء تثبيت المجلد": "Unpin folder",
+    "تمييز المجلد بنجمة": "Star folder",
+    "إزالة نجمة المجلد": "Remove folder star",
+    "أرشفة المجلد": "Archive folder",
+    "إعادة المجلد من الأرشيف": "Restore folder from archive",
+    "إرسال المجلد إلى تصنيف": "Send folder to category",
+    "إعادة إلى الأقسام المعتادة": "Return to usual mail sections",
+    "تعذر نقل المجلد": "Could not move folder",
+    "حذف المجلد": "Delete folder",
+    "حذف المجلد دون حذف الرسائل": "Delete folder without deleting messages",
+    "سيُحذف المجلد فقط، وتبقى الرسائل في حساب البريد. هل تريد المتابعة؟":
+        "Only the folder will be deleted; messages remain in the mail account. Continue?",
+    "تعذر تعديل المجلد": "Could not change the folder",
+    "تعذر إنشاء المجلد": "Could not create the folder",
+    "اكتب اسما للمجلد الذي سيضم الرسائل المحددة:":
+        "Enter a name for the folder containing the selected messages:",
+}
+ENGLISH_TRANSLATIONS.update(_FOLDER_ENGLISH)
+ENGLISH_TRANSLATIONS["تغيّرت هوية صندوق البريد في الخادم. حدّث الرسائل قبل تنفيذ هذا الإجراء."] = "The server mailbox identity changed. Refresh messages before performing this action."
+ENGLISH_TRANSLATIONS.update({
+    "اكتب كلمة مرور جديدة للقفل (8 أحرف على الأقل):": "Enter a new lock password (at least 8 characters):",
+    "أعد كتابة كلمة مرور القفل للتأكيد:": "Re-enter the lock password to confirm:",
+    "أدخل كلمة المرور لإزالة قفل المجلد:": "Enter the password to remove the folder lock:",
+    "أدخل كلمة المرور لإزالة قفل القسم:": "Enter the password to remove the section lock:",
+    "أدخل كلمة مرور المجلد لعرض رسائله:": "Enter the folder password to view its messages:",
+    "أدخل كلمة مرور القسم لعرض رسائله:": "Enter the section password to view its messages:",
+    "الخادم لا يوفر هوية الرسالة بعد النقل؛ لم تُنقل الرسالة حفاظاً على تنظيمها المحلي.": "The server cannot identify the message after moving it. The message was not moved to preserve its local organization.",
+    "تم النقل في الخادم لكن لم يُرجع هوية الرسالة الجديدة. احتُفظ بالنسخة المحلية؛ لا تكرر النقل.": "The server moved the message but did not return its new identifier. The local copy was retained; do not repeat the move.",
+})
+
+_ORGANIZATION_TRAINING_ENGLISH = {
+    "أين تريد إضافة الرسالة؟": "Where do you want to add the message?",
+    "اختر القسم:": "Choose a section:",
+    "نقل الرسالة محلياً": "Move message locally",
+    "رسالة الفريق": "Team message",
+    "الرسالة الثانية بمرفق": "Second message with an attachment",
+    "الرسالة الثالثة": "Third message",
+    "سيُحذف المجلد فقط وتبقى رسائله. هل تريد المتابعة؟":
+        "Only the folder will be deleted; its messages will remain. Continue?",
+    "هل تريد حذف التصنيف التجريبي؟ تبقى الرسائل كما هي.":
+        "Delete the practice category? The messages will remain unchanged.",
+    "قوائم التحديد المتعدد": "Multiple-selection menus",
+    "إنشاء مجلد رسائل": "Create a message folder",
+    "إضافة الرسائل إلى مجلد وإزالتها": "Add messages to and remove them from a folder",
+    "إدارة مجلد الرسائل": "Manage a message folder",
+    "مجلدات المحادثات": "Conversation folders",
+    "الأقسام المخصصة": "Custom sections",
+    "التصنيفات المخصصة": "Custom categories",
+    "تتعلم تنظيم إجراءات التحديد المتعدد في قوائم فرعية، وتطبيقها على الرسائل المحددة فقط.":
+        "Learn to use the multiple-selection submenus and apply actions only to selected messages.",
+    "تتعلم إنشاء مجلد محلي من رسالتين والعثور عليه كعنصر بين الرسائل وفتحه والعودة منه.":
+        "Create a local folder from two messages, find it in the message list, open it, and return.",
+    "تتعلم تغيير عضوية المجلد محلياً دون حذف الرسالة من حساب البريد.":
+        "Change local folder membership without deleting the message from the mail account.",
+    "تتعلم إدارة المجلد وحذفه دون حذف الرسائل التي كان يجمعها.":
+        "Manage and delete a folder without deleting the messages it contained.",
+    "تتعلم إنشاء مجلد محادثات داخل قائمة العناوين نفسها والتنقل منه وإليه.":
+        "Create a conversation folder within the address list and navigate into and out of it.",
+    "تتعلم أن القسم المخصص مكان محلي للرسائل، وأن نقلها إليه لا يغيّر صندوق البريد لدى المزوّد.":
+        "A custom section is a local place for messages; moving one there does not change the provider's mailbox.",
+    "تتعلم إنشاء فلتر محلي للرسائل وتعديل شرطه وحذفه دون نقل الرسائل.":
+        "Create, edit, and delete a local message filter without moving messages.",
+    "في قائمة رسائل التدريب، اضغط Ctrl+Shift+Space ثم حدد الرسالتين الأولى والثانية بمفتاح Space. افتح قائمة السياق، ومن القوائم الفرعية علّمهما كمقروءتين، ثم ميّزهما بنجمة، ثم ثبّتهما في الأعلى. تأكد من بقاء الرسالة الثالثة دون تغيير.":
+        "In the practice message list, press Ctrl+Shift+Space and select the first two messages with Space. Open the context menu. In its submenus, mark them read, star them, then pin them. Leave the third message unchanged.",
+    "من قائمة الرسائل افتح قائمة السياق واختر إنشاء مجلد للرسائل. حدد الرسالتين الأولى والثانية بمفتاح Space، ثم اضغط Tab إلى إنشاء المجلد. اكتب اسماً للمجلد. انتقل إلى كل الرسائل، وافتح المجلد بـ Enter، ثم ارجع بـ Backspace أو Escape.":
+        "From the message list, choose Create message folder in the context menu. Select the first two messages with Space, Tab to Create folder, and give it a name. Switch to All Mail, open the folder with Enter, and return with Backspace or Escape.",
+    "قف على الرسالة الثانية، وافتح قائمة السياق واختر إضافة الرسالة إلى مجلد أو قسم، ثم إلى مجلد. افتح مجلد التدريب، وقف على الرسالة الثانية واختر إزالة الرسالة من المجلد دون حذفها. ارجع إلى قائمة الرسائل وتأكد من ظهور الرسالة الثانية فيها.":
+        "On the second message, choose Add message to a folder or section, then To a folder. Open the practice folder, choose Remove message from folder on the second message, and return to confirm that it appears in the message list.",
+    "افتح قائمة السياق على مجلد التدريب: أعد تسميته، وثبّته في الأعلى، وميّزه بنجمة، ثم أرشفه. من تصنيف الرسائل المؤرشفة أعد المجلد، وارجع إلى كل التصنيفات، ثم احذف المجلد. ستبقى رسالتاه في القائمة.":
+        "Open the practice folder's context menu. Rename, pin, star, and archive it. Restore it from the Archived category, return to All categories, and delete the folder. Its two messages will remain.",
+    "في سجل العناوين التجريبي افتح قائمة السياق واختر إنشاء مجلد. حدد أحمد وسام بمفتاح Space، ثم اضغط Tab إلى إنشاء المجلد واكتب له اسماً. افتحه بـ Enter، ثم ارجع بـ Backspace أو Escape.":
+        "In the practice address book, choose Create folder from the context menu. Select Ahmed and Sam with Space, Tab to Create folder, and name it. Open it with Enter and return with Backspace or Escape.",
+    "افتح قائمة السياق على أقسام البريد واختر إنشاء قسم جديد، ثم سمّه. قف على رسالة الفريق في الوارد، وافتح قائمة السياق واختر إضافتها إلى مجلد أو قسم، ثم إلى قسم. اختر قسمك الجديد، وافتحه لتجد الرسالة، ثم أعدها إلى الوارد من قائمة سياقها.":
+        "Open the mail sections context menu and create a named section. On the team message in Inbox, choose Add to folder or section, then To a section. Choose your section, find the message there, then return it to Inbox through its context menu.",
+    "افتح قائمة السياق على صندوق التصنيفات واختر إنشاء تصنيف جديد. اختر مرشح العناوين المحددة، واكتب team@example.invalid، ثم سمّ التصنيف. اعرض نتيجته، وعدّل شرطه إلى الرسائل ذات المرفقات، ثم احذف التصنيف. لا تنتقل الرسائل من مكانها عند التصفية.":
+        "Open the categories box context menu and create a category. Choose the specific-address filter, enter team@example.invalid, and name the category. View its result, change its rule to messages with attachments, then delete it. Filtering never moves messages.",
+}
+ENGLISH_TRANSLATIONS.update(_ORGANIZATION_TRAINING_ENGLISH)
+
 _ENGLISH_TO_ARABIC = {english: arabic for arabic, english in ENGLISH_TRANSLATIONS.items()}
 _FRENCH_TO_ARABIC = {french: arabic for arabic, french in FRENCH_TRANSLATIONS.items()}
 _SPANISH_TO_ARABIC = {spanish: arabic for arabic, spanish in SPANISH_TRANSLATIONS.items()}
@@ -1161,6 +1864,22 @@ _TRANSLATION_CATALOGS = {
     LANGUAGE_JAPANESE: JAPANESE_TRANSLATIONS,
     LANGUAGE_GERMAN: GERMAN_TRANSLATIONS,
 }
+
+for _source, _localized_values in {**REVISED_ORGANIZATION_TEXT, **LATEST_INSTRUCTION_TEXT, **APPROVED_INSTRUCTION_TEXT}.items():
+    for _catalog_language, _localized_value in _localized_values.items():
+        _TRANSLATION_CATALOGS[_catalog_language][_source] = _localized_value
+
+for _catalog_language, _catalog_additions in CATALOG_ADDITIONS.items():
+    _TRANSLATION_CATALOGS[_catalog_language].update(_catalog_additions)
+for _catalog_language, _lock_translations in LOCK_TRANSLATIONS.items():
+    _TRANSLATION_CATALOGS[_catalog_language].update(_lock_translations)
+for _catalog_language, _download_translations in DOWNLOAD_TRANSLATIONS.items():
+    _TRANSLATION_CATALOGS[_catalog_language].update(_download_translations)
+for _catalog_language, _english_additions in ENGLISH_CATALOG_ADDITIONS.items():
+    for _source, _english in ENGLISH_TRANSLATIONS.items():
+        if _source not in _TRANSLATION_CATALOGS[_catalog_language] and _english in _english_additions:
+            _TRANSLATION_CATALOGS[_catalog_language][_source] = _english_additions[_english]
+
 _DYNAMIC_TRANSLATION_CATALOGS = {
     LANGUAGE_ENGLISH: _DYNAMIC_ENGLISH,
     LANGUAGE_FRENCH: _DYNAMIC_FRENCH,

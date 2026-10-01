@@ -23,7 +23,7 @@ param(
 
 $ErrorActionPreference = "Stop"
 $ProjectRoot = $PSScriptRoot
-$Version = "1.5.0"
+$Version = "1.6.0"
 $AppName = "Power Accessible Mail"
 $ProductName = "Power Accessible Mail"
 $LockFile = Join-Path $ProjectRoot "requirements-release.lock"
@@ -71,7 +71,8 @@ $InstallerResources = @(
     (Join-Path $ProjectRoot "installer_readme_zh-CN.txt"),
     (Join-Path $ProjectRoot "installer_readme_ru.txt"),
     (Join-Path $ProjectRoot "installer_readme_ja.txt"),
-    (Join-Path $ProjectRoot "installer_readme_de.txt")
+    (Join-Path $ProjectRoot "installer_readme_de.txt"),
+    (Join-Path $ProjectRoot "sound\الخلفية الموسيقية .mp3")
 )
 $ReleaseRoot = Join-Path $ProjectRoot "release"
 $AppDir = Join-Path $ReleaseRoot "win-$Architecture\$AppName"

@@ -3,7 +3,6 @@ from __future__ import annotations
 import base64
 import json
 import mimetypes
-import os
 import quopri
 import threading
 import time
@@ -15,9 +14,15 @@ from concurrent.futures import ThreadPoolExecutor
 from email.message import Message
 from email.utils import getaddresses, parseaddr
 from pathlib import Path
-from typing import Any
+from typing import Any, BinaryIO
+
+from .attachment_storage import attachment_temporary_path, commit_attachment_download
+from .attachment_stream import (
+    AttachmentDownloadError, check_attachment_size, stream_gmail_attachment, write_embedded_attachment,
+)
 
 from .email_service import MailError, MailSyncResult
+from .custom_categories import CustomCategory, clean_category_name
 from .email_utils import (
     clean_message_text_for_display,
     header_to_text,
@@ -51,6 +56,10 @@ GMAIL_LABELS = {
 }
 
 
+class GmailMessageMissingError(MailError):
+    """A message disappeared after Gmail listed its ID."""
+
+
 class GmailApiService:
     def __init__(
         self,
@@ -63,6 +72,51 @@ class GmailApiService:
         self.estimated_totals: dict[tuple[str, str], int] = {}
         self._oauth_locks: dict[str, threading.Lock] = {}
         self._oauth_locks_guard = threading.Lock()
+
+    def list_custom_categories(self, account: Account) -> list[CustomCategory]:
+        payload = self._request_json(account, "GET", f"{GMAIL_API_BASE}/labels")
+        labels = payload.get("labels", [])
+        if not isinstance(labels, list):
+            raise MailError("استجابة تصنيفات Gmail غير صالحة.")
+        categories = [
+            CustomCategory(str(label["id"]), str(label["name"]))
+            for label in labels
+            if isinstance(label, dict)
+            and label.get("type") == "user"
+            and isinstance(label.get("id"), str)
+            and isinstance(label.get("name"), str)
+        ]
+        return sorted(categories, key=lambda category: category.name.casefold())
+
+    def create_custom_category(self, account: Account, name: str) -> CustomCategory:
+        clean_name = clean_category_name(name)
+        payload = self._request_json(
+            account, "POST", f"{GMAIL_API_BASE}/labels",
+            {"name": clean_name, "labelListVisibility": "labelShow", "messageListVisibility": "show"},
+        )
+        label_id = payload.get("id")
+        if not isinstance(label_id, str) or not label_id:
+            raise MailError("لم يؤكد Gmail إنشاء التصنيف.")
+        return CustomCategory(label_id, clean_name)
+
+    def rename_custom_category(self, account: Account, category_id: str, name: str) -> None:
+        self._require_user_category(account, category_id)
+        self._request_json(
+            account, "PATCH", f"{GMAIL_API_BASE}/labels/{urllib.parse.quote(category_id, safe='')}",
+            {"name": clean_category_name(name)},
+        )
+
+    def delete_custom_category(self, account: Account, category_id: str) -> None:
+        self._require_user_category(account, category_id)
+        self._request_json(
+            account, "DELETE", f"{GMAIL_API_BASE}/labels/{urllib.parse.quote(category_id, safe='')}",
+        )
+
+    def _require_user_category(self, account: Account, category_id: str) -> None:
+        if not category_id or category_id not in {
+            category.id for category in self.list_custom_categories(account)
+        }:
+            raise MailError("لا يمكن تعديل تصنيف افتراضي أو تصنيف غير موجود.")
 
     def list_messages(
         self,
@@ -105,6 +159,11 @@ class GmailApiService:
             key=lambda summary: (summary.is_pinned, summary.sort_timestamp),
             reverse=True,
         )[:limit]
+
+    def fetch_summary(self, account: Account, mailbox: str, uid: str) -> MessageSummary:
+        summary = self._summary_from_message(self.mailbox_to_label(mailbox), self._get_message(account, uid, "metadata"))
+        self.cache.upsert_summaries(account, [summary])
+        return summary
 
     def fetch_message(
         self,
@@ -338,8 +397,10 @@ class GmailApiService:
         )
 
     def mailbox_to_label(self, mailbox: str) -> str:
-        value = (mailbox or "INBOX").upper()
-        return GMAIL_LABELS.get(value, value)
+        value = mailbox or "INBOX"
+        if value.upper() == "ARCHIVE":
+            return "ARCHIVE"
+        return GMAIL_LABELS.get(value.upper(), value)
 
     def _list_summary_page(
         self,
@@ -393,6 +454,7 @@ class GmailApiService:
                 return self._summary_from_message(label_id, message)
 
             errors: list[Exception] = []
+            missing_ids: set[str] = set()
             fetched_by_id: dict[str, MessageSummary] = {}
             workers = min(6, len(network_ids))
             if workers:
@@ -404,6 +466,8 @@ class GmailApiService:
                     for message_id, future in futures.items():
                         try:
                             fetched_by_id[message_id] = future.result()
+                        except GmailMessageMissingError:
+                            missing_ids.add(message_id)
                         except Exception as exc:
                             errors.append(exc)
             oauth_error = next((error for error in errors if isinstance(error, OAuthError)), None)
@@ -412,6 +476,7 @@ class GmailApiService:
             summaries = [
                 summary
                 for message_id in message_ids
+                if message_id not in missing_ids
                 if (summary := fetched_by_id.get(message_id) or cached_by_id.get(message_id)) is not None
             ]
             if errors and not summaries:
@@ -455,6 +520,7 @@ class GmailApiService:
             in_reply_to=header_to_text(headers.get("in-reply-to", "")),
             has_attachments=self._payload_has_attachment(message.get("payload", {})),
             is_starred="STARRED" in message.get("labelIds", []),
+            is_promotional="CATEGORY_PROMOTIONS" in message.get("labelIds", []),
         )
 
     def _content_from_message(
@@ -599,40 +665,31 @@ class GmailApiService:
         on_progress: Callable[[int, int], None] | None = None,
     ) -> Path:
         destination.parent.mkdir(parents=True, exist_ok=True)
-        temporary = destination.with_name(f".{destination.name}.{os.getpid()}.part")
+        temporary = attachment_temporary_path(destination)
         try:
-            data = item.attachment_bytes()
-            progress_reported = False
-
-            def report(current: int, total: int) -> None:
-                nonlocal progress_reported
-                progress_reported = True
-                if on_progress:
-                    on_progress(current, total)
-
-            if not data and item.remote_source == "gmail" and item.remote_id:
-                data = self._attachment_bytes(
-                    account,
-                    summary.uid,
-                    item.remote_id,
-                    report,
-                )
-            if not data:
-                raise MailError("لا تتوفر بيانات أو مرجع تنزيل صالح لهذا المرفق.")
-            total = len(data)
+            check_attachment_size(int(item.size or 0))
             with temporary.open("wb") as output:
-                chunk_size = 1024 * 1024
-                for offset in range(0, total, chunk_size):
-                    output.write(data[offset : offset + chunk_size])
-                    if on_progress and (item.data or not progress_reported):
-                        on_progress(min(total, offset + chunk_size), total)
-            os.replace(temporary, destination)
+                if item.data:
+                    write_embedded_attachment(item.data, output, on_progress)
+                elif item.remote_source == "gmail" and item.remote_id:
+                    message_id = urllib.parse.quote(summary.uid, safe="")
+                    attachment_id = urllib.parse.quote(item.remote_id, safe="")
+                    self._request_json(
+                        account, "GET",
+                        f"{GMAIL_API_BASE}/messages/{message_id}/attachments/{attachment_id}?fields=size,data",
+                        on_progress=on_progress, attachment_output=output, attachment_size=int(item.size or 0),
+                    )
+                else:
+                    raise MailError("لا تتوفر بيانات أو مرجع تنزيل صالح لهذا المرفق.")
+            commit_attachment_download(temporary, destination)
             return destination
-        except Exception:
+        except Exception as exc:
             try:
                 temporary.unlink(missing_ok=True)
             except OSError:
                 pass
+            if isinstance(exc, AttachmentDownloadError):
+                raise MailError(str(exc)) from exc
             raise
 
     def _modify_message_labels(
@@ -660,6 +717,8 @@ class GmailApiService:
         body: dict[str, Any] | None = None,
         *,
         on_progress: Callable[[int, int], None] | None = None,
+        attachment_output: BinaryIO | None = None,
+        attachment_size: int = 0,
     ) -> dict[str, Any]:
         token = self._oauth_token(account)
         data = None
@@ -680,6 +739,13 @@ class GmailApiService:
                     timeout=30,
                     context=trusted_https_context(),
                 ) as response:
+                    if attachment_output is not None:
+                        # Each retry restarts the temporary file; never append
+                        # a repeated prefix after an interrupted HTTP response.
+                        attachment_output.seek(0)
+                        attachment_output.truncate()
+                        stream_gmail_attachment(response, attachment_output, attachment_size, on_progress)
+                        return {}
                     content_length = response.headers.get("Content-Length", "")
                     try:
                         announced_size = max(0, int(content_length))
@@ -714,6 +780,10 @@ class GmailApiService:
                     "utf-8",
                     errors="replace",
                 )
+                if exc.code == 404 and method.upper() == "GET":
+                    message_path = url.partition("?")[0].removeprefix(f"{GMAIL_API_BASE}/messages/")
+                    if message_path != url.partition("?")[0] and message_path and "/" not in message_path:
+                        raise GmailMessageMissingError("رسالة Gmail لم تعد موجودة.") from exc
                 lowered_detail = detail.lower()
                 rate_limited = exc.code == 403 and any(
                     marker in lowered_detail

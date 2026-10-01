@@ -11,7 +11,7 @@ class TranslationPopupLifecycleTests(unittest.TestCase):
     @patch('accessible_mail.mail_page.wx.Menu')
     def test_translation_starts_after_popup_destroyed(self, menu_class, call_after, announce):
         menu = menu_class.return_value
-        items = [Mock() for _ in range(10)]
+        items = [Mock() for _ in range(15)]
         menu.Append.side_effect = items
         viewer = object()
         summary = SimpleNamespace(is_read=True, is_starred=False, is_pinned=False)

@@ -5,15 +5,38 @@ import secrets
 import shutil
 import tempfile
 import time
+import threading
+import weakref
 from pathlib import Path
 
 
 STALE_ATTACHMENT_AGE_SECONDS = 7 * 24 * 60 * 60
 _SESSION_NAME = f"{os.getpid()}-{secrets.token_hex(8)}"
+_COMMIT_GUARD = threading.Lock()
+_COMMIT_LOCKS = weakref.WeakValueDictionary()
 
 
 def opened_attachments_root() -> Path:
     return Path(tempfile.gettempdir()) / "PowerAccessibleMail" / "opened_attachments"
+
+
+def attachment_temporary_path(destination: Path) -> Path:
+    """Reserve an independent same-directory file for each atomic download."""
+    descriptor, name = tempfile.mkstemp(prefix=".pam-attachment-", suffix=".part", dir=destination.parent)
+    os.close(descriptor)
+    return Path(name)
+
+
+def commit_attachment_download(temporary: Path, destination: Path) -> None:
+    """Serialize same-path commits without serializing the downloads themselves."""
+    key = os.path.normcase(os.path.abspath(destination))
+    with _COMMIT_GUARD:
+        lock = _COMMIT_LOCKS.get(key)
+        if lock is None:
+            lock = threading.Lock()
+            _COMMIT_LOCKS[key] = lock
+    with lock:
+        os.replace(temporary, destination)
 
 
 def opened_attachment_session_dir() -> Path:

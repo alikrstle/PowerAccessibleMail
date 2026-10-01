@@ -16,6 +16,7 @@ from accessible_mail.email_service import MailError
 from accessible_mail.gmail_api_service import (
     MAX_GMAIL_API_RESPONSE_BYTES,
     GmailApiService,
+    GmailMessageMissingError,
 )
 from accessible_mail.models import Account, LinkItem, MessageContent, MessageSummary
 from accessible_mail.oauth import OAuthReauthenticationRequired
@@ -54,6 +55,55 @@ class GmailApiServiceTests(unittest.TestCase):
         self.assertEqual(service.mailbox_to_label("SENT"), "SENT")
         self.assertEqual(service.mailbox_to_label("TRASH"), "TRASH")
         self.assertEqual(service.resolve_trash_mailbox(Account(email_address="user@example.com")), "TRASH")
+
+    @patch("accessible_mail.gmail_api_service.urllib.request.urlopen")
+    def test_missing_message_404_is_distinct_from_list_failure(self, urlopen: Mock) -> None:
+        error_body = io.BytesIO(b'{"error":{"code":404,"message":"Requested entity was not found."}}')
+        urlopen.side_effect = urllib.error.HTTPError(
+            "https://gmail.googleapis.com/gmail/v1/users/me/messages/gone",
+            404, "Not Found", {}, error_body,
+        )
+        service = GmailApiService(cache=Mock())
+        service._oauth_token = Mock(return_value="token")
+        account = Account(id="account", email_address="user@example.com")
+
+        with self.assertRaises(GmailMessageMissingError):
+            service._get_message(account, "gone", "metadata")
+
+        urlopen.side_effect = urllib.error.HTTPError(
+            "https://gmail.googleapis.com/gmail/v1/users/me/messages",
+            404, "Not Found", {}, io.BytesIO(b'{"error":{"code":404}}'),
+        )
+        with self.assertRaises(MailError) as captured:
+            service._request_json(
+                account, "GET", "https://gmail.googleapis.com/gmail/v1/users/me/messages",
+            )
+        self.assertNotIsInstance(captured.exception, GmailMessageMissingError)
+
+    def test_missing_spam_message_is_skipped_without_reviving_cached_copy(self) -> None:
+        cache = Mock()
+        cache.summaries_by_uids.return_value = {
+            "gone": MessageSummary(uid="gone", mailbox="SPAM"),
+        }
+        service = GmailApiService(cache=cache)
+        service._request_json = Mock(return_value={
+            "messages": [{"id": "gone"}, {"id": "kept"}],
+            "nextPageToken": "next", "resultSizeEstimate": 2,
+        })
+
+        def get_message(_account, message_id, _format):
+            if message_id == "gone":
+                raise GmailMessageMissingError("gone")
+            return {"id": "kept", "labelIds": ["SPAM"], "payload": {"headers": []}}
+
+        service._get_message = Mock(side_effect=get_message)
+        summaries, token, estimate = service._list_summary_page(
+            Account(id="account", email_address="user@example.com"), "SPAM", 50,
+        )
+
+        self.assertEqual([summary.uid for summary in summaries], ["kept"])
+        self.assertEqual(token, "next")
+        self.assertEqual(estimate, 2)
 
     def test_summary_and_content_from_gmail_api_payload(self) -> None:
         service = GmailApiService()
@@ -129,7 +179,9 @@ class GmailApiServiceTests(unittest.TestCase):
 
     def test_remote_gmail_attachment_download_reports_progress_and_writes_file(self) -> None:
         service = GmailApiService(cache=Mock())
-        service._attachment_bytes = Mock(return_value=b"downloaded attachment")
+        service._oauth_token = Mock(return_value="token")
+        response = Mock()
+        response.read.side_effect = [b'{"size":21,"data":"ZG93bmxvYWRlZCBhdHRhY2htZW50"}', b""]
         progress: list[tuple[int, int]] = []
         item = LinkItem(
             text="report.pdf",
@@ -141,16 +193,59 @@ class GmailApiServiceTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             destination = Path(directory) / "report.pdf"
 
-            result = service.download_attachment(
-                Account(),
-                summary,
-                item,
-                destination,
-                lambda current, total: progress.append((current, total)),
-            )
+            with patch("accessible_mail.gmail_api_service.urllib.request.urlopen") as urlopen:
+                urlopen.return_value.__enter__.return_value = response
+                result = service.download_attachment(
+                    Account(), summary, item, destination,
+                    lambda current, total: progress.append((current, total)),
+                )
 
             self.assertEqual(result.read_bytes(), b"downloaded attachment")
         self.assertEqual(progress[-1], (21, 21))
+
+    def test_interrupted_gmail_attachment_retry_restarts_file_not_appends(self) -> None:
+        service = GmailApiService(cache=Mock())
+        service._oauth_token = Mock(return_value="token")
+        first = Mock()
+        first.read.side_effect = [b'{"size":6,"data":"YWJj', OSError("connection reset")]
+        second = Mock()
+        second.read.side_effect = [b'{"size":6,"data":"YWJjZGVm"}', b""]
+        with tempfile.TemporaryDirectory() as directory:
+            destination = Path(directory) / "file"
+            with patch("accessible_mail.gmail_api_service.urllib.request.urlopen") as open_url, \
+                    patch("accessible_mail.gmail_api_service.time.sleep"):
+                open_url.return_value.__enter__.side_effect = [first, second]
+                service.download_attachment(Account(), MessageSummary(uid="1", mailbox="INBOX"),
+                                            LinkItem(text="file", remote_source="gmail", remote_id="attachment"), destination)
+            self.assertEqual(destination.read_bytes(), b"abcdef")
+            self.assertEqual(open_url.call_count, 2)
+            self.assertEqual(list(Path(directory).glob("*.part")), [])
+
+    def test_corrupt_gmail_attachment_preserves_existing_file(self) -> None:
+        service = GmailApiService(cache=Mock())
+        service._oauth_token = Mock(return_value="token")
+        response = Mock()
+        response.read.side_effect = [b'{"size":100,"data":"YWJj"}', b""]
+        with tempfile.TemporaryDirectory() as directory:
+            destination = Path(directory) / "file"
+            destination.write_bytes(b"keep")
+            with patch("accessible_mail.gmail_api_service.urllib.request.urlopen") as open_url:
+                open_url.return_value.__enter__.return_value = response
+                with self.assertRaises(MailError):
+                    service.download_attachment(Account(), MessageSummary(uid="1", mailbox="INBOX"),
+                                                LinkItem(text="file", remote_source="gmail", remote_id="attachment"), destination)
+            self.assertEqual(destination.read_bytes(), b"keep")
+            self.assertEqual(list(Path(directory).glob("*.part")), [])
+
+    def test_received_size_above_five_gb_is_rejected_before_network(self) -> None:
+        service = GmailApiService(cache=Mock())
+        with tempfile.TemporaryDirectory() as directory, \
+                patch("accessible_mail.gmail_api_service.urllib.request.urlopen") as open_url, \
+                self.assertRaisesRegex(MailError, "5 غيغابايت"):
+            service.download_attachment(Account(), MessageSummary(uid="1", mailbox="INBOX"),
+                                        LinkItem(text="file", remote_source="gmail", remote_id="attachment", size=5_000_000_001),
+                                        Path(directory) / "file")
+        open_url.assert_not_called()
 
     def test_duplicate_gmail_attachments_are_shown_once(self) -> None:
         service = GmailApiService()

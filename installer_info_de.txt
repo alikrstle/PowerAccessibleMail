@@ -1,6 +1,6 @@
 ﻿Informationen zu Power Accessible Mail
 
-Version 1.5.0
+Version 1.6.0
 Entwickelt von Soljan.AlSharq.
 Soljan.AlSharq. gehört Ali Al-Amir.
 Die x64- und x86-Pakete bieten die gleichen Funktionen.

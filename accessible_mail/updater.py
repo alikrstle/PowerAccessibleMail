@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import ctypes
 import os
 import re
 import subprocess
@@ -225,21 +226,32 @@ def authenticode_signature_status(path: Path) -> str:
     """Return the Authenticode status reported by Windows."""
     if os.name != "nt":
         return "Unavailable"
+    powershell_path = _system_powershell_path()
+    if powershell_path is None:
+        return "Unavailable"
     script = (
-        "$signature = Get-AuthenticodeSignature -LiteralPath $args[0]; "
+        "$ErrorActionPreference = 'Stop'; "
+        # Do not inherit an incompatible or user-supplied module search path.
+        "Import-Module \"$PSHOME\\Modules\\Microsoft.PowerShell.Security\\Microsoft.PowerShell.Security.psd1\"; "
+        "$signature = Microsoft.PowerShell.Security\\Get-AuthenticodeSignature "
+        "-LiteralPath $env:PAM_SIGNATURE_PATH; "
         "Write-Output $signature.Status"
     )
+    # Keep the path out of PowerShell's command parser, including quotes,
+    # spaces and Arabic characters. Do not modify the parent's environment.
+    child_environment = os.environ.copy()
+    child_environment["PAM_SIGNATURE_PATH"] = str(path.resolve())
     try:
         completed = subprocess.run(
             [
-                "powershell.exe",
+                str(powershell_path),
                 "-NoLogo",
                 "-NoProfile",
                 "-NonInteractive",
                 "-Command",
                 script,
-                str(path),
             ],
+            env=child_environment,
             stdin=subprocess.DEVNULL,
             stdout=subprocess.PIPE,
             stderr=subprocess.DEVNULL,
@@ -255,6 +267,23 @@ def authenticode_signature_status(path: Path) -> str:
     if completed.returncode != 0:
         return "Unavailable"
     return completed.stdout.strip() or "Unavailable"
+
+
+def _system_powershell_path() -> Path | None:
+    """Use Windows' system directory, never PATH or the current directory."""
+    try:
+        buffer = ctypes.create_unicode_buffer(4096)
+        get_directory = ctypes.windll.kernel32.GetSystemDirectoryW
+        get_directory.argtypes = (ctypes.c_wchar_p, ctypes.c_uint)
+        get_directory.restype = ctypes.c_uint
+        length = get_directory(buffer, len(buffer))
+        if not 0 < length < len(buffer):
+            return None
+        directory = Path(buffer.value)
+        path = directory / "WindowsPowerShell" / "v1.0" / "powershell.exe"
+        return path if directory.is_absolute() and path.is_file() else None
+    except (AttributeError, OSError):
+        return None
 
 
 def has_valid_authenticode_signature(path: Path) -> bool:

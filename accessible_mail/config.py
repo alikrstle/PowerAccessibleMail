@@ -13,8 +13,13 @@ from uuid import uuid4
 
 from .models import Account
 from .notification_preferences import (
+    EVENT_COMPOSE_OPEN,
+    EVENT_INTERACTIVE_GUIDE,
+    EVENT_MESSAGE_ARCHIVE,
     EVENT_SEARCH_RESULTS,
     EVENT_SEARCH_NO_RESULTS,
+    EVENT_SETTINGS,
+    NOTIFICATION_LEVEL_ALL,
     NOTIFICATION_LEVEL_MOST,
     NOTIFICATION_LEVELS,
     normalize_event_ids,
@@ -23,7 +28,7 @@ from .notification_preferences import (
 
 APP_NAME = os.environ.get("POWER_ACCESSIBLE_MAIL_APP_NAME", "PowerAccessibleMail")
 APP_TITLE = os.environ.get("POWER_ACCESSIBLE_MAIL_APP_TITLE", "Power Accessible Mail")
-APP_VERSION = "1.5.0"
+APP_VERSION = "1.6.0"
 PASSWORD_PREFIX = "dpapi:"
 LEGACY_PROFILE_NAMES = ("PowerAccessibleMailGmailApiLimited",)
 LANGUAGE_ARABIC = "ar"
@@ -79,6 +84,17 @@ class ProgramSettings:
     spoken_notification_events: list[str] | None = None
     last_selected_account_id: str = ""
     compose_translation_languages: list[str] = field(default_factory=list)
+    low_vision_font_scale: int = 100
+    low_vision_high_contrast: bool = False
+    low_vision_cursor_size: str = "normal"
+    low_vision_focus_highlight: bool = False
+    low_vision_custom_colours: bool = False
+    low_vision_text_colour: str = "#FFFFFF"
+    low_vision_background_colour: str = "#000000"
+    program_sounds_enabled: bool = True
+    program_sound_events: list[str] | None = None
+    program_sound_catalog_version: int = 2
+    program_sound_files: dict[str, str] = field(default_factory=dict)
 
 
 def system_language(locale_names: list[str] | tuple[str, ...] | None = None) -> str:
@@ -414,6 +430,25 @@ def load_settings() -> ProgramSettings:
             last_selected_account_id=str(
                 payload.get("last_selected_account_id", "") or ""
             ),
+            low_vision_font_scale=payload.get("low_vision_font_scale", 100),
+            low_vision_high_contrast=payload.get("low_vision_high_contrast", False),
+            low_vision_cursor_size=str(payload.get("low_vision_cursor_size", "normal")),
+            low_vision_focus_highlight=payload.get("low_vision_focus_highlight", False),
+            low_vision_custom_colours=payload.get("low_vision_custom_colours", False),
+            low_vision_text_colour=str(payload.get("low_vision_text_colour", "#FFFFFF")),
+            low_vision_background_colour=str(payload.get("low_vision_background_colour", "#000000")),
+            program_sounds_enabled=payload.get("program_sounds_enabled", True),
+            program_sound_events=(
+                payload.get("program_sound_events")
+                if isinstance(payload.get("program_sound_events"), list)
+                else None
+            ),
+            program_sound_catalog_version=payload.get("program_sound_catalog_version", 1),
+            program_sound_files=(
+                payload.get("program_sound_files")
+                if isinstance(payload.get("program_sound_files"), dict)
+                else {}
+            ),
         )
     )
 
@@ -467,6 +502,46 @@ def normalize_settings(settings: ProgramSettings) -> ProgramSettings:
         settings.message_read_mode = MESSAGE_READ_MANUAL
     if settings.theme not in {THEME_LIGHT, THEME_DARK}:
         settings.theme = THEME_DARK
+    from .visual_accessibility import CURSOR_SIZES, FONT_SCALES, valid_html_colour
+    try:
+        settings.low_vision_font_scale = int(settings.low_vision_font_scale)
+    except (TypeError, ValueError, OverflowError):
+        settings.low_vision_font_scale = 100
+    if settings.low_vision_font_scale not in FONT_SCALES:
+        settings.low_vision_font_scale = 100
+    if settings.low_vision_cursor_size not in CURSOR_SIZES:
+        settings.low_vision_cursor_size = "normal"
+    for field_name in (
+        "low_vision_high_contrast",
+        "low_vision_focus_highlight",
+        "low_vision_custom_colours",
+    ):
+        if not isinstance(getattr(settings, field_name), bool):
+            setattr(settings, field_name, False)
+    settings.low_vision_text_colour = valid_html_colour(
+        settings.low_vision_text_colour,
+        "#FFFFFF",
+    )
+    settings.low_vision_background_colour = valid_html_colour(
+        settings.low_vision_background_colour,
+        "#000000",
+    )
+    if not isinstance(settings.program_sounds_enabled, bool):
+        settings.program_sounds_enabled = True
+    from .program_sounds import SOUND_ADDRESS_BOOK, normalize_custom_sound_files, normalize_sound_event_ids
+    settings.program_sound_events = normalize_sound_event_ids(
+        settings.program_sound_events
+    )
+    if not isinstance(settings.program_sound_catalog_version, int):
+        settings.program_sound_catalog_version = 1
+    if settings.program_sound_catalog_version < 2:
+        if settings.program_sound_events and SOUND_ADDRESS_BOOK not in settings.program_sound_events:
+            settings.program_sound_events.append(SOUND_ADDRESS_BOOK)
+        settings.program_sound_events = normalize_sound_event_ids(settings.program_sound_events)
+        settings.program_sound_catalog_version = 2
+    settings.program_sound_files = normalize_custom_sound_files(
+        settings.program_sound_files
+    )
     if settings.translation_mode not in {TRANSLATION_INLINE, TRANSLATION_DIALOG}:
         settings.translation_mode = TRANSLATION_INLINE
     if not isinstance(settings.message_translation_language_selected, bool):
@@ -490,9 +565,23 @@ def normalize_settings(settings: ProgramSettings) -> ProgramSettings:
     settings.spoken_notification_events = normalize_event_ids(
         settings.spoken_notification_events
     )
-    if settings.spoken_notification_level == NOTIFICATION_LEVEL_MOST and settings.spoken_notification_events is not None:
+    if (
+        settings.spoken_notification_level in {
+            NOTIFICATION_LEVEL_MOST,
+            NOTIFICATION_LEVEL_ALL,
+        }
+        and settings.spoken_notification_events is not None
+    ):
         settings.spoken_notification_events = normalize_event_ids(
-            set(settings.spoken_notification_events) | {EVENT_SEARCH_RESULTS, EVENT_SEARCH_NO_RESULTS}
+            set(settings.spoken_notification_events)
+            | {
+                EVENT_SEARCH_RESULTS,
+                EVENT_SEARCH_NO_RESULTS,
+                EVENT_MESSAGE_ARCHIVE,
+                EVENT_COMPOSE_OPEN,
+                EVENT_SETTINGS,
+                EVENT_INTERACTIVE_GUIDE,
+            }
         )
     return settings
 

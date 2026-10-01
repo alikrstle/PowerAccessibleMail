@@ -1,7 +1,29 @@
 Power Accessible Mail
-Version 1.5.0
+Version 1.6.0
 Developed by Soljan.AlSharq.
 Soljan.AlSharq. is owned by Ali Al-Amir
+
+
+
+Important workflows in version 1.6.0
+
+Use Alt+1 for the message list, Alt+2 for the viewer of the last message you actually opened, Alt+3 for the mail sections, and Alt+4 for the application command list. Alt+D opens the complete shortcut guide. A preview beside the list does not count as an opened message: enter the message viewer first. If no viewer has been opened, Alt+2 asks you to open a message.
+
+Settings provides three search methods. Ctrl+F opens a separate search window; the search button adds sender and date filters; the permanent field filters the current section while you type. Search uses messages currently loaded in the selected account and matches sender, address, subject, date, and status. It does not search the full message body or every message still on the server. Load older messages or synchronize before repeating a search for older mail.
+
+Archive removes a message from Inbox without sending it to Trash. Start from the message list, open its context menu, and choose Archive message. Find it under Archived messages and choose Return to Inbox when needed. Pin and archive commands belong to the message-list menu; the menu inside the viewer has reading actions and does not contain every list command.
+
+Press Ctrl+Enter to open the item viewer. Select a link, image or attachment with the arrows, then press the Application key or Shift+F10 for that item's menu. You can also use Tab to reach Item actions. Ctrl+Enter returns to the message; Escape returns to the message list.
+
+In Compose, type or paste an address in To and activate Add email address to address book. You may save the address as written or give it a custom name. Saving keeps you in Compose. Later, press Down Arrow in To, select the saved name, and press Enter or Space; this replaces the contents of the recipient field with its email address.
+
+Ctrl+T translates a received message only while focus is inside its viewer. On first use, approve the privacy notice and choose the target language from the list, which starts with 20 common languages. Users who had previously accepted translation are also asked once to choose a language because older releases selected Arabic automatically. The translation language is independent of the interface language.
+
+To translate text before sending, open the context menu in Subject or Body and choose Convert text to another language. Adding a language saves it but does not start translation; open the menu again and choose that language. The entire field is replaced, and Ctrl+Z can restore the original text.
+
+Alt+H opens the interactive guide. Its 31 tasks use local training data and do not send real mail or alter your account. The new tasks cover multiple-selection menus, folders, custom sections, and local categories. Select a task, read its instructions, and complete the actions in the training controls. Progress is saved; More actions includes Start training again.
+
+When an application update is ready, Power Accessible Mail closes and starts the normal interactive Setup window. Follow the installer pages; the update is not installed silently.
 
 Search messages
 
@@ -13,7 +35,7 @@ Welcome to your email
 
 Power Accessible Mail is built to make reading writing organizing and updating email comfortable from the keyboard
 
-Version 1.5.0 improves update reliability by using the native Windows certificate store and provides a clear message for device time Windows update or security software certificate problems without disabling secure verification
+The updater uses the Windows certificate store and reports certificate or device-time problems without disabling secure verification.
 
 Native Windows lists and fields give screen readers predictable controls while messages are arranged vertically so moving through your mail feels direct and familiar
 
@@ -35,7 +57,7 @@ Manual sign in begins with an Email service choice
 
 Select Google or Microsoft and the application fills the matching IMAP and SMTP settings while keeping the fields available for review
 
-Google app password sign in is a secondary option for Gmail accounts. It requires 2-Step Verification and an app password created on the official Google page. Enter the 16-character code; the application removes spaces automatically and stores it with Windows encryption. Never enter your regular Google Account password in this field
+Google app password sign-in is the recommended option for Gmail accounts that support it. It requires 2-Step Verification and an app password created on the official Google page. Enter the 16-character code; the application removes spaces automatically and stores it with Windows encryption. Never enter your regular Google Account password in this field
 
 For Microsoft browser sign in is recommended because password based IMAP access may be restricted by the account policy
 
@@ -91,7 +113,7 @@ Press Escape or Ctrl+Shift+Space again to leave the mode
 
 Trying to move above the first item or below the last item announces the boundary
 
-The context menu provides suitable bulk read star pin and Trash commands
+The context menu provides suitable bulk read, star, pin, archive or restore-to-Inbox, and Trash commands. Archiving and deleting a selected group ask for confirmation.
 
 Delete asks for confirmation and states how many messages will be moved to Trash
 
@@ -101,7 +123,7 @@ Compose email opens a complete message window
 
 Setup registers Power Accessible Mail among the email applications available to Windows. From application Settings choose Choose PowerAccessibleMail as the default email app then confirm your choice in Windows Settings. In Windows 11 Enter might not open the associated-app picker; press Space on MAILTO to open it. Afterward selecting an email address or mailto link in a browser opens Compose with the recipient subject and body from the link filled automatically. The application never changes the Windows default without your approval
 
-Reply Star Translate Pin to top and move to the provider Trash are available from the message context menu. The item viewer list has no context menu, and the Item actions button displays attachment and link commands directly
+The message-list menu contains read-state, star, pin, archive, delete and organization commands. Inside the message viewer, its own menu contains Reply, Copy, Translate and Forward. The item viewer has a separate menu for links, images and attachments.
 
 Use Shift+F10 or the Application key for the message context menu and use the Item actions button for attachments images and links
 
@@ -129,7 +151,7 @@ The application checks GitHub Releases after startup and you can check manually 
 
 When a release is available Update now opens an internal progress window showing its version release date progress bar and percentage
 
-The correct installer is downloaded to the Power Accessible Mail updates folder in the user profile and its SHA-256 digest is verified. The application then closes, installs the new release automatically without the language page or ordinary Setup steps, and restarts. UAC prompts and Windows security warnings remain visible whenever Windows requires them
+The correct installer is downloaded to the Power Accessible Mail updates folder in the user profile and its SHA-256 digest is verified. The application then closes and starts the normal interactive Setup window. Follow the installer pages to complete the update.
 
 Detailed guide to the main window
 
@@ -179,7 +201,7 @@ This separate list collects the message links buttons images and attachments. Ev
 
 Item actions button
 
-This button displays the commands directly without a submenu: Open selected attachment Save selected attachment Save all attachments at once Open image Save image Open selected link and Copy selected link. Reply Star Translate Pin and Delete remain in the message context menu
+The message-list menu contains read-state, star, pin, archive, delete and organization commands. Inside the message viewer, its own menu contains Reply, Copy, Translate and Forward. The item viewer has a separate menu for links, images and attachments.
 
 Message retrieval progress and status bar
 
@@ -187,9 +209,9 @@ The progress control reports message retrieval or synchronization percentage. Th
 
 Mark a message as read or unread
 
-Moving to a message or opening its content does not mark it as read. From the normal message list press Space once to switch the focused message between read and unread. The Status column changes immediately and the application then saves that state to the server
+Read status follows the mode chosen in Settings. In automatic mode, entering the message viewer marks the message as read; merely focusing its row is not enough. In manual mode, opening the viewer does not change its read status. From the normal message list, Space switches the focused message between read and unread. The Status column changes immediately and the application saves that state to the server.
 
-When a message is unread you can press the Application key or Shift+F10 and choose Mark as read. The context menu does not include Mark as unread; press Space in the message list whenever you want to switch the read state. In multiple selection mode Mark as read is available for the selected group
+Press the Application key or Shift+F10 for the message's context menu. In multiple selection mode, read-state commands are grouped in a submenu and apply to the selected messages. Space toggles the focused message's read state outside multiple selection mode.
 
 Use the Unread filter to find messages that still need attention and the Read filter to review messages you have finished
 
@@ -201,9 +223,11 @@ Press Enter or Space to open the item directly. A safe link or an image with an 
 
 For explicit commands press Tab to reach the Item actions button then press Enter or Space. An attachment provides Open selected attachment and Save selected attachment and you can save every attachment in the message at once. A link or image with an external address provides Open selected link and Copy selected link which places its safe address on the Windows clipboard. Commands that do not apply to the selected item remain disabled to prevent accidental activation
 
-Press Ctrl+Enter to return to the message viewer or Escape to return directly to the message list. The item list has no context menu. The Item actions button is the only place that displays these commands and presents them directly without a submenu
+Press Ctrl+Enter to open the item viewer. Select a link, image or attachment with the arrows, then press the Application key or Shift+F10 for that item's menu. You can also use Tab to reach Item actions. Ctrl+Enter returns to the message; Escape returns to the message list.
 
 Manage received attachments
+
+The application can download a received attachment of up to 5 GB (5,000,000,000 bytes), provided your email provider can receive it. Downloads use chunks rather than loading the whole large attachment into memory. Choose a drive with enough free space and support for large files, and wait for completion. Failed downloads are not saved as completed files and do not replace an existing file with an incomplete copy. This does not change sending limits or the 25 MB image-display limit, and does not cover files reached through cloud-storage links.
 
 Opening an attachment writes a protected temporary copy with a safe name and asks Windows to open it in the default application. The temporary copies created for the current session are removed when Power Accessible Mail closes
 
@@ -231,9 +255,9 @@ Press the Application key or Shift+F10 on an address to open its context menu. Y
 
 Context menus and the Application key
 
-The keyboard Application key is sometimes named Menu or Context Menu. It opens the context menu for the control that currently has focus. Power Accessible Mail supports it in the message list message viewer Item actions button outgoing attachment list and address book. The item viewer list has no context menu; press Tab from it to reach Item actions. Shift+F10 is equivalent where a context menu is available
+The Application key (also called Menu) or Shift+F10 opens the menu for the focused control. Message rows, folders, sections, the message viewer, the item viewer, outgoing attachments and address book entries have their own menus. Choose the intended control before opening its menu.
 
-The message viewer context menu provides Reply Mark as read when needed Star Translate Pin and Delete. The Item actions button displays the seven attachment image and link commands directly without a submenu. To reach them press Ctrl+Enter to move to the item viewer select an item then press Tab to reach Item actions
+Inside the message viewer, the context menu provides Reply, Copy, Translate and Forward. For read-state, star, pin, archive or delete actions, return to the message list. For a link, image or attachment, open the item viewer with Ctrl+Enter and use its own menu or Item actions.
 
 In the message list commands adapt to the focused message and its current state. On the Item actions button they adapt to the selected item type. In multiple selection mode message commands act on the group and the application states the affected message count before deletion
 
@@ -244,11 +268,12 @@ Alt+2 returns to the viewer of the last message you actually opened; if none was
 Alt+3 moves to the mail sections
 Alt+4 moves to the application command list
 Alt+D opens the application shortcut guide
-Ctrl+A opens account options and management
+Alt+A opens account options and management
+Ctrl+A selects all visible messages in the current list, excluding folder rows
 Ctrl+N composes a new message
 Ctrl+R replies to the focused message
 Ctrl+T translates the current message
-F5 refreshes messages
+F5: Refresh displayed content
 F1 opens the application guide
 Escape returns to the message list from the message or item viewer
 Ctrl+Enter switches between message and item viewers
@@ -264,6 +289,42 @@ Locally cached messages tokens and saved credentials are protected by Windows DP
 Distribution packages do not contain user accounts or messages
 
 Removing an account from the application also removes its locally stored application data
+
+Message folders and local sections
+
+A folder groups messages you choose. A custom section is a local place for messages and folders. Neither creates a server folder or moves mail at your provider. Press Alt+Z in the message list, select messages with the arrow keys and Space, then Tab to Create folder or Cancel. Enter a name; leaving it blank uses New folder with today's date. A folder appears among messages with its name, message count and creation date. Press Enter to open it and Backspace to return. Its messages are hidden from the general lists while grouped. The folder context menu provides pinning, starring, renaming, archiving and restoration. Deleting a folder removes only the grouping, not its messages.
+
+Alt+X adds selected messages to an existing folder. The context command Add message to folder or section lets you choose either destination. Inside a folder you can remove a message without deleting it. Alt+C deletes the focused folder. Alt+Ctrl+Z creates a section; Alt+Ctrl+X moves the focused item to a section locally; Alt+Ctrl+C deletes the current custom section without deleting original mail. Built-in sections cannot be deleted. To return a message to its original section, choose “Return to original sections” from its context menu.
+
+Custom categories are filters
+
+Open the context menu on the category box and choose Create new category, or press Alt+Ctrl+Shift+Z. Choose a filter with the arrows and Enter, then enter a name. The category appears in the familiar category box across mail sections and filters loaded local messages; it is not a destination. Filters include recently read, promotional mail, organizations, specified sender addresses, frequent senders, locked messages, message folders, messages with attachments and messages without attachments. Organization detection estimates from the sender's domain; it does not verify the sender's identity. For specified senders, enter the addresses before naming the category.
+
+Ctrl+Down moves to custom categories; Ctrl+Up returns to the first built-in category. Alt+Ctrl+Shift+X edits the current custom filter, and Alt+Ctrl+Shift+C deletes it. Deleting a filter does not delete mail. The locked-message filter does not bypass a password.
+
+Password locks for folders and sections
+
+On a message folder or custom section, open the context menu and choose the password lock. Read the warning, enter at least eight characters and confirm the password. The application hides the messages from general lists and search and encrypts their membership and locally cached contents using the password and the current Windows user's protection. A local Windows account works; a Microsoft account is not required.
+
+Press Enter on the locked item and enter its password to view its contents within that folder or section. Leaving its scope or switching accounts closes the unlocked session. To remove protection permanently, choose Remove lock and enter the password. There is no password recovery. Mail remains at the provider, but local organization may not be recoverable. Locks do not protect copies previously exported, downloaded or backed up, or the provider account. Local encrypted data is tied to the Windows user and should not be assumed portable to another user or computer. Use disk encryption and secure your Windows session as well.
+
+Locking address book folders
+
+Press Alt+S to open the address book. Choose Create folder from Folder options, select addresses with the arrows and Space, then Tab to Create folder and enter a name. Folders appear in the address list; their addresses are not repeated outside them. Enter opens a folder and Backspace returns. Its menu provides pinning, renaming, password locking and deletion without deleting its addresses; address book folders have no archive or star option. Inside a folder, Folder options includes removing an address without deleting it. A newly saved address remains in the current address list and is added to the open folder.
+
+Open a folder's context menu in the address book and choose the password lock. It protects the names, addresses and pinned status inside the folder, not their email messages. Open it with Enter and its password. Its addresses stay out of general recipient pickers, even while it is open. Add, edit, pin or delete addresses within the folder. Removing an address from the folder without deleting it makes it public again; removing the folder's lock makes its addresses available to recipient pickers without removing them from the folder.
+
+Remove address book folder locks before removing the mail account from the application. An address also assigned to a conversation folder under another account cannot be locked until it is removed from that other folder. Forgotten passwords cannot be recovered, and copies saved outside the application are not protected.
+
+Sounds and low-vision options
+
+In Settings, open “Customize application sounds”. Enable or disable events individually, and press Enter on a sound's name or click it to preview it. Replace accepts an MP3 file. Confirm both the sound dialog and Settings to save changes; cancelling does not overwrite your previously saved sound. The update and installer background music is fixed, not customizable here. The installer has a mute checkbox.
+
+In Settings, “Low-vision features and options” follows “Customize application sounds”. Native choice boxes and checkboxes provide text and interface scaling, contrast, focus highlighting, an in-application pointer and text/background colors. Use Tab, arrows and Space, confirm the dialog, then save Settings. These options change the application's appearance, not your screen reader's settings.
+
+Other navigation and selection shortcuts
+
+Alt+S opens the address book. Alt+] switches to the next account and Alt+[ to the previous one; these keys correspond to د and ج on an Arabic keyboard. Alt+A opens account management; Ctrl+A selects visible message rows, not folders. Outside editable fields, Backspace goes back one step. Escape leaves a message folder or multiple-selection mode first and announces that a second press returns to the main interface. In a message or item viewer, Escape returns to the message list. In this guide, 1 moves to the next heading and 2 to the previous one. Alt+D opens the shortcut guide.
 
 Power Accessible Mail
 An accessible email experience developed by Soljan.AlSharq.

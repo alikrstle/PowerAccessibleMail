@@ -62,6 +62,8 @@ BULK_ACTION_UNSTAR = "unstar"
 BULK_ACTION_PIN = "pin"
 BULK_ACTION_UNPIN = "unpin"
 BULK_ACTION_DELETE = "delete"
+BULK_ACTION_ARCHIVE = "archive"
+BULK_ACTION_RESTORE_ARCHIVED = "restore_archived"
 
 LANGUAGE_CHOICES = {
     "العربية": LANGUAGE_ARABIC,

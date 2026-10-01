@@ -5,6 +5,7 @@ from .i18n import tr
 from .command_labels import COMMAND_LABELS, COMPOSE_COMMAND_INDEX
 from .search_filters import DATE_FILTER_LABELS
 from .learning_extended import EXTENDED_LESSONS, ExtendedPractice
+from .learning_organization import ORGANIZATION_LESSONS, OrganizationPractice
 
 EXERCISES = (
     ("إعادة توجيه رسالة", "قف على رسالة التدريب وافتح قائمة السياق، ثم اختر إعادة توجيه. تصفح المستلمين التجريبيين بالأسهم واختر أحدهم، ثم اضغط إعادة التوجيه. في النافذة التالية راجع حقل إلى والموضوع والمحتوى. يمكنك كتابة تعليق في حقل تعليق مع إعادة التوجيه، ثم اضغط تأكيد إعادة التوجيه التجريبي. لا يتم إرسال بريد حقيقي.", "forward", "تتعلم مشاركة الرسالة المختارة مع مستلم آخر وإضافة تعليق اختياري قبل محتواها."),
@@ -17,6 +18,7 @@ EXERCISES = (
     ("التعامل مع ثلاث رسائل", "تصفح رسائل التدريب بالأسهم. على رسالة إعلان قديم افتح قائمة السياق بزر Application أو Shift+F10 واختر حذف، ثم أكد الحذف. افتح رسالة موعد الاجتماع بزر Enter، ومن قائمة سياق المستعرض اختر ترجمة، ثم الإنجليزية. اضغط Escape للعودة للقائمة. افتح رسالة ملاحظة مهمة، ومن قائمة سياق المستعرض اختر نسخ لنسخ نصها. يمكنك تنفيذ الإجراءات بأي ترتيب. الترجمة هنا نموذج محلي للتدريب، ولا تغير لغة الترجمة في إعداداتك.", "message_actions", "تطبق الحذف والترجمة إلى الإنجليزية ونسخ النص في مهمة واحدة بثلاث رسائل، باستخدام قائمة الرسائل ومستعرضها."),
 )
 EXERCISES += EXTENDED_LESSONS
+EXERCISES += ORGANIZATION_LESSONS
 ITEMS = (("links", "رابط تجريبي"), ("attachments", "مرفق تجريبي"), ("images", "صورة تجريبية"))
 MAIL = ("اجتماع فريق العمل", "موعد الرحلة", "دعوة للقراءة")
 FORWARD_RECIPIENTS = (
@@ -57,6 +59,9 @@ class PracticeExercises(wx.Panel):
         if action.startswith("practice_"):
             self.extended = ExtendedPractice(self, action, self.finish)
             self.root.Add(self.extended, 1, wx.EXPAND)
+        elif action.startswith("organize_"):
+            self.organization = OrganizationPractice(self, action, self.finish)
+            self.root.Add(self.organization, 1, wx.EXPAND)
         elif action == "forward":
             self.forward_messages = wx.ListBox(self, choices=[tr("رسالة تدريب: موعد الاجتماع")])
             self.forward_messages.SetSelection(0)

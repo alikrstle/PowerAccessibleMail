@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 import functools
+import http.client
 import ipaddress
 import socket
 import ssl
 import sys
+import time
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -97,7 +99,7 @@ def validate_public_http_url(value: object) -> str:
         port = parsed.port
     except ValueError as exc:
         raise UnsafeRemoteUrl("العنوان الخارجي غير صالح.") from exc
-    if parsed.scheme.casefold() not in {"http", "https"}:
+    if port == 0 or parsed.scheme.casefold() not in {"http", "https"}:
         raise UnsafeRemoteUrl("يسمح بتنزيل الصور عبر HTTP أو HTTPS فقط.")
     if not parsed.hostname or not parsed.netloc:
         raise UnsafeRemoteUrl("عنوان خادم الصورة غير صالح.")
@@ -110,27 +112,96 @@ def validate_public_http_url(value: object) -> str:
     if "." not in hostname and not _is_ip_literal(hostname):
         raise UnsafeRemoteUrl("تم منع تنزيل صورة من اسم جهاز محلي.")
 
+    _public_addresses(hostname, port or (443 if parsed.scheme.casefold() == "https" else 80))
+    return url
+
+
+def _public_addresses(hostname: str, port: int) -> list[tuple]:
     try:
-        addresses = {
-            item[4][0].split("%", 1)[0]
-            for item in socket.getaddrinfo(
-                hostname,
-                port or (443 if parsed.scheme.casefold() == "https" else 80),
-                type=socket.SOCK_STREAM,
-            )
-        }
+        addresses = socket.getaddrinfo(hostname, port, type=socket.SOCK_STREAM)
     except OSError as exc:
         raise UnsafeRemoteUrl("تعذر التحقق من عنوان خادم الصورة.") from exc
     if not addresses:
         raise UnsafeRemoteUrl("تعذر التحقق من عنوان خادم الصورة.")
-    for address in addresses:
+    for _family, _type, _protocol, _name, address in addresses:
         try:
-            ip = ipaddress.ip_address(address)
+            ip = ipaddress.ip_address(address[0])
         except ValueError as exc:
             raise UnsafeRemoteUrl("أعاد خادم الأسماء عنوانا غير صالح.") from exc
-        if not ip.is_global:
+        if not ip.is_global or ip.is_multicast or "%" in address[0]:
             raise UnsafeRemoteUrl("تم منع تنزيل صورة من شبكة محلية أو خاصة.")
-    return url
+    return addresses
+
+
+def _public_connection(address: tuple[str, int], timeout: object, source_address=None) -> socket.socket:
+    """Resolve once, validate every answer, then connect to numeric addresses only."""
+    answers = _public_addresses(*address)
+    deadline = time.monotonic() + timeout if isinstance(timeout, (int, float)) else None
+    last_error: OSError | None = None
+    for family, socktype, protocol, _name, sockaddr in answers:
+        connection = socket.socket(family, socktype, protocol)
+        try:
+            if timeout is not socket._GLOBAL_DEFAULT_TIMEOUT:
+                remaining = deadline - time.monotonic() if deadline is not None else timeout
+                if remaining is not None and remaining <= 0:
+                    raise TimeoutError("Public image connection timed out")
+                connection.settimeout(remaining)
+            if source_address:
+                connection.bind(source_address)
+            connection.connect(sockaddr)
+            peer_address = connection.getpeername()
+            peer = ipaddress.ip_address(peer_address[0])
+            if (peer != ipaddress.ip_address(sockaddr[0]) or peer_address[1] != sockaddr[1]
+                    or not peer.is_global or peer.is_multicast):
+                raise UnsafeRemoteUrl("تم منع الاتصال بعنوان صورة غير آمن.")
+            return connection
+        except OSError as exc:
+            last_error = exc
+            connection.close()
+        except BaseException:
+            connection.close()
+            raise
+    raise last_error or OSError("No usable public address")
+
+
+class _PublicConnectionMixin:
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._create_connection = _public_connection
+
+    def connect(self):
+        if self._tunnel_host:
+            raise UnsafeRemoteUrl("لا يسمح بتنزيل الصور عبر نفق وكيل غير متحقق منه.")
+        # HTTPSConnection keeps the original host for SNI and certificate checks.
+        super().connect()
+
+
+class _PublicHTTPConnection(_PublicConnectionMixin, http.client.HTTPConnection):
+    pass
+
+
+class _PublicHTTPSConnection(_PublicConnectionMixin, http.client.HTTPSConnection):
+    pass
+
+
+def _validate_image_request(request: urllib.request.Request) -> None:
+    if request.has_proxy() or request._tunnel_host:
+        raise UnsafeRemoteUrl("لا يسمح بتنزيل الصور عبر نفق وكيل غير متحقق منه.")
+    validate_public_http_url(request.full_url)
+    # A caller-supplied Host must not select a different virtual host.
+    request.remove_header("Host")
+
+
+class _PublicHTTPHandler(urllib.request.HTTPHandler):
+    def http_open(self, request):
+        _validate_image_request(request)
+        return self.do_open(_PublicHTTPConnection, request)
+
+
+class _PublicHTTPSHandler(urllib.request.HTTPSHandler):
+    def https_open(self, request):
+        _validate_image_request(request)
+        return self.do_open(_PublicHTTPSConnection, request, context=self._context)
 
 
 class PublicHttpRedirectHandler(urllib.request.HTTPRedirectHandler):
@@ -158,7 +229,11 @@ class PublicHttpRedirectHandler(urllib.request.HTTPRedirectHandler):
 
 def public_http_opener() -> urllib.request.OpenerDirector:
     return urllib.request.build_opener(
-        urllib.request.HTTPSHandler(context=trusted_https_context()),
+        # System/environment proxies can resolve a different (private) address
+        # themselves; these untrusted image requests must use the pinned path.
+        urllib.request.ProxyHandler({}),
+        _PublicHTTPHandler(),
+        _PublicHTTPSHandler(context=trusted_https_context()),
         PublicHttpRedirectHandler(),
     )
 

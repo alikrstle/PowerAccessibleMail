@@ -7,15 +7,25 @@ import os
 import sqlite3
 import time
 from ctypes import wintypes
-from functools import lru_cache
+from functools import lru_cache, wraps
 from pathlib import Path
-from typing import Any
+from threading import RLock
+from typing import Any, Callable
 
 from .config import message_cache_path
 from .models import Account, LinkItem, MessageContent, MessageSummary
 
 
 CRYPTPROTECT_UI_FORBIDDEN = 0x01
+LOCKED_CACHE_PREFIX = b"PAM-LOCK-1\0"
+
+
+def synchronized_cache(method: Callable) -> Callable:
+    @wraps(method)
+    def wrapped(self: "MessageCache", *args: Any, **kwargs: Any) -> Any:
+        with self.lock_guard:
+            return method(self, *args, **kwargs)
+    return wrapped
 
 
 class DATA_BLOB(ctypes.Structure):
@@ -27,9 +37,10 @@ class DATA_BLOB(ctypes.Structure):
 
 class ClosingConnection(sqlite3.Connection):
     def __exit__(self, exc_type: object, exc_value: object, traceback: object) -> bool:
-        result = super().__exit__(exc_type, exc_value, traceback)
-        self.close()
-        return result
+        try:
+            return super().__exit__(exc_type, exc_value, traceback)
+        finally:
+            self.close()
 
 
 def _blob_from_bytes(data: bytes) -> tuple[DATA_BLOB, ctypes.Array[ctypes.c_char]]:
@@ -43,15 +54,16 @@ def _blob_to_bytes(blob: DATA_BLOB) -> bytes:
     return ctypes.string_at(blob.pbData, blob.cbData)
 
 
-def protect_bytes(data: bytes) -> bytes:
+def protect_bytes(data: bytes, entropy: bytes | None = None) -> bytes:
     if os.name != "nt":
         raise RuntimeError("Encrypted message cache requires Windows DPAPI.")
     in_blob, _buffer = _blob_from_bytes(data)
+    entropy_blob, _entropy_buffer = _blob_from_bytes(entropy) if entropy is not None else (None, None)
     out_blob = DATA_BLOB()
     ok = ctypes.windll.crypt32.CryptProtectData(
         ctypes.byref(in_blob),
         None,
-        None,
+        ctypes.byref(entropy_blob) if entropy_blob is not None else None,
         None,
         None,
         CRYPTPROTECT_UI_FORBIDDEN,
@@ -65,15 +77,16 @@ def protect_bytes(data: bytes) -> bytes:
         ctypes.windll.kernel32.LocalFree(out_blob.pbData)
 
 
-def unprotect_bytes(data: bytes) -> bytes:
+def unprotect_bytes(data: bytes, entropy: bytes | None = None) -> bytes:
     if os.name != "nt":
         raise RuntimeError("Encrypted message cache requires Windows DPAPI.")
     in_blob, _buffer = _blob_from_bytes(data)
+    entropy_blob, _entropy_buffer = _blob_from_bytes(entropy) if entropy is not None else (None, None)
     out_blob = DATA_BLOB()
     ok = ctypes.windll.crypt32.CryptUnprotectData(
         ctypes.byref(in_blob),
         None,
-        None,
+        ctypes.byref(entropy_blob) if entropy_blob is not None else None,
         None,
         None,
         CRYPTPROTECT_UI_FORBIDDEN,
@@ -114,6 +127,8 @@ def _decrypt_summary_json(blob: bytes) -> dict[str, Any]:
 class MessageCache:
     def __init__(self, path: Path | None = None) -> None:
         self.path = path or message_cache_path()
+        self.lock_guard = RLock()
+        self._lock_store: Any = None
         self.path.parent.mkdir(parents=True, exist_ok=True)
         try:
             self._init_db()
@@ -123,6 +138,193 @@ class MessageCache:
             self._move_corrupt_database()
             self._init_db()
 
+    def set_lock_store(self, store: Any) -> None:
+        """Attach locks without discarding offline content or loading all blobs."""
+        with self.lock_guard:
+            self._lock_store = store
+            store.set_message_cache(self)
+
+    def require_message_access(self, account: Account, summary: MessageSummary) -> None:
+        if self._lock_store is not None:
+            self._lock_store.configure_account(account)
+        locked, entropy = self._lock_context(account.id, summary.mailbox, summary.uid)
+        if locked and entropy is None:
+            raise ValueError("افتح القفل بكلمة المرور أولاً.")
+        if self._lock_store is not None and not self._lock_store.message_identity_matches(account.id, summary):
+            raise ValueError("افتح القفل بكلمة المرور أولاً.")
+
+    def prime_message_identities(self, account_id: str) -> None:
+        # Only summary headers, streamed in small batches; never bodies or links.
+        with self.lock_guard, self._connect() as conn:
+            cursor = conn.execute("SELECT summary_blob FROM messages WHERE account_id = ?", (account_id,))
+            while rows := cursor.fetchmany(100):
+                summaries = []
+                for row in rows:
+                    try:
+                        summaries.append(self._summary_from_blob(row[0]))
+                    except (OSError, ValueError):
+                        continue
+                self._lock_store.register_message_identities(account_id, summaries)
+
+    def relocate_row(self, conn, account_id, mailbox, uid, new_mailbox, new_uid, uid_validity="") -> None:
+        row = conn.execute("SELECT * FROM message_cache.messages WHERE account_id = ? AND mailbox = ? AND uid = ?",
+                           (account_id, mailbox, uid)).fetchone()
+        if row is None:
+            return
+        inner = self._open_cache_blob(account_id, mailbox, uid, row["summary_blob"])
+        summary = _decrypt_json(inner)
+        summary.update(mailbox=new_mailbox, uid=new_uid, uid_validity=uid_validity)
+        blob = _encrypt_json(summary)
+        locked, entropy = self._lock_context(account_id, mailbox, uid)
+        if locked:
+            if entropy is None:
+                raise ValueError("افتح القفل بكلمة المرور أولاً.")
+            blob = LOCKED_CACHE_PREFIX + protect_bytes(blob, entropy)
+        conn.execute("DELETE FROM message_cache.messages WHERE account_id = ? AND mailbox = ? AND uid = ?",
+                     (account_id, new_mailbox, new_uid))
+        conn.execute("UPDATE message_cache.messages SET mailbox = ?, uid = ?, summary_blob = ?, summary_hash = NULL "
+                     "WHERE account_id = ? AND mailbox = ? AND uid = ?",
+                     (new_mailbox, new_uid, blob, account_id, mailbox, uid))
+
+    def transform_locked_rows(
+        self, conn: sqlite3.Connection, account_id: str, item_keys: list[str],
+        entropy: bytes, *, seal: bool, table: str = "message_cache.messages",
+        exclude_keys: list[str] = (),
+    ) -> None:
+        """Transform selected rows inside the caller's atomic lock transaction."""
+        from .folder_store import parse_message_folder_key
+        # Conversation-folder keys are addresses, not cached-message identifiers.
+        pairs = {pair for key in item_keys if (pair := parse_message_folder_key(key)) is not None}
+        if self._lock_store is not None:
+            pairs = self._lock_store.message_alias_pairs(account_id, item_keys, conn)
+        excluded = self._lock_store.message_alias_pairs(account_id, exclude_keys, conn) if self._lock_store is not None else set()
+        global_uid = self._lock_store is not None and self._lock_store.uses_global_uid(account_id)
+        seen: set[tuple[str, str]] = set()
+        for mailbox, uid in pairs:
+            where = "account_id = ? AND uid = ?" if global_uid else "account_id = ? AND mailbox = ? AND uid = ?"
+            args = (account_id, uid) if global_uid else (account_id, mailbox, uid)
+            rows = conn.execute(
+                f"SELECT mailbox, uid, summary_blob, body_blob, links_blob FROM {table} WHERE {where}", args,
+            ).fetchall()
+            for row in rows:
+                identity = (str(row["mailbox"]), str(row["uid"]))
+                if identity in excluded or (global_uid and identity[1] in {uid for _mailbox, uid in excluded}):
+                    continue
+                if identity in seen:
+                    continue
+                seen.add(identity)
+                blobs = []
+                for field in ("summary_blob", "body_blob", "links_blob"):
+                    blob = bytes(row[field]) if row[field] is not None else None
+                    if blob is not None:
+                        wrapped = blob.startswith(LOCKED_CACHE_PREFIX)
+                        if seal and wrapped:
+                            # Verify ownership; idempotence must not accept another key.
+                            unprotect_bytes(blob[len(LOCKED_CACHE_PREFIX):], entropy)
+                        elif seal:
+                            blob = LOCKED_CACHE_PREFIX + protect_bytes(blob, entropy)
+                        elif wrapped:
+                            blob = unprotect_bytes(blob[len(LOCKED_CACHE_PREFIX):], entropy)
+                    blobs.append(blob)
+                conn.execute(
+                    f"UPDATE {table} SET summary_blob = ?, body_blob = ?, links_blob = ? "
+                    "WHERE account_id = ? AND mailbox = ? AND uid = ?",
+                    (*blobs, account_id, *identity),
+                )
+
+    def _lock_context(self, account_id: str, mailbox: str, uid: str) -> tuple[bool, bytes | None]:
+        if self._lock_store is None:
+            return False, None
+        return self._lock_store.lock_context_for_message(account_id, mailbox, uid)
+
+    def _open_cache_blob(self, account_id: str, mailbox: str, uid: str, blob: bytes) -> bytes:
+        locked, entropy = self._lock_context(account_id, mailbox, uid)
+        value = bytes(blob)
+        if locked:
+            if entropy is None or not value.startswith(LOCKED_CACHE_PREFIX):
+                raise ValueError("الرسالة مقفولة أو نسختها المخبأة غير محمية بكلمة المرور.")
+            return unprotect_bytes(value[len(LOCKED_CACHE_PREFIX):], entropy)
+        if value.startswith(LOCKED_CACHE_PREFIX):
+            raise ValueError("نسخة الرسالة المخبأة تتطلب قفلها السابق.")
+        return value
+
+    def _seal_cache_blob(self, account_id: str, mailbox: str, uid: str, blob: bytes) -> bytes:
+        locked, entropy = self._lock_context(account_id, mailbox, uid)
+        if not locked:
+            return blob
+        if entropy is None:
+            raise ValueError("لا يمكن تخزين رسالة مقفولة دون فتحها بكلمة المرور.")
+        return LOCKED_CACHE_PREFIX + protect_bytes(blob, entropy)
+
+    def seal_locked_rows(self, account_id: str, item_keys: list[str], entropy: bytes) -> None:
+        """Password-wrap all cached copies, including copies under another mailbox label."""
+        import json as _json
+        keys = [_json.loads(key) for key in item_keys]
+        pairs = {(mailbox, uid) for mailbox, uid in keys}
+        uids = {uid for _mailbox, uid in pairs} if self._lock_store is not None and getattr(self._lock_store, "uses_global_uid", lambda _id: False)(account_id) else set()
+        with self.lock_guard, self._connect() as conn:
+            rows = conn.execute(
+                "SELECT mailbox, uid, summary_blob, body_blob, links_blob FROM messages WHERE account_id = ?",
+                (account_id,),
+            ).fetchall()
+            for row in rows:
+                mailbox, uid = str(row["mailbox"]), str(row["uid"])
+                if (mailbox, uid) not in pairs and uid not in uids:
+                    continue
+                blobs = []
+                for field in ("summary_blob", "body_blob", "links_blob"):
+                    blob = row[field]
+                    if blob is None:
+                        blobs.append(None)
+                    elif bytes(blob).startswith(LOCKED_CACHE_PREFIX):
+                        unprotect_bytes(bytes(blob)[len(LOCKED_CACHE_PREFIX):], entropy)
+                        blobs.append(blob)
+                    else:
+                        blobs.append(LOCKED_CACHE_PREFIX + protect_bytes(bytes(blob), entropy))
+                conn.execute(
+                    "UPDATE messages SET summary_blob = ?, body_blob = ?, links_blob = ? "
+                    "WHERE account_id = ? AND mailbox = ? AND uid = ?",
+                    (*blobs, account_id, mailbox, uid),
+                )
+
+    def unseal_locked_rows(self, account_id: str, item_keys: list[str], entropy: bytes) -> None:
+        import json as _json
+        keys = [_json.loads(key) for key in item_keys]
+        pairs = {(mailbox, uid) for mailbox, uid in keys}
+        uids = {uid for _mailbox, uid in pairs} if self._lock_store is not None and getattr(self._lock_store, "uses_global_uid", lambda _id: False)(account_id) else set()
+        with self.lock_guard, self._connect() as conn:
+            rows = conn.execute(
+                "SELECT mailbox, uid, summary_blob, body_blob, links_blob FROM messages WHERE account_id = ?",
+                (account_id,),
+            ).fetchall()
+            for row in rows:
+                mailbox, uid = str(row["mailbox"]), str(row["uid"])
+                if (mailbox, uid) not in pairs and uid not in uids:
+                    continue
+                blobs = [
+                    unprotect_bytes(bytes(row[field])[len(LOCKED_CACHE_PREFIX):], entropy)
+                    if row[field] is not None and bytes(row[field]).startswith(LOCKED_CACHE_PREFIX)
+                    else row[field]
+                    for field in ("summary_blob", "body_blob", "links_blob")
+                ]
+                conn.execute(
+                    "UPDATE messages SET summary_blob = ?, body_blob = ?, links_blob = ? "
+                    "WHERE account_id = ? AND mailbox = ? AND uid = ?",
+                    (*blobs, account_id, mailbox, uid),
+                )
+
+    def purge_item_rows(self, account_id: str, item_keys: list[str]) -> None:
+        """Discard cache copies when membership changes; the provider remains authoritative."""
+        pairs = [json.loads(key) for key in item_keys]
+        uids = {uid for _mailbox, uid in pairs}
+        if not uids:
+            return
+        with self.lock_guard, self._connect() as conn:
+            for uid in uids:
+                conn.execute(
+                    "DELETE FROM messages WHERE account_id = ? AND uid = ?",
+                    (account_id, uid),
+                )
     @staticmethod
     def _is_corrupt_database_error(exc: sqlite3.DatabaseError) -> bool:
         corruption_codes = {
@@ -142,6 +344,7 @@ class MessageCache:
             )
         )
 
+    @synchronized_cache
     def list_summaries(
         self,
         account_id: str,
@@ -160,13 +363,16 @@ class MessageCache:
                 (account_id, mailbox, limit),
             ).fetchall()
         summaries: list[MessageSummary] = []
-        for _uid, blob in rows:
+        for uid, blob in rows:
             try:
-                summaries.append(self._summary_from_blob(blob))
+                summaries.append(self._summary_from_blob(
+                    self._open_cache_blob(account_id, mailbox, str(uid), blob)
+                ))
             except Exception:
                 continue
         return summaries
 
+    @synchronized_cache
     def summaries_by_uids(
         self,
         account_id: str,
@@ -196,7 +402,9 @@ class MessageCache:
             if blob is None:
                 continue
             try:
-                summaries[uid] = self._summary_from_blob(blob)
+                summaries[uid] = self._summary_from_blob(
+                    self._open_cache_blob(account_id, mailbox, uid, blob)
+                )
             except Exception:
                 continue
         return summaries
@@ -227,6 +435,7 @@ class MessageCache:
             ).fetchone()
         return str(row["uid"]) if row else ""
 
+    @synchronized_cache
     def get_content(
         self,
         account_id: str,
@@ -245,9 +454,9 @@ class MessageCache:
         if not row or row["body_blob"] is None:
             return None
         try:
-            summary = self._summary_from_blob(row["summary_blob"])
-            text = unprotect_bytes(row["body_blob"]).decode("utf-8")
-            link_payload = _decrypt_json(row["links_blob"]) if row["links_blob"] else []
+            summary = self._summary_from_blob(self._open_cache_blob(account_id, mailbox, uid, row["summary_blob"]))
+            text = unprotect_bytes(self._open_cache_blob(account_id, mailbox, uid, row["body_blob"])).decode("utf-8")
+            link_payload = _decrypt_json(self._open_cache_blob(account_id, mailbox, uid, row["links_blob"])) if row["links_blob"] else []
             links = [
                 LinkItem(
                     text=str(item.get("text", "")),
@@ -273,9 +482,13 @@ class MessageCache:
         except Exception:
             return None
 
+    @synchronized_cache
     def upsert_summaries(self, account: Account, summaries: list[MessageSummary]) -> None:
         if not summaries:
             return
+        if self._lock_store is not None and hasattr(self._lock_store, "register_message_identities"):
+            conflicts = self._lock_store.register_message_identities(account.id, summaries)
+            summaries = [summary for summary in summaries if (summary.mailbox, summary.uid) not in conflicts]
         now = time.time()
         with self._connect() as conn:
             existing_states = self._existing_summary_states(conn, account.id, summaries)
@@ -291,22 +504,20 @@ class MessageCache:
             serialized = _json_bytes(self._summary_payload(summary))
             prepared.append((summary, serialized, hashlib.sha256(serialized).hexdigest()))
 
-        rows = [
-            (
-                account.id,
-                summary.mailbox,
-                summary.uid,
-                protect_bytes(serialized),
-                summary_hash,
-                summary.sort_timestamp,
-                now,
-                int(summary.is_read),
-                int(summary.is_pinned),
-            )
-            for summary, serialized, summary_hash in prepared
-            if existing_states.get((summary.mailbox, summary.uid), ("", False))[0]
-            != summary_hash
-        ]
+        rows = []
+        for summary, serialized, summary_hash in prepared:
+            if existing_states.get((summary.mailbox, summary.uid), ("", False))[0] == summary_hash:
+                continue
+            locked, entropy = self._lock_context(account.id, summary.mailbox, summary.uid)
+            if locked and entropy is None:
+                continue
+            blob = protect_bytes(serialized)
+            rows.append((
+                account.id, summary.mailbox, summary.uid,
+                self._seal_cache_blob(account.id, summary.mailbox, summary.uid, blob),
+                summary_hash, summary.sort_timestamp, now,
+                int(summary.is_read), int(summary.is_pinned),
+            ))
         if not rows:
             return
         with self._connect() as conn:
@@ -329,12 +540,19 @@ class MessageCache:
                 rows,
             )
 
+    @synchronized_cache
     def upsert_content(
         self,
         account: Account,
         content: MessageContent,
     ) -> None:
+        if self._lock_store is not None and hasattr(self._lock_store, "register_message_identities"):
+            if self._lock_store.register_message_identities(account.id, [content.summary]):
+                return
         now = time.time()
+        locked, entropy = self._lock_context(account.id, content.summary.mailbox, content.summary.uid)
+        if locked and entropy is None:
+            return
         with self._connect() as conn:
             row = conn.execute(
                 """
@@ -348,7 +566,9 @@ class MessageCache:
             existing_pinned = bool(row["is_pinned"])
             if not existing_pinned:
                 try:
-                    existing_pinned = self._summary_from_blob(row["summary_blob"]).is_pinned
+                    existing_pinned = self._summary_from_blob(self._open_cache_blob(
+                        account.id, content.summary.mailbox, content.summary.uid, row["summary_blob"]
+                    )).is_pinned
                 except Exception:
                     pass
             if existing_pinned:
@@ -374,10 +594,13 @@ class MessageCache:
             }
             for link in content.links
         ]
-        summary_blob = self._summary_to_blob(content.summary)
+        summary_blob = self._seal_cache_blob(account.id, content.summary.mailbox, content.summary.uid,
+                                                 self._summary_to_blob(content.summary))
         summary_hash = self._summary_hash(content.summary)
-        body_blob = protect_bytes(content.text.encode("utf-8"))
-        links_blob = _encrypt_json(links)
+        body_blob = self._seal_cache_blob(account.id, content.summary.mailbox, content.summary.uid,
+                                          protect_bytes(content.text.encode("utf-8")))
+        links_blob = self._seal_cache_blob(account.id, content.summary.mailbox, content.summary.uid,
+                                           _encrypt_json(links))
         with self._connect() as conn:
             conn.execute(
                 """
@@ -415,6 +638,7 @@ class MessageCache:
                 ),
             )
 
+    @synchronized_cache
     def mark_read(
         self,
         account: Account,
@@ -433,7 +657,10 @@ class MessageCache:
             ).fetchone()
             if not row:
                 return
-            summary = self._summary_from_blob(row["summary_blob"])
+            locked, entropy = self._lock_context(account.id, mailbox, uid)
+            if locked and entropy is None:
+                return
+            summary = self._summary_from_blob(self._open_cache_blob(account.id, mailbox, uid, row["summary_blob"]))
             summary.is_read = is_read
             conn.execute(
                 """
@@ -442,7 +669,7 @@ class MessageCache:
                 WHERE account_id = ? AND mailbox = ? AND uid = ?
                 """,
                 (
-                    self._summary_to_blob(summary),
+                    self._seal_cache_blob(account.id, mailbox, uid, self._summary_to_blob(summary)),
                     self._summary_hash(summary),
                     summary.sort_timestamp,
                     int(is_read),
@@ -453,6 +680,7 @@ class MessageCache:
                 ),
             )
 
+    @synchronized_cache
     def update_summary_flags(
         self,
         account: Account,
@@ -474,7 +702,10 @@ class MessageCache:
             ).fetchone()
             if not row:
                 return
-            summary = self._summary_from_blob(row["summary_blob"])
+            locked, entropy = self._lock_context(account.id, mailbox, uid)
+            if locked and entropy is None:
+                return
+            summary = self._summary_from_blob(self._open_cache_blob(account.id, mailbox, uid, row["summary_blob"]))
             if is_read is not None:
                 summary.is_read = is_read
             if is_starred is not None:
@@ -488,7 +719,7 @@ class MessageCache:
                 WHERE account_id = ? AND mailbox = ? AND uid = ?
                 """,
                 (
-                    self._summary_to_blob(summary),
+                    self._seal_cache_blob(account.id, mailbox, uid, self._summary_to_blob(summary)),
                     self._summary_hash(summary),
                     summary.sort_timestamp,
                     int(summary.is_read),
@@ -499,6 +730,7 @@ class MessageCache:
                 ),
             )
 
+    @synchronized_cache
     def update_summary_flags_by_uid(
         self,
         account: Account,
@@ -519,8 +751,12 @@ class MessageCache:
             ).fetchall()
             updates: list[tuple[bytes, str, float, int, int, str, str, str]] = []
             for row in rows:
+                mailbox = str(row["mailbox"])
+                locked, entropy = self._lock_context(account.id, mailbox, uid)
+                if locked and entropy is None:
+                    continue
                 try:
-                    summary = self._summary_from_blob(row["summary_blob"])
+                    summary = self._summary_from_blob(self._open_cache_blob(account.id, mailbox, uid, row["summary_blob"]))
                 except Exception:
                     continue
                 if is_read is not None:
@@ -531,13 +767,13 @@ class MessageCache:
                     summary.is_pinned = is_pinned
                 updates.append(
                     (
-                        self._summary_to_blob(summary),
+                        self._seal_cache_blob(account.id, mailbox, uid, self._summary_to_blob(summary)),
                         self._summary_hash(summary),
                         summary.sort_timestamp,
                         int(summary.is_read),
                         int(summary.is_pinned),
                         account.id,
-                        str(row["mailbox"]),
+                        mailbox,
                         uid,
                     )
                 )
@@ -551,6 +787,7 @@ class MessageCache:
                     updates,
                 )
 
+    @synchronized_cache
     def delete_message(self, account: Account, mailbox: str, uid: str) -> None:
         with self._connect() as conn:
             conn.execute(
@@ -561,6 +798,7 @@ class MessageCache:
                 (account.id, mailbox, uid),
             )
 
+    @synchronized_cache
     def delete_message_by_uid(self, account: Account, uid: str) -> None:
         with self._connect() as conn:
             conn.execute(
@@ -571,6 +809,7 @@ class MessageCache:
                 (account.id, uid),
             )
 
+    @synchronized_cache
     def delete_account(self, account_id: str) -> None:
         with self._connect() as conn:
             conn.execute(
@@ -604,6 +843,8 @@ class MessageCache:
             "has_attachments": summary.has_attachments,
             "is_starred": summary.is_starred,
             "is_pinned": summary.is_pinned,
+            "is_promotional": summary.is_promotional,
+            "uid_validity": summary.uid_validity,
         }
 
     def _summary_from_blob(self, blob: bytes) -> MessageSummary:
@@ -628,6 +869,8 @@ class MessageCache:
             has_attachments=bool(payload.get("has_attachments", False)),
             is_starred=bool(payload.get("is_starred", False)),
             is_pinned=bool(payload.get("is_pinned", False)),
+            is_promotional=bool(payload.get("is_promotional", False)),
+            uid_validity=str(payload.get("uid_validity", "")),
         )
 
     def _existing_summary_states(
@@ -665,8 +908,14 @@ class MessageCache:
 
     def _connect(self) -> sqlite3.Connection:
         conn = sqlite3.connect(self.path, timeout=30, factory=ClosingConnection)
-        conn.row_factory = sqlite3.Row
-        conn.execute("PRAGMA busy_timeout = 30000")
+        try:
+            conn.row_factory = sqlite3.Row
+            conn.execute("PRAGMA busy_timeout = 30000")
+            conn.execute("PRAGMA secure_delete = ON")
+            conn.execute("PRAGMA synchronous = FULL")
+        except Exception:
+            conn.close()
+            raise
         return conn
 
     def _backfill_missing_sort_timestamps(self, conn: sqlite3.Connection) -> None:
@@ -699,8 +948,8 @@ class MessageCache:
 
     def _init_db(self) -> None:
         with self._connect() as conn:
-            conn.execute("PRAGMA journal_mode = WAL")
-            conn.execute("PRAGMA synchronous = NORMAL")
+            conn.execute("PRAGMA journal_mode = DELETE")
+            conn.execute("PRAGMA synchronous = FULL")
             integrity = conn.execute("PRAGMA quick_check(1)").fetchone()
             if integrity and str(integrity[0]).lower() != "ok":
                 raise sqlite3.DatabaseError(str(integrity[0]))

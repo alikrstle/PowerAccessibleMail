@@ -1,4 +1,4 @@
-const releaseTag = "v1.5.0";
+const releaseTag = "v1.6.0";
 const releaseApi =
   `https://api.github.com/repos/alikrstle/PowerAccessibleMail/releases/tags/${releaseTag}`;
 

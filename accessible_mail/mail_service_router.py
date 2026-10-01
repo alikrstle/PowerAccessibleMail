@@ -3,6 +3,7 @@ from __future__ import annotations
 from collections.abc import Callable, Sequence
 from pathlib import Path
 
+from .custom_categories import CustomCategory
 from .email_service import EmailService, MailSyncResult
 from .gmail_api_service import GmailApiService
 from .models import Account, LinkItem, MessageContent, MessageSummary
@@ -16,9 +17,23 @@ class MailServiceRouter:
         self.gmail_api_service = GmailApiService(on_account_updated, self.cache)
 
     def service_for(self, account: Account) -> EmailService | GmailApiService:
+        if isinstance(self.cache, MessageCache) and self.cache._lock_store is not None:
+            self.cache._lock_store.configure_account(account)
         if account.oauth_provider == "google_gmail_api":
             return self.gmail_api_service
         return self.imap_service
+
+    def list_custom_categories(self, account: Account) -> list[CustomCategory]:
+        return self.service_for(account).list_custom_categories(account)
+
+    def create_custom_category(self, account: Account, name: str) -> CustomCategory:
+        return self.service_for(account).create_custom_category(account, name)
+
+    def rename_custom_category(self, account: Account, category_id: str, name: str) -> None:
+        self.service_for(account).rename_custom_category(account, category_id, name)
+
+    def delete_custom_category(self, account: Account, category_id: str) -> None:
+        self.service_for(account).delete_custom_category(account, category_id)
 
     def list_messages(
         self,
@@ -29,12 +44,19 @@ class MailServiceRouter:
     ) -> list[MessageSummary]:
         return self.service_for(account).list_messages(account, mailbox, limit, batch_size)
 
+    def fetch_summary(self, account: Account, mailbox: str, uid: str) -> MessageSummary:
+        self.cache.require_message_access(account, MessageSummary(uid=uid, mailbox=mailbox))
+        summary = self.service_for(account).fetch_summary(account, mailbox, uid)
+        self.cache.require_message_access(account, summary)
+        return summary
+
     def fetch_message(
         self,
         account: Account,
         summary: MessageSummary,
         mark_read: bool = True,
     ) -> MessageContent:
+        self.cache.require_message_access(account, summary)
         return self.service_for(account).fetch_message(account, summary, mark_read)
 
     def download_attachment(
@@ -45,6 +67,7 @@ class MailServiceRouter:
         destination: Path,
         on_progress: Callable[[int, int], None] | None = None,
     ) -> Path:
+        self.cache.require_message_access(account, summary)
         return self.service_for(account).download_attachment(
             account,
             summary,
@@ -59,6 +82,7 @@ class MailServiceRouter:
         summary: MessageSummary,
         is_read: bool,
     ) -> None:
+        self.cache.require_message_access(account, summary)
         self.service_for(account).set_message_read(account, summary, is_read)
 
     def set_message_starred(
@@ -67,6 +91,7 @@ class MailServiceRouter:
         summary: MessageSummary,
         is_starred: bool,
     ) -> None:
+        self.cache.require_message_access(account, summary)
         self.service_for(account).set_message_starred(account, summary, is_starred)
 
     def set_message_pinned(
@@ -75,12 +100,15 @@ class MailServiceRouter:
         summary: MessageSummary,
         is_pinned: bool,
     ) -> None:
+        self.cache.require_message_access(account, summary)
         self.service_for(account).set_message_pinned(account, summary, is_pinned)
 
     def move_message_to_trash(self, account: Account, summary: MessageSummary) -> None:
+        self.cache.require_message_access(account, summary)
         self.service_for(account).move_message_to_trash(account, summary)
 
     def archive_message(self, account: Account, summary: MessageSummary) -> None:
+        self.cache.require_message_access(account, summary)
         self.service_for(account).archive_message(account, summary)
 
     def resolve_archive_mailbox(self, account: Account) -> str:
@@ -90,6 +118,7 @@ class MailServiceRouter:
         return self.service_for(account).list_archived_messages(account, mailbox, limit)
 
     def restore_archived_message(self, account: Account, summary: MessageSummary) -> None:
+        self.cache.require_message_access(account, summary)
         self.service_for(account).restore_archived_message(account, summary)
 
     def cached_messages(
@@ -105,7 +134,10 @@ class MailServiceRouter:
 
     def delete_cached_account(self, account: Account) -> None:
         cache = getattr(self, "cache", self.imap_service.cache)
-        cache.delete_account(account.id)
+        if getattr(cache, "_lock_store", None) is not None:
+            cache._lock_store.delete_account(account.id)
+        else:
+            cache.delete_account(account.id)
 
     def load_older_messages(
         self,

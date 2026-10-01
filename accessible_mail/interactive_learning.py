@@ -9,10 +9,12 @@ import os
 
 import wx
 
-from .accessibility import set_accessible
+from .accessibility import announce_to_screen_reader, set_accessible
 from .config import data_dir
 from .i18n import tr
 from .learning_exercises import EXERCISES, PracticeExercises
+from .program_sounds import SOUND_LEARNING_COMPLETE, SOUND_TASK_COMPLETE
+from .notification_preferences import EVENT_INTERACTIVE_GUIDE
 
 
 LESSONS = (
@@ -116,6 +118,7 @@ class InteractiveLearning(wx.Dialog):
                          style=wx.DEFAULT_DIALOG_STYLE | wx.RESIZE_BORDER)
         self.progress_path = data_dir() / "learning-progress.json"
         self.task_states = {}
+        self._guide_completion_sound_played = False
         self.step = self.load_progress()
         self.in_intro = True
         self.card_timer = None
@@ -253,6 +256,11 @@ class InteractiveLearning(wx.Dialog):
                 self.task_states = {key: state for key, state in states.items()
                                     if key in ids and state in ("completed", "skipped")} if isinstance(states, dict) else {}
                 current = value.get("current")
+                if current == "organize_folder_membership":
+                    current = "organize_folder_create"
+                if (value.get("organization_revision") != 2 and isinstance(states, dict)
+                        and "organize_folder_create" in states and "organize_folder_membership" not in states):
+                    self.task_states.pop("organize_folder_create", None)
                 if isinstance(states, dict) and states.get(
                     "practice_compose_address_book"
                 ) in {"completed", "skipped"}:
@@ -311,7 +319,7 @@ class InteractiveLearning(wx.Dialog):
         temporary = self.progress_path.with_suffix(".tmp")
         try:
             current = LESSONS[self.step][2] if self.step < len(LESSONS) else "end"
-            temporary.write_text(json.dumps({"version": 2, "current": current,
+            temporary.write_text(json.dumps({"version": 2, "organization_revision": 2, "current": current,
                 "states": getattr(self, "task_states", {})}), encoding="utf-8")
             os.replace(temporary, self.progress_path)
             return True
@@ -418,13 +426,29 @@ class InteractiveLearning(wx.Dialog):
         self.status.Hide()
         if self.card_timer:
             self.card_timer.Stop()
-        text = (completion_message(self.step) if all(self.task_states.get(lesson[2]) == "completed" for lesson in LESSONS)
-                else tr("أحسنت، نجحت بالمهمة!"))
+        guide_complete = self.step >= len(LESSONS)
+        text = (
+            completion_message(self.step)
+            if guide_complete
+            else tr("أحسنت، نجحت بالمهمة!")
+        )
+        play_sound = getattr(self.GetParent(), "play_program_sound", None)
+        if callable(play_sound):
+            if guide_complete and not self._guide_completion_sound_played:
+                self._guide_completion_sound_played = True
+                play_sound(SOUND_LEARNING_COMPLETE)
+            elif not guide_complete:
+                play_sound(SOUND_TASK_COMPLETE)
         self.completion_card.SetLabel(text)
         set_accessible(self.completion_card, text)
         self.completion_card.Show()
         self.Layout()
         self.completion_card.SetFocus()
+        announce_to_screen_reader(
+            self.completion_card,
+            text,
+            EVENT_INTERACTIVE_GUIDE,
+        )
         self.card_timer = wx.CallLater(4000, self.hide_completion)
 
     def hide_completion(self) -> None:
@@ -466,6 +490,7 @@ class InteractiveLearning(wx.Dialog):
 
     def restart(self, _event=None) -> None:
         self.task_states = {}
+        self._guide_completion_sound_played = False
         self.step = 0
         self.refresh()
         self.save_progress()
@@ -677,6 +702,10 @@ class InteractiveLearning(wx.Dialog):
             event.Skip()
             return
         action = LESSONS[self.step][2] if self.step < len(LESSONS) else ""
+        if action.startswith("organize_") and self.extra_practice.organization.handle_navigation(event, focus):
+            return
+        if action.startswith("organize_") and self.extra_practice.organization.handle_section_tab(event, focus, self.instructions):
+            return
         if action == "search_exit" and key == wx.WXK_ESCAPE:
             self.extra_practice.handle_search_escape(focus)
             return

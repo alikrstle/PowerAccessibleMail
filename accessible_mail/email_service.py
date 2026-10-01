@@ -2,8 +2,6 @@ from __future__ import annotations
 
 import base64
 import imaplib
-import os
-import quopri
 import re
 import smtplib
 import threading
@@ -15,10 +13,27 @@ from email.parser import BytesParser
 from email.utils import getaddresses, parseaddr, parsedate_to_datetime
 from pathlib import Path
 
+from .attachment_storage import attachment_temporary_path, commit_attachment_download
+from .attachment_stream import (
+    AttachmentDownloadError, AttachmentSink, MAX_RECEIVED_ATTACHMENT_BYTES,
+    TransferDecoder, check_attachment_size, write_embedded_attachment,
+)
+from .imap_parts import bounded_literal_reads, fetch_structure, iter_part_chunks, leaf_parts
+
+from .custom_categories import (
+    CustomCategory,
+    clean_category_name,
+    decode_imap_mailbox,
+    encode_imap_mailbox,
+)
 from .email_utils import (
     clean_message_text_for_display,
     extract_body,
+    attachment_from_part,
     header_to_text,
+    is_attachment_part,
+    is_inline_image_part,
+    organize_message_items,
     is_plain_text_placeholder,
     looks_like_wrapped_tracking_url_dump,
     looks_like_visual_markup_dump,
@@ -84,7 +99,8 @@ class MailError(RuntimeError):
 
 
 MAX_RAW_MESSAGE_BYTES = 512 * 1024 * 1024
-ATTACHMENT_DOWNLOAD_CHUNK_BYTES = 1024 * 1024
+SELECTIVE_MESSAGE_THRESHOLD = 8 * 1024 * 1024
+MAX_DISPLAY_PART_BYTES = 16 * 1024 * 1024
 IMAP_TRASH_CONFIRMATION_ERROR = (
     "تم نسخ الرسالة إلى سلة المهملات، لكن الخادم لم يؤكد إزالة الأصل. "
     "أعيدت الرسالة الأصلية إلى حالتها السابقة لتجنب فقدانها."
@@ -116,6 +132,73 @@ class EmailService:
         self.cache = cache or MessageCache()
         self._oauth_locks: dict[str, threading.Lock] = {}
         self._oauth_locks_guard = threading.Lock()
+
+    def list_custom_categories(self, account: Account) -> list[CustomCategory]:
+        with self._imap(account) as conn:
+            boxes = self.list_mailboxes(conn)
+        system_flags = {
+            "\\inbox", "\\sent", "\\trash", "\\junk", "\\all", "\\archive",
+            "\\drafts", "\\important", "\\flagged", "\\noselect",
+        }
+        reserved_names = {
+            candidate.casefold()
+            for candidate in (
+                *SPAM_CANDIDATES, *SENT_CANDIDATES, *ALL_MAIL_CANDIDATES,
+                *TRASH_CANDIDATES, "Archive", "Archives", "Drafts", "Important",
+            )
+        }
+        categories = [
+            CustomCategory(box.name, decode_imap_mailbox(box.name))
+            for box in boxes
+            if box.name.upper() != "INBOX"
+            and decode_imap_mailbox(box.name).casefold() not in reserved_names
+            and not ({attr.casefold() for attr in box.attributes} & system_flags)
+            and not box.name.casefold().startswith("[gmail]/")
+        ]
+        return sorted(categories, key=lambda category: category.name.casefold())
+
+    def create_custom_category(self, account: Account, name: str) -> CustomCategory:
+        clean_name = clean_category_name(name)
+        if "/" in clean_name or "\\" in clean_name:
+            raise ValueError("اسم التصنيف لا يمكن أن يحتوي على فاصل مجلدات.")
+        encoded_name = encode_imap_mailbox(clean_name)
+        with self._imap(account) as conn:
+            typ, detail = conn.create(self._quote_mailbox_name(encoded_name))
+        if typ != "OK":
+            raise MailError(f"تعذر إنشاء التصنيف: {detail}")
+        return CustomCategory(encoded_name, clean_name)
+
+    def rename_custom_category(self, account: Account, category_id: str, name: str) -> None:
+        self._require_custom_category(account, category_id)
+        clean_name = clean_category_name(name)
+        if "/" in clean_name or "\\" in clean_name:
+            raise ValueError("اسم التصنيف لا يمكن أن يحتوي على فاصل مجلدات.")
+        with self._imap(account) as conn:
+            typ, detail = conn.rename(
+                self._quote_mailbox_name(category_id),
+                self._quote_mailbox_name(encode_imap_mailbox(clean_name)),
+            )
+        if typ != "OK":
+            raise MailError(f"تعذر إعادة تسمية التصنيف: {detail}")
+
+    def delete_custom_category(self, account: Account, category_id: str) -> None:
+        self._require_custom_category(account, category_id)
+        with self._imap(account) as conn:
+            if self._select(conn, category_id, readonly=True):
+                raise MailError("التصنيف يحتوي رسائل. انقل الرسائل منه قبل حذفه.")
+            typ, detail = conn.delete(self._quote_mailbox_name(category_id))
+        if typ != "OK":
+            raise MailError(f"تعذر حذف التصنيف: {detail}")
+
+    def _require_custom_category(self, account: Account, category_id: str) -> None:
+        if not category_id or category_id not in {
+            category.id for category in self.list_custom_categories(account)
+        }:
+            raise MailError("لا يمكن تعديل تصنيف افتراضي أو تصنيف غير موجود.")
+
+    @staticmethod
+    def _quote_mailbox_name(name: str) -> str:
+        return '"' + name.replace("\\", "\\\\").replace('"', '\\"') + '"'
 
     def list_messages(
         self,
@@ -243,16 +326,23 @@ class EmailService:
 
         with self._imap(account) as conn:
             self._select(conn, summary.mailbox, readonly=not mark_read)
-            fetched = self._uid_fetch(conn, summary.uid.encode("ascii"), "(BODY.PEEK[])")
-            if not fetched:
-                raise MailError("تعذر تحميل الرسالة.")
-            _flags_blob, raw_message = fetched
-            if len(raw_message) > MAX_RAW_MESSAGE_BYTES:
-                raise MailError(
-                    "حجم الرسالة ومرفقاتها يتجاوز الحد المدعوم وهو 512 ميغابايت."
-                )
-            message = BytesParser(policy=policy.default).parsebytes(raw_message)
-            text, links = extract_body(message, lazy_attachments=True)
+            self._validate_uid_validity(conn, summary)
+            size = self._check_raw_message_size(conn, summary.uid.encode("ascii"))
+            try:
+                if size > SELECTIVE_MESSAGE_THRESHOLD:
+                    text, links = self._fetch_selective_content(conn, summary.uid.encode("ascii"))
+                else:
+                    with bounded_literal_reads(conn, min(MAX_RAW_MESSAGE_BYTES, SELECTIVE_MESSAGE_THRESHOLD)):
+                        fetched = self._uid_fetch(conn, summary.uid.encode("ascii"), "(BODY.PEEK[])")
+                    if not fetched:
+                        raise MailError("تعذر تحميل الرسالة.")
+                    _flags_blob, raw_message = fetched
+                    if len(raw_message) > min(MAX_RAW_MESSAGE_BYTES, SELECTIVE_MESSAGE_THRESHOLD):
+                        raise MailError("تعذر تحميل الرسالة.")
+                    message = BytesParser(policy=policy.default).parsebytes(raw_message)
+                    text, links = extract_body(message, lazy_attachments=True)
+            except AttachmentDownloadError as exc:
+                raise MailError(str(exc)) from exc
             if not text:
                 text = "لا يوجد نص قابل للعرض داخل هذه الرسالة."
             if mark_read and not summary.is_read:
@@ -261,6 +351,86 @@ class EmailService:
             content = MessageContent(summary=summary, text=text, links=links)
             self.cache.upsert_content(account, content)
             return content
+
+    @staticmethod
+    def _check_raw_message_size(conn: imaplib.IMAP4, uid: bytes) -> int:
+        # imaplib buffers an entire literal before _uid_fetch returns. Check
+        # the server's size metadata first, not only after allocating the body.
+        typ, data = conn.uid("fetch", uid, "(UID RFC822.SIZE)")
+        expected_uid = uid.lstrip(b"0") or b"0"
+        if typ == "OK" and data:
+            for part in data:
+                metadata = part[0] if isinstance(part, tuple) and part else part
+                if not isinstance(metadata, bytes):
+                    continue
+                actual_uid = re.search(rb"\bUID\s+(\d+)\b", metadata, re.IGNORECASE)
+                size = re.search(rb"\bRFC822\.SIZE\s+(\d+)\b", metadata, re.IGNORECASE)
+                if actual_uid is None or size is None:
+                    continue
+                if (actual_uid[1].lstrip(b"0") or b"0") != expected_uid:
+                    continue
+                digits = size[1].lstrip(b"0") or b"0"
+                if len(digits) > 19 or int(digits) > (2**63 - 1):
+                    raise MailError("تعذر تحميل الرسالة.")
+                return int(digits)
+        # A missing/deleted message or malformed size reply must not trigger
+        # an unbounded fallback fetch. A later refresh lets the user retry.
+        raise MailError("تعذر تحميل الرسالة.")
+
+    def _fetch_selective_content(self, conn: imaplib.IMAP4, uid: bytes) -> tuple[str, list[LinkItem]]:
+        from email.message import EmailMessage
+        from io import BytesIO
+
+        display = EmailMessage(policy=policy.default)
+        display.set_type("multipart/mixed")
+        display.set_payload([])
+        attachments: list[LinkItem] = []
+        display_bytes = 0
+        for part in leaf_parts(fetch_structure(conn, uid)):
+            message = part.message
+            inline = is_inline_image_part(message)
+            attachment = is_attachment_part(message) or inline or message.get_content_maintype() != "text"
+            if attachment:
+                item = attachment_from_part(message, remote_id=part.number, lazy=True)
+                item.size = part.encoded_size
+                # Small CID images remain available; large ones are downloadable
+                # files, not auto-decoded multi-GB images in the viewer.
+                if inline and display_bytes + part.encoded_size <= MAX_DISPLAY_PART_BYTES:
+                    output = BytesIO()
+                    decoder = TransferDecoder(AttachmentSink(output), part.encoding)
+                    for chunk in iter_part_chunks(conn, uid, part):
+                        decoder.feed(chunk)
+                    decoder.finish()
+                    data = output.getvalue()
+                    item.data = base64.b64encode(data).decode("ascii")
+                    item.size = len(data)
+                    display_bytes += part.encoded_size
+                elif inline:
+                    item.kind = "attachment"
+                attachments.append(item)
+                continue
+            if message.get_content_type() not in {"text/plain", "text/html"}:
+                continue
+            display_bytes += part.encoded_size
+            if display_bytes > MAX_DISPLAY_PART_BYTES:
+                raise MailError("نص الرسالة كبير جداً لعرضه بأمان؛ المرفقات لها حد تنزيل مستقل.")
+            message.set_payload(b"".join(iter_part_chunks(conn, uid, part)))
+            display.attach(message)
+        text, links = extract_body(display)
+        return text, organize_message_items(text, links + attachments)
+
+    def fetch_summary(self, account: Account, mailbox: str, uid: str) -> MessageSummary:
+        with self._imap(account) as conn:
+            self._select(conn, mailbox, readonly=True)
+            fetched = self._uid_fetch(conn, uid.encode("ascii"),
+                "(UID FLAGS INTERNALDATE BODYSTRUCTURE BODY.PEEK[HEADER.FIELDS (FROM TO SUBJECT DATE MESSAGE-ID REFERENCES IN-REPLY-TO LIST-UNSUBSCRIBE)])")
+            if not fetched:
+                raise MailError("تعذر تحميل الرسالة.")
+            flags, header = fetched
+            summary = self._summary_from_header(uid, mailbox, flags, header, self._fetch_meta_has_attachments(flags))
+            summary.uid_validity = getattr(conn, "_pam_uid_validity", "")
+        self.cache.upsert_summaries(account, [summary])
+        return summary
 
     def download_attachment(
         self,
@@ -272,27 +442,24 @@ class EmailService:
     ) -> Path:
         """Materialize one attachment without retaining it in the message cache."""
         destination.parent.mkdir(parents=True, exist_ok=True)
-        temporary = destination.with_name(f".{destination.name}.{os.getpid()}.part")
+        temporary = attachment_temporary_path(destination)
         try:
-            embedded = item.attachment_bytes()
-            if embedded:
-                total = len(embedded)
+            if item.data:
                 with temporary.open("wb") as output:
-                    for offset in range(0, total, ATTACHMENT_DOWNLOAD_CHUNK_BYTES):
-                        output.write(embedded[offset : offset + ATTACHMENT_DOWNLOAD_CHUNK_BYTES])
-                        if on_progress:
-                            on_progress(min(total, offset + ATTACHMENT_DOWNLOAD_CHUNK_BYTES), total)
+                    write_embedded_attachment(item.data, output, on_progress)
             elif item.remote_source == "imap" and item.remote_id:
                 self._download_imap_part(account, summary, item, temporary, on_progress)
             else:
                 raise MailError("لا تتوفر بيانات أو مرجع تنزيل صالح لهذا المرفق.")
-            os.replace(temporary, destination)
+            commit_attachment_download(temporary, destination)
             return destination
-        except Exception:
+        except Exception as exc:
             try:
                 temporary.unlink(missing_ok=True)
             except OSError:
                 pass
+            if isinstance(exc, AttachmentDownloadError):
+                raise MailError(str(exc)) from exc
             raise
 
     def _download_imap_part(
@@ -303,56 +470,25 @@ class EmailService:
         temporary: Path,
         on_progress: Callable[[int, int], None] | None,
     ) -> None:
-        encoding = item.transfer_encoding.casefold()
-        expected = max(0, int(item.size or 0))
-        downloaded = 0
-        carry = b""
         with self._imap(account) as conn:
             self._select(conn, summary.mailbox, readonly=True)
+            self._validate_uid_validity(conn, summary)
+            uid = summary.uid.encode("ascii")
+            parts = leaf_parts(fetch_structure(conn, uid))
+            part = next((part for part in parts if part.number == item.remote_id), None)
+            if part is None:
+                raise MailError("لا تتوفر بيانات أو مرجع تنزيل صالح لهذا المرفق.")
             with temporary.open("wb") as output:
-                offset = 0
-                while True:
-                    fetched = self._uid_fetch(
-                        conn,
-                        summary.uid.encode("ascii"),
-                        f"(BODY.PEEK[{item.remote_id}]<{offset}.{ATTACHMENT_DOWNLOAD_CHUNK_BYTES}>)",
-                    )
-                    if not fetched:
-                        break
-                    _meta, chunk = fetched
-                    if not chunk:
-                        break
-                    downloaded += len(chunk)
-                    offset += len(chunk)
-                    if encoding == "base64":
-                        compact = carry + re.sub(rb"\s+", b"", chunk)
-                        usable = len(compact) - (len(compact) % 4)
-                        if usable:
-                            output.write(base64.b64decode(compact[:usable], validate=False))
-                        carry = compact[usable:]
-                    elif encoding == "quoted-printable":
-                        combined = carry + chunk
-                        split_at = max(combined.rfind(b"\n"), combined.rfind(b"\r"))
-                        if split_at >= 0:
-                            output.write(quopri.decodestring(combined[: split_at + 1]))
-                            carry = combined[split_at + 1 :]
-                        else:
-                            carry = combined
-                    else:
-                        output.write(chunk)
-                    if on_progress:
-                        on_progress(downloaded, max(expected, downloaded))
-                    if len(chunk) < ATTACHMENT_DOWNLOAD_CHUNK_BYTES:
-                        break
-                if encoding == "base64" and carry:
-                    padding = b"=" * (-len(carry) % 4)
-                    output.write(base64.b64decode(carry + padding, validate=False))
-                elif encoding == "quoted-printable" and carry:
-                    output.write(quopri.decodestring(carry))
-        if downloaded <= 0:
-            raise MailError("لم يُرجع خادم البريد أي بيانات للمرفق.")
-        if on_progress:
-            on_progress(downloaded, max(expected, downloaded))
+                # BODYSTRUCTURE sizes are transfer-encoded, not decoded bytes.
+                if part.encoding in {"", "7bit", "8bit", "binary"}:
+                    check_attachment_size(part.encoded_size)
+                approximate_total = part.encoded_size * 3 // 4 if part.encoding == "base64" else part.encoded_size
+                sink = AttachmentSink(output, min(MAX_RECEIVED_ATTACHMENT_BYTES, approximate_total), on_progress)
+                decoder = TransferDecoder(sink, part.encoding)
+                for chunk in iter_part_chunks(conn, uid, part):
+                    decoder.feed(chunk)
+                decoder.finish()
+                sink.finish()
 
     def set_message_read(
         self,
@@ -362,6 +498,7 @@ class EmailService:
     ) -> None:
         with self._imap(account) as conn:
             self._select(conn, summary.mailbox, readonly=False)
+            self._validate_uid_validity(conn, summary)
             self._set_message_flag(conn, summary.uid, "\\Seen", is_read)
         summary.is_read = is_read
         try:
@@ -377,6 +514,7 @@ class EmailService:
     ) -> None:
         with self._imap(account) as conn:
             self._select(conn, summary.mailbox, readonly=False)
+            self._validate_uid_validity(conn, summary)
             self._set_message_flag(conn, summary.uid, "\\Flagged", is_starred)
         summary.is_starred = is_starred
         self.cache.update_summary_flags(account, summary.mailbox, summary.uid, is_starred=is_starred)
@@ -398,11 +536,14 @@ class EmailService:
                     "تعذر العثور على مجلد سلة المهملات. لم تُحذف الرسالة."
                 )
             self._select(conn, summary.mailbox, readonly=False)
+            self._validate_uid_validity(conn, summary)
+            self._check_local_move_support(conn, account, summary)
             typ, _data = conn.uid("copy", summary.uid, f'"{trash_mailbox}"')
             if typ != "OK":
                 typ, _data = conn.uid("copy", summary.uid, trash_mailbox)
             if typ != "OK":
                 raise MailError("تعذر نقل الرسالة إلى سلة المهملات.")
+            copied_uid = self._copyuid_destination(conn, _data, summary.uid)
             self._set_message_flag(conn, summary.uid, "\\Deleted", True)
             try:
                 expunge_type, expunge_data = conn.uid("expunge", summary.uid)
@@ -412,7 +553,7 @@ class EmailService:
             if expunge_type != "OK":
                 self._set_message_flag(conn, summary.uid, "\\Deleted", False)
                 raise MailError(IMAP_TRASH_CONFIRMATION_ERROR)
-        self.cache.delete_message(account, summary.mailbox, summary.uid)
+        self._finish_local_move(account, summary, trash_mailbox, copied_uid, getattr(conn, "_pam_destination_uidvalidity", ""))
 
     def resolve_archive_mailbox(self, account: Account) -> str:
         with self._imap(account) as conn:
@@ -427,10 +568,13 @@ class EmailService:
             if "MOVE" not in capabilities:
                 raise MailError("خادم البريد لا يدعم النقل الآمن إلى الوارد.")
             self._select(conn, summary.mailbox, readonly=False)
-            status, _ = conn.uid("MOVE", summary.uid, "INBOX")
+            self._validate_uid_validity(conn, summary)
+            self._check_local_move_support(conn, account, summary)
+            status, data = conn.uid("MOVE", summary.uid, "INBOX")
             if status != "OK":
                 raise MailError("تعذرت إعادة الرسالة إلى الوارد.")
-        self.cache.delete_message(account, summary.mailbox, summary.uid)
+            copied_uid = self._copyuid_destination(conn, data, summary.uid)
+        self._finish_local_move(account, summary, "INBOX", copied_uid, getattr(conn, "_pam_destination_uidvalidity", ""))
 
     def list_archived_messages(self, account: Account, mailbox: str, limit: int = 50) -> list[MessageSummary]:
         with self._imap(account) as conn:
@@ -470,11 +614,53 @@ class EmailService:
             if "MOVE" not in capabilities:
                 raise MailError("خادم البريد لا يدعم النقل الآمن للأرشيف. لم تُنقل الرسالة.")
             self._select(conn, summary.mailbox, readonly=False)
+            self._validate_uid_validity(conn, summary)
+            self._check_local_move_support(conn, account, summary)
             target = '"' + archive.replace('\\', '\\\\').replace('"', '\\"') + '"'
-            status, _ = conn.uid("MOVE", summary.uid, target)
+            status, data = conn.uid("MOVE", summary.uid, target)
             if status != "OK":
                 raise MailError("تعذرت أرشفة الرسالة.")
-        self.cache.delete_message(account, summary.mailbox, summary.uid)
+            copied_uid = self._copyuid_destination(conn, data, summary.uid)
+        self._finish_local_move(account, summary, archive, copied_uid, getattr(conn, "_pam_destination_uidvalidity", ""))
+
+    def _local_move_store(self):
+        return self.cache._lock_store if isinstance(self.cache, MessageCache) else None
+
+    def _check_local_move_support(self, conn, account, summary):
+        store = self._local_move_store()
+        if store is None or not store.has_message_reference(account.id, summary.mailbox, summary.uid):
+            return
+        self.cache.require_message_access(account, summary)
+        capabilities = {item.decode().upper() if isinstance(item, bytes) else str(item).upper() for item in conn.capabilities}
+        if not {"UIDPLUS", "IMAP4REV2"} & capabilities:
+            raise MailError("الخادم لا يوفر هوية الرسالة بعد النقل؛ لم تُنقل الرسالة حفاظاً على تنظيمها المحلي.")
+
+    @staticmethod
+    def _copyuid_destination(conn, data, source_uid):
+        chunks = list(data or [])
+        response = getattr(conn, "response", None)
+        if callable(response):
+            result = response("COPYUID")
+            values = result[1] if isinstance(result, tuple) and len(result) == 2 else None
+            if isinstance(values, (list, tuple)):
+                chunks.extend(b"COPYUID " + value for value in values if isinstance(value, bytes))
+        for chunk in chunks:
+            if not isinstance(chunk, bytes):
+                continue
+            match = re.search(rb"COPYUID\s+(\d+)\s+(\d+(?::\d+)?)\s+(\d+(?::\d+)?)(?:\]|\s|$)", chunk, re.I)
+            if match and all(part == str(source_uid) for part in match[2].decode().split(":")) and len(set(match[3].decode().split(":"))) == 1:
+                conn._pam_destination_uidvalidity = match[1].decode()
+                return match[3].decode().split(":")[0]
+        return ""
+
+    def _finish_local_move(self, account, summary, destination, uid, uid_validity=""):
+        store = self._local_move_store()
+        if store is not None and uid:
+            store.migrate_message_reference(account.id, summary.mailbox, summary.uid, destination, uid, uid_validity)
+        elif store is not None and store.has_message_reference(account.id, summary.mailbox, summary.uid):
+            raise MailError("تم النقل في الخادم لكن لم يُرجع هوية الرسالة الجديدة. احتُفظ بالنسخة المحلية؛ لا تكرر النقل.")
+        else:
+            self.cache.delete_message(account, summary.mailbox, summary.uid)
 
     def cached_messages(
         self,
@@ -903,6 +1089,15 @@ class EmailService:
                     last_detail = str(exc) or value
                     continue
                 if typ == "OK":
+                    conn._pam_uid_validity = ""
+                    response = getattr(conn, "response", None)
+                    if callable(response):
+                        result = response("UIDVALIDITY")
+                        if isinstance(result, tuple) and len(result) == 2 and isinstance(result[1], (list, tuple)):
+                            for raw in result[1]:
+                                if isinstance(raw, bytes) and raw.isdigit():
+                                    conn._pam_uid_validity = raw.decode("ascii")
+                                    break
                     if data and data[0]:
                         try:
                             return int(data[0])
@@ -918,6 +1113,12 @@ class EmailService:
 
         raise MailError(f"تعذر فتح مجلد البريد: {last_detail}")
 
+    @staticmethod
+    def _validate_uid_validity(conn, summary: MessageSummary) -> None:
+        current = getattr(conn, "_pam_uid_validity", "")
+        if summary.uid_validity and isinstance(current, str) and current and summary.uid_validity != current:
+            raise MailError("تغيّرت هوية صندوق البريد في الخادم. حدّث الرسائل قبل تنفيذ هذا الإجراء.")
+
     def _fetch_summary_batch(
         self,
         conn: imaplib.IMAP4,
@@ -926,7 +1127,7 @@ class EmailService:
     ) -> list[MessageSummary]:
         typ, data = conn.fetch(
             sequence_set,
-            "(UID FLAGS INTERNALDATE BODYSTRUCTURE BODY.PEEK[HEADER.FIELDS (FROM TO SUBJECT DATE MESSAGE-ID REFERENCES IN-REPLY-TO)])",
+            "(UID FLAGS INTERNALDATE BODYSTRUCTURE BODY.PEEK[HEADER.FIELDS (FROM TO SUBJECT DATE MESSAGE-ID REFERENCES IN-REPLY-TO LIST-UNSUBSCRIBE)])",
         )
         if typ != "OK" or not data:
             return []
@@ -952,6 +1153,8 @@ class EmailService:
                     has_attachments=self._fetch_meta_has_attachments(meta),
                 )
             )
+            validity = getattr(conn, "_pam_uid_validity", "")
+            summaries[-1].uid_validity = validity if isinstance(validity, str) else ""
         return list(reversed(summaries))
 
     def _summary_from_header(
@@ -989,6 +1192,7 @@ class EmailService:
             in_reply_to=header_to_text(message.get("In-Reply-To")),
             has_attachments=has_attachments,
             is_starred=b"\\Flagged" in flags_blob,
+            is_promotional=bool(message.get("List-Unsubscribe")),
         )
 
     def _cached_content_needs_attachment_refresh(

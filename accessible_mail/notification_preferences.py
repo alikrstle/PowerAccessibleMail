@@ -31,6 +31,7 @@ EVENT_MESSAGE_READ = "message_read"
 EVENT_MESSAGE_STAR = "message_star"
 EVENT_MESSAGE_PIN = "message_pin"
 EVENT_MESSAGE_DELETE = "message_delete"
+EVENT_MESSAGE_ARCHIVE = "message_archive"
 EVENT_MULTI_SELECTION = "multi_selection"
 EVENT_ADDRESS_BOOK = "address_book"
 EVENT_COMPOSE_ATTACHMENTS = "compose_attachments"
@@ -58,6 +59,9 @@ EVENT_ITEM_DETAILS = "item_details"
 EVENT_SEARCH_STARTED = "search_started"
 EVENT_SEARCH_RESULTS = "search_results"
 EVENT_SEARCH_NO_RESULTS = "search_no_results"
+EVENT_COMPOSE_OPEN = "compose_open"
+EVENT_SETTINGS = "settings"
+EVENT_INTERACTIVE_GUIDE = "interactive_guide"
 
 
 @dataclass(frozen=True, slots=True)
@@ -85,6 +89,7 @@ SPOKEN_NOTIFICATION_EVENTS: Final = (
     SpokenNotificationEvent(EVENT_MESSAGE_STAR, "تمييز الرسائل بنجمة وإزالة النجمة"),
     SpokenNotificationEvent(EVENT_MESSAGE_PIN, "تثبيت الرسائل وإلغاء تثبيتها"),
     SpokenNotificationEvent(EVENT_MESSAGE_DELETE, "حذف الرسائل ونقلها إلى سلة المحذوفات"),
+    SpokenNotificationEvent(EVENT_MESSAGE_ARCHIVE, "أرشفة الرسائل واستعادتها إلى الوارد"),
     SpokenNotificationEvent(EVENT_MULTI_SELECTION, "وضع التحديد المتعدد وعدد الرسائل وحدود القائمة"),
     SpokenNotificationEvent(EVENT_ADDRESS_BOOK, "إجراءات سجل العناوين"),
     SpokenNotificationEvent(EVENT_COMPOSE_ATTACHMENTS, "إضافة مرفقات الرسالة وإزالتها"),
@@ -111,9 +116,13 @@ SPOKEN_NOTIFICATION_EVENTS: Final = (
     SpokenNotificationEvent(EVENT_SEARCH_STARTED, "فتح نافذة البحث وبدء البحث"),
     SpokenNotificationEvent(EVENT_SEARCH_RESULTS, "عدد نتائج البحث"),
     SpokenNotificationEvent(EVENT_SEARCH_NO_RESULTS, "عدم العثور على نتائج للبحث"),
+    SpokenNotificationEvent(EVENT_COMPOSE_OPEN, "فتح نوافذ إنشاء الرسالة والرد وإعادة التوجيه"),
+    SpokenNotificationEvent(EVENT_SETTINGS, "حفظ الإعدادات وتخصيص أصوات البرنامج"),
+    SpokenNotificationEvent(EVENT_INTERACTIVE_GUIDE, "تقدم المرشد التفاعلي وإكماله"),
 )
 
 ALL_EVENT_IDS: Final = frozenset(event.event_id for event in SPOKEN_NOTIFICATION_EVENTS)
+SPOKEN_NOTIFICATION_EVENT_COUNT: Final = len(SPOKEN_NOTIFICATION_EVENTS)
 EVENTS_BY_ID: Final = {
     event.event_id: event for event in SPOKEN_NOTIFICATION_EVENTS
 }
@@ -146,6 +155,7 @@ SPOKEN_NOTIFICATION_GROUPS: Final = (
             EVENT_MESSAGE_STAR,
             EVENT_MESSAGE_PIN,
             EVENT_MESSAGE_DELETE,
+            EVENT_MESSAGE_ARCHIVE,
             EVENT_MULTI_SELECTION,
             EVENT_MESSAGE_LOADING,
             EVENT_READY,
@@ -159,6 +169,7 @@ SPOKEN_NOTIFICATION_GROUPS: Final = (
             EVENT_ADDRESS_BOOK,
             EVENT_COMPOSE_ATTACHMENTS,
             EVENT_SEND,
+            EVENT_COMPOSE_OPEN,
         ),
     ),
     SpokenNotificationGroup(
@@ -189,6 +200,13 @@ SPOKEN_NOTIFICATION_GROUPS: Final = (
             EVENT_SEARCH_STARTED,
             EVENT_SEARCH_RESULTS,
             EVENT_SEARCH_NO_RESULTS,
+        ),
+    ),
+    SpokenNotificationGroup(
+        "الإعدادات والتدريب",
+        (
+            EVENT_SETTINGS,
+            EVENT_INTERACTIVE_GUIDE,
         ),
     ),
 )
@@ -279,6 +297,12 @@ def notification_event_for_message(message: str) -> str:
     text = source_text(str(message or "")).strip()
     if not text:
         return EVENT_GENERAL
+    if "المرشد التفاعلي" in text or "التدريب" in text or "نجحت بالمهمة" in text:
+        return EVENT_INTERACTIVE_GUIDE
+    if "الإعدادات" in text or "أصوات البرنامج" in text or "استبدال صوت" in text:
+        return EVENT_SETTINGS
+    if "نافذة إنشاء" in text or "نافذة الرد" in text or "نافذة إعادة توجيه" in text:
+        return EVENT_COMPOSE_OPEN
     if "مرفق" in text and "الرسالة" in text and any(
         word in text for word in ("إضافة", "إزالة", "المضافة")
     ):
@@ -345,6 +369,15 @@ def notification_event_for_message(message: str) -> str:
         return EVENT_MULTI_SELECTION
     if "سلة المحذوفات" in text or "حذف" in text:
         return EVENT_MESSAGE_DELETE
+    if (
+        "أرشفة" in text
+        or "أرشفت" in text
+        or "المؤرشفة" in text
+        or "إعادتها إلى الوارد" in text
+        or "إعادة الرسالة إلى الوارد" in text
+        or "إعادة الرسائل إلى الوارد" in text
+    ):
+        return EVENT_MESSAGE_ARCHIVE
     if "تثبيت" in text:
         return EVENT_MESSAGE_PIN
     if "نجمة" in text:

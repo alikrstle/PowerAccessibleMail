@@ -42,12 +42,14 @@ from .email_utils import (
 )
 from .i18n import get_language, tr
 from .models import LinkItem, MessageContent, MessageSummary
+from .folder_store import Folder, FolderStore, message_folder_key
 from .network_security import UnsafeRemoteUrl, public_http_opener, validate_public_http_url
 from .notification_preferences import (
     EVENT_SEARCH_NO_RESULTS,
     EVENT_SEARCH_RESULTS,
 )
 from .ui_constants import (
+    BULK_ACTION_ARCHIVE,
     BULK_ACTION_DELETE,
     BULK_ACTION_MARK_READ,
     BULK_ACTION_MARK_UNREAD,
@@ -55,12 +57,13 @@ from .ui_constants import (
     BULK_ACTION_STAR,
     BULK_ACTION_UNPIN,
     BULK_ACTION_UNSTAR,
+    BULK_ACTION_RESTORE_ARCHIVED,
     FILTER_CHOICES,
     ITEM_FILTER_CHOICES,
     INLINE_GENERIC_LINK_TEXTS,
     MULTI_SELECTION_ANNOUNCEMENT_DELAY_MS,
 )
-from .ui_helpers import localize_window, set_localized_items
+from .ui_helpers import BackgroundPanel, locked_section_background_path, localize_window, set_localized_items
 
 
 DANGEROUS_ATTACHMENT_EXTENSIONS = frozenset(
@@ -111,7 +114,47 @@ WINDOWS_RESERVED_FILENAMES = frozenset(
 )
 
 
+class FolderRow(MessageSummary):
+    """A local folder displayed in the same native list as mail messages."""
+
+    __slots__ = ("folder_id", "archived", "item_count", "category_id", "locked")
+
+    def __init__(self, folder: Folder) -> None:
+        super().__init__(
+            uid=folder.id, mailbox="__local_folder__", sender="",
+            subject=folder.name, received_at=folder.created_at,
+            is_read=True, is_starred=folder.starred, is_pinned=folder.pinned,
+        )
+        self.folder_id = folder.id
+        self.archived = folder.archived
+        self.item_count = folder.item_count
+        self.category_id = folder.category_id
+        self.locked = getattr(folder, "locked", False)
+
+    @property
+    def status_label(self) -> str:
+        labels = [tr("مجلد"), self.subject]
+        if not self.locked:
+            labels.append(f"{tr('عدد الرسائل')}: {self.item_count}")
+        labels.append(self.display_date)
+        if self.is_pinned:
+            labels.append(tr("مثبتة"))
+        if self.is_starred:
+            labels.append(tr("مميزة بنجمة"))
+        if self.archived:
+            labels.append(tr("مؤرشف"))
+        if self.locked:
+            labels.append(tr("مقفول؛ اضغط Enter لكتابة رمز الدخول"))
+        return "، ".join(labels)
+
+
 class MailPage(wx.Panel):
+    def set_folder_collection_layout(self, collection: bool) -> None:
+        """Give folder rows one readable column; restore mail columns inside a folder."""
+        widths = (700, 0, 0, 0) if collection else (120, 220, 300, 220)
+        for index, width in enumerate(widths):
+            self.list.SetColumnWidth(index, width)
+
     def __init__(
         self,
         parent: wx.Window,
@@ -137,6 +180,7 @@ class MailPage(wx.Panel):
         on_toggle_expanded: Callable[["MailPage"], None] | None = None,
         on_html_focus_state: Callable[["MailPage", bool], None] | None = None,
         on_search_request: Callable[["MailPage"], None] | None = None,
+        on_item_viewer_opened: Callable[["MailPage"], None] | None = None,
     ) -> None:
         super().__init__(parent)
         self.title = title
@@ -152,6 +196,11 @@ class MailPage(wx.Panel):
         self.viewer_mode = VIEWER_HTML
         self.message_read_mode = MESSAGE_READ_MANUAL
         self.theme = THEME_DARK
+        self.low_vision_font_scale = 100
+        self.low_vision_high_contrast = False
+        self.low_vision_custom_colours = False
+        self.low_vision_text_colour = "#FFFFFF"
+        self.low_vision_background_colour = "#000000"
         self.link_panel_visible_in_html = False
         self.viewer_action_ranges: list[tuple[int, int, LinkItem]] = []
         self.current_viewer_action_range: tuple[int, int, LinkItem] | None = None
@@ -177,6 +226,8 @@ class MailPage(wx.Panel):
         self._translation_generation = 0
         self._expanded_viewer = False
         self.multi_select_mode = False
+        self.folder_creation_mode = False
+        self.filter_choices = FILTER_CHOICES
         self._multi_selected_keys: set[tuple[str, str]] = set()
         self._control_pressed_alone = False
         self._selection_count_announce_call: wx.CallLater | None = None
@@ -202,13 +253,14 @@ class MailPage(wx.Panel):
         self.on_toggle_expanded = on_toggle_expanded
         self.on_html_focus_state = on_html_focus_state
         self.on_search_request = on_search_request
+        self.on_item_viewer_opened = on_item_viewer_opened
         self._build()
 
     def _build(self) -> None:
         root = wx.BoxSizer(wx.VERTICAL)
         filter_row = wx.BoxSizer(wx.HORIZONTAL)
         filter_row.Add(wx.StaticText(self, label="التصنيف:"), 0, wx.ALIGN_CENTER_VERTICAL | wx.ALL, 6)
-        self.filter_choice = wx.Choice(self, choices=[tr(label) for label in FILTER_CHOICES])
+        self.filter_choice = wx.Choice(self, choices=[tr(label) for label in self.filter_choices])
         self.filter_choice.SetSelection(0)
         set_accessible(self.filter_choice, f"تصنيف {self.title}")
         self.filter_choice.Bind(wx.EVT_CHOICE, self.on_filter)
@@ -278,6 +330,7 @@ class MailPage(wx.Panel):
             "استخدم الأسهم لاختيار رسالة. اضغط Control وShift وSpace لإظهار مربعات الاختيار وتفعيل التحديد المتعدد.",
         )
         self.list.Bind(wx.EVT_LIST_ITEM_SELECTED, self.on_item_selected)
+        self.list.Bind(wx.EVT_LIST_ITEM_ACTIVATED, self.on_item_activated)
         self.list.Bind(wx.EVT_LIST_ITEM_DESELECTED, self.on_item_deselected)
         self.list.Bind(wx.EVT_LIST_ITEM_CHECKED, self.on_item_checked)
         self.list.Bind(wx.EVT_LIST_ITEM_UNCHECKED, self.on_item_unchecked)
@@ -296,6 +349,20 @@ class MailPage(wx.Panel):
         set_accessible(self.selection_status, "حالة التحديد المتعدد")
         self.selection_status.Hide()
         root.Add(self.selection_status, 0, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM, 8)
+
+        self.folder_creation_row = wx.BoxSizer(wx.HORIZONTAL)
+        self.create_folder_button = wx.Button(self, label=tr("إنشاء المجلد"))
+        set_accessible(self.create_folder_button, "إنشاء المجلد من الرسائل المحددة")
+        self.create_folder_button.Bind(wx.EVT_BUTTON, self.on_create_folder_button)
+        self.folder_creation_row.Add(self.create_folder_button, 0, wx.ALL, 4)
+        self.cancel_folder_button = wx.Button(self, label=tr("إلغاء"))
+        set_accessible(self.cancel_folder_button, "إلغاء إنشاء المجلد")
+        self.cancel_folder_button.Bind(wx.EVT_BUTTON, self.on_cancel_folder_button)
+        self.folder_creation_row.Add(self.cancel_folder_button, 0, wx.ALL, 4)
+        self.folder_creation_sizer_item = root.Add(
+            self.folder_creation_row, 0, wx.LEFT | wx.RIGHT | wx.BOTTOM, 8
+        )
+        self.folder_creation_sizer_item.Show(False)
 
         self.viewer_label = wx.StaticText(self, label="نص الرسالة:")
         self.viewer_label_sizer_item = root.Add(
@@ -429,13 +496,47 @@ class MailPage(wx.Panel):
         self.link_panel.SetSizer(link_row)
         self.link_panel_sizer_item = root.Add(self.link_panel, 1, wx.EXPAND)
 
+        self._section_locked = False
+        self._unlocked_layout = []
+        self.locked_section_panel = BackgroundPanel(self, locked_section_background_path())
+        lock_layout = wx.BoxSizer(wx.VERTICAL)
+        lock_label = wx.StaticText(self.locked_section_panel, label=tr("مقفول؛ اضغط Enter لكتابة رمز الدخول"))
+        lock_label.SetBackgroundColour(wx.Colour(20, 25, 35))
+        lock_label.SetForegroundColour(wx.WHITE)
+        set_accessible(self.locked_section_panel, "مقفول؛ اضغط Enter لكتابة رمز الدخول")
+        lock_layout.Add(lock_label, 0, wx.ALL | wx.ALIGN_CENTER_HORIZONTAL, 16)
+        self.locked_section_panel.SetSizer(lock_layout)
+        self.locked_section_sizer_item = root.Add(self.locked_section_panel, 5, wx.EXPAND)
+        self.locked_section_sizer_item.Show(False)
         self.SetSizer(root)
         self.localize_ui()
+
+    def set_section_locked(self, locked: bool) -> None:
+        """Replace the entire content area without disabling notebook navigation."""
+        if locked and not self._section_locked:
+            self._unlocked_layout = [(item, item.IsShown()) for item in self.GetSizer().GetChildren()
+                                     if item.GetWindow() != self.locked_section_panel]
+        self._section_locked = locked
+        if locked:
+            for item, _shown in self._unlocked_layout:
+                item.Show(False)
+        else:
+            for item, shown in self._unlocked_layout:
+                item.Show(shown)
+            self._unlocked_layout = []
+        self.locked_section_sizer_item.Show(locked)
+        self.Layout()
 
     def localize_ui(self) -> None:
         self.title = tr(self.title)
         localize_window(self)
-        set_localized_items(self.filter_choice, FILTER_CHOICES)
+        selection = self.filter_choice.GetSelection()
+        self.filter_choice.Set(
+            [tr(label) for label in self.filter_choices]
+            + list(getattr(self, "local_category_names", []))
+        )
+        if 0 <= selection < self.filter_choice.GetCount():
+            self.filter_choice.SetSelection(selection)
         set_localized_items(self.item_filter_choice, ITEM_FILTER_CHOICES)
         for index, label in enumerate(("الحالة", "المرسل", "الموضوع", "التاريخ")):
             column = self.list.GetColumn(index)
@@ -446,9 +547,69 @@ class MailPage(wx.Panel):
     def selected_filter_key(self) -> str:
         keys = ("all", "starred", "unread", "read", "trash", "archive")
         selection = self.filter_choice.GetSelection()
-        return keys[selection] if 0 <= selection < len(keys) else "all"
+        base_count = getattr(self, "base_filter_count", len(self.filter_choices))
+        if 0 <= selection < base_count:
+            return keys[selection]
+        categories = getattr(self, "local_category_ids", [])
+        index = selection - base_count
+        return f"custom:{categories[index]}" if 0 <= index < len(categories) else "all"
+
+    @staticmethod
+    def matches_custom_category(
+        message: MessageSummary, rules: tuple[str, ...], *,
+        email_addresses: tuple[str, ...] = (),
+        recent_read_keys: frozenset[tuple[str, str]] = frozenset(),
+        recent_read_uids: frozenset[str] = frozenset(),
+        sender_frequency: dict[str, int] | None = None,
+        locked_message_hashes: frozenset[str] = frozenset(),
+        locked_account_id: str = "",
+    ) -> bool:
+        if isinstance(message, FolderRow):
+            return all(
+                rule == "message_folders" or (rule == "locked_messages" and message.locked)
+                for rule in rules
+            )
+        if "message_folders" in rules:
+            return False
+        is_locked_message = bool(
+            locked_account_id and FolderStore.locked_key_hash(
+                locked_account_id, message_folder_key(message),
+            ) in locked_message_hashes
+        )
+        sender = message.sender_email.strip().casefold()
+        sender_domain = sender.rpartition("@")[2]
+        personal_domains = {
+            "gmail.com", "googlemail.com", "outlook.com", "hotmail.com", "live.com",
+            "msn.com", "yahoo.com", "ymail.com", "icloud.com", "me.com",
+            "aol.com", "proton.me", "protonmail.com", "gmx.com", "mail.com",
+            "qq.com", "163.com",
+        }
+        subject = message.subject.casefold()
+        promotional_terms = ("sale", "discount", "promo", "coupon", "deal", "خصم", "تخفيض", "ترويج", "عرض خاص")
+        addresses = set(email_addresses)
+        return all(
+            (message.is_read and (
+                (message.mailbox, message.uid) in recent_read_keys or message.uid in recent_read_uids
+            ) if rule == "recent_read" else
+             not message.is_read if rule == "unread" else
+             message.is_read if rule == "read" else
+             message.is_starred if rule == "starred" else
+             message.is_pinned if rule == "pinned" else
+             is_locked_message if rule == "locked_messages" else
+             message.has_attachments if rule == "attachments" else
+             not message.has_attachments if rule == "no_attachments" else
+             (message.is_promotional or any(term in subject for term in promotional_terms)) if rule == "promotional" else
+             (bool(sender_domain and "." in sender_domain) and sender_domain not in personal_domains) if rule == "organization" else
+             (bool(addresses) and (sender in addresses or bool(addresses.intersection(
+                 address.casefold() for address in message.recipient_emails
+             )))) if rule == "specific_email" else
+             (sender_frequency or {}).get(sender, 0) >= 5 if rule == "frequent_sender" else False)
+            for rule in rules
+        )
 
     def set_messages(self, messages: list[MessageSummary]) -> None:
+        if self.folder_creation_mode:
+            self.exit_multi_selection_mode(restore_single_selection=False)
         self.messages = self.sort_newest_first(messages)
         self.apply_filter()
         self.set_viewer_text("")
@@ -491,6 +652,10 @@ class MailPage(wx.Panel):
 
     def on_search_escape_key(self, event: wx.KeyEvent) -> None:
         if event.GetKeyCode() == wx.WXK_ESCAPE and not (event.ControlDown() or event.AltDown() or event.ShiftDown()) and self.exit_search():
+            owner = self.GetTopLevelParent()
+            go_home = getattr(owner, "on_focus_command_list_shortcut", None)
+            if callable(go_home):
+                wx.CallAfter(go_home)
             return
         event.Skip()
 
@@ -637,8 +802,29 @@ class MailPage(wx.Panel):
             else set()
         )
         selected = self.selected_filter_key()
-        if selected == "archive":
+        if selected.startswith("custom:"):
+            category_id = selected.removeprefix("custom:")
+            rules = getattr(self, "local_category_rules", {}).get(category_id, ())
+            context = dict(
+                email_addresses=getattr(self, "local_category_emails", {}).get(category_id, ()),
+                recent_read_keys=getattr(self, "recent_read_keys", frozenset()),
+                recent_read_uids=getattr(self, "recent_read_uids", frozenset()),
+                sender_frequency=getattr(self, "sender_frequency", {}),
+                locked_message_hashes=frozenset(getattr(self, "locked_message_hashes", set())),
+                locked_account_id=getattr(self, "locked_account_id", ""),
+            )
+            candidates = list(self.messages)
+            if not getattr(self, "is_message_folder_page", False):
+                candidates.extend(getattr(self, "folder_rows", []))
+            self.visible_messages = [
+                message for message in candidates
+                if self.matches_custom_category(message, rules, **context)
+            ]
+        elif selected == "archive":
             self.visible_messages = list(self.archive_messages)
+            if not getattr(self, "is_message_folder_page", False):
+                present = {row.folder_id for row in self.visible_messages if isinstance(row, FolderRow)}
+                self.visible_messages.extend(row for row in getattr(self, "folder_rows", []) if row.archived and row.folder_id not in present)
         elif selected == "trash":
             self.visible_messages = list(self.trash_messages)
         elif selected == "starred":
@@ -649,6 +835,47 @@ class MailPage(wx.Panel):
             self.visible_messages = [message for message in self.messages if message.is_read]
         else:
             self.visible_messages = list(self.messages)
+        if selected in {"all", "starred"} and not getattr(self, "is_message_folder_page", False):
+            folder_rows = getattr(self, "folder_rows", [])
+            self.visible_messages.extend(
+                row for row in folder_rows if not row.archived and (selected == "all" or row.is_starred)
+            )
+        excluded = getattr(self, "excluded_message_keys", set())
+        excluded_uids = getattr(self, "excluded_message_uids", set())
+        excluded_message_ids = getattr(self, "excluded_message_ids", set())
+        locked_hashes = getattr(self, "locked_message_hashes", set())
+        locked_uid_hashes = getattr(self, "locked_message_uid_hashes", set())
+        allowed_hashes = getattr(self, "allowed_locked_hashes", set())
+        locked_account_id = getattr(self, "locked_account_id", "")
+        if excluded or excluded_uids or excluded_message_ids or locked_hashes or locked_uid_hashes:
+            self.visible_messages = [
+                message for message in self.visible_messages
+                if (
+                    not locked_account_id
+                    or not locked_hashes
+                    or (lock_hash := FolderStore.locked_key_hash(
+                        locked_account_id,
+                        message_folder_key(message),
+                    )) not in locked_hashes
+                    or lock_hash in allowed_hashes
+                    or isinstance(message, FolderRow)
+                )
+                and (
+                    not message.message_id
+                    or "mid:" + FolderStore.locked_key_hash(locked_account_id, message.message_id) not in locked_hashes
+                    or "mid:" + FolderStore.locked_key_hash(locked_account_id, message.message_id) in allowed_hashes
+                    or isinstance(message, FolderRow)
+                )
+                and (
+                    not locked_uid_hashes
+                    or FolderStore.locked_key_hash(locked_account_id, message.uid) not in locked_uid_hashes
+                    or "uid:" + FolderStore.locked_key_hash(locked_account_id, message.uid) in allowed_hashes
+                    or isinstance(message, FolderRow)
+                )
+                and self.message_key(message) not in excluded
+                and message.uid not in excluded_uids
+                and (not message.message_id or message.message_id not in excluded_message_ids)
+            ]
         if self.search_query:
             self.visible_messages = [
                 message
@@ -672,9 +899,10 @@ class MailPage(wx.Panel):
             restore_index = -1
             for index, message in enumerate(self.visible_messages):
                 row = self.list.InsertItem(index, message.status_label)
-                self.list.SetItem(row, 1, message.sender)
-                self.list.SetItem(row, 2, message.display_subject)
-                self.list.SetItem(row, 3, message.display_date)
+                if not isinstance(message, FolderRow):
+                    self.list.SetItem(row, 1, message.sender)
+                    self.list.SetItem(row, 2, message.display_subject)
+                    self.list.SetItem(row, 3, message.display_date)
                 key = self.message_key(message)
                 if self.multi_select_mode and key in self._multi_selected_keys:
                     self.list.CheckItem(row, True)
@@ -709,6 +937,29 @@ class MailPage(wx.Panel):
 
     def on_list_key(self, event: wx.KeyEvent) -> None:
         key_code = event.GetKeyCode()
+        if (
+            event.ControlDown() and not (event.AltDown() or event.ShiftDown())
+            and key_code in {1, ord("A"), ord("a"), ord("ش")}
+        ):
+            self.select_all_visible_messages()
+            return
+        focused = getattr(self, "focused_summary", lambda: None)()
+        if isinstance(focused, FolderRow) and not self.multi_select_mode:
+            if key_code in {wx.WXK_RETURN, wx.WXK_NUMPAD_ENTER}:
+                callback = getattr(self, "on_folder_open", None)
+                if callback:
+                    callback(focused.folder_id)
+                return
+        if (
+            getattr(self, "is_message_folder_page", False)
+            and not self.multi_select_mode
+            and key_code == wx.WXK_BACK
+            and not (event.ControlDown() or event.AltDown() or event.ShiftDown())
+        ):
+            callback = getattr(self, "on_folder_back", None)
+            if callback:
+                callback()
+                return
         if MailPage.is_context_menu_key(event):
             self.show_message_context_menu(self.list, translation_enabled=False)
             return
@@ -736,6 +987,10 @@ class MailPage(wx.Panel):
         if getattr(self, "multi_select_mode", False):
             if key_code == wx.WXK_ESCAPE:
                 self.exit_multi_selection_mode()
+                owner = self.GetTopLevelParent()
+                go_home = getattr(owner, "on_focus_command_list_shortcut", None)
+                if callable(go_home):
+                    wx.CallAfter(go_home)
                 return
             if key_code in {
                 wx.WXK_UP,
@@ -777,6 +1032,9 @@ class MailPage(wx.Panel):
                 self.on_delete(self)
                 return
         if key_code == wx.WXK_TAB:
+            if getattr(self, "folder_creation_mode", False) and not event.ShiftDown() and not event.ControlDown() and not event.AltDown():
+                self.create_folder_button.SetFocus()
+                return
             if self.viewer_mode == VIEWER_HTML and not event.ShiftDown():
                 self.focus_message_viewer()
                 return
@@ -843,30 +1101,41 @@ class MailPage(wx.Panel):
             multi_select_mode = getattr(self, "multi_select_mode", False)
             if selected_count > 1 and not multi_select_mode:
                 self.multi_select_mode = True
+                self.set_multi_selection_layout(True)
                 self.set_multi_selection_checkboxes(True)
                 self._suppress_selection_event = True
                 try:
                     for row_index in row_indices:
-                        self.list.CheckItem(row_index, True)
+                        if not isinstance(self.visible_messages[row_index], FolderRow):
+                            self.list.CheckItem(row_index, True)
                 finally:
                     self._suppress_selection_event = False
                 self._multi_selected_keys = {
                     self.message_key(self.visible_messages[row_index])
                     for row_index in row_indices
                     if 0 <= row_index < len(self.visible_messages)
+                    and not isinstance(self.visible_messages[row_index], FolderRow)
                 }
                 self.update_multi_selection_status()
                 self.schedule_multi_selection_mode_notification(
                     f"تم تفعيل وضع التحديد المتعدد. عدد الرسائل المحددة: {selected_count}."
                 )
-            if (
-                not getattr(self, "multi_select_mode", False)
-                or not hasattr(self, "focused_index")
-                or index == self.focused_index()
-            ):
+            if not getattr(self, "multi_select_mode", False):
                 self.on_selected(self, self.visible_messages[index])
                 if index == len(self.visible_messages) - 1:
                     MailPage.notify_end_reached(self)
+
+    def on_item_activated(self, event: wx.ListEvent) -> None:
+        index = event.GetIndex()
+        if not 0 <= index < len(self.visible_messages):
+            return
+        item = self.visible_messages[index]
+        if isinstance(item, FolderRow):
+            callback = getattr(self, "on_folder_open", None)
+            if callback:
+                callback(item.folder_id)
+        else:
+            self.focus_message_viewer_start()
 
     def notify_end_reached(self) -> None:
         if getattr(self, "search_query", ""):
@@ -890,8 +1159,16 @@ class MailPage(wx.Panel):
             return
         if not 0 <= index < len(self.visible_messages):
             return
+        if isinstance(self.visible_messages[index], FolderRow):
+            self._suppress_selection_event = True
+            try:
+                self.list.CheckItem(index, False)
+            finally:
+                self._suppress_selection_event = False
+            return
         if not self.multi_select_mode:
             self.multi_select_mode = True
+            self.set_multi_selection_layout(True)
             self._multi_selected_keys.clear()
             self.set_multi_selection_checkboxes(True)
         key = self.message_key(self.visible_messages[index])
@@ -931,7 +1208,35 @@ class MailPage(wx.Panel):
             self.visible_messages[index]
             for index in self.selected_indices()
             if 0 <= index < len(self.visible_messages)
+            and not isinstance(self.visible_messages[index], FolderRow)
         ]
+
+    def select_all_visible_messages(self) -> None:
+        indices = [
+            index for index, item in enumerate(self.visible_messages)
+            if not isinstance(item, FolderRow)
+        ]
+        if not indices:
+            self.set_status("لا توجد رسائل ظاهرة لتحديدها.")
+            return
+        if not self.multi_select_mode:
+            self.enter_multi_selection_mode()
+        self._suppress_selection_event = True
+        try:
+            for index in indices:
+                if not self.list.IsItemChecked(index):
+                    self.list.CheckItem(index, True)
+        finally:
+            self._suppress_selection_event = False
+        pending_notice = getattr(self, "_multi_mode_notification_call", None)
+        if pending_notice is not None:
+            pending_notice.Stop()
+            self._multi_mode_notification_call = None
+        self._multi_selected_keys = {self.message_key(self.visible_messages[index]) for index in indices}
+        self.update_multi_selection_status()
+        self.announce_accessible(
+            f"تم تحديد كل الرسائل الظاهرة. عدد الرسائل المحددة: {len(self._multi_selected_keys)}."
+        )
 
     def selected_count(self) -> int:
         return len(self.selected_indices())
@@ -954,15 +1259,18 @@ class MailPage(wx.Panel):
     def selected_summary(self) -> MessageSummary | None:
         focused_index = self.focused_index()
         if self.multi_select_mode and focused_index >= 0:
-            return self.visible_messages[focused_index]
+            candidate = self.visible_messages[focused_index]
+            return None if isinstance(candidate, FolderRow) else candidate
         if focused_index >= 0 and self.list.GetItemState(
             focused_index,
             wx.LIST_STATE_SELECTED,
         ):
-            return self.visible_messages[focused_index]
+            candidate = self.visible_messages[focused_index]
+            return None if isinstance(candidate, FolderRow) else candidate
         index = self.list.GetFirstSelected()
         if 0 <= index < len(self.visible_messages):
-            return self.visible_messages[index]
+            candidate = self.visible_messages[index]
+            return None if isinstance(candidate, FolderRow) else candidate
         return None
 
     def toggle_multi_selection_mode(self) -> None:
@@ -986,12 +1294,15 @@ class MailPage(wx.Panel):
         self.list.SetToolTip(tr(description))
 
     def enter_multi_selection_mode(self) -> None:
+        if getattr(self, "_expanded_viewer", False) and self.on_toggle_expanded:
+            self.on_toggle_expanded(self)
         focused_index = self.focused_index()
         if focused_index < 0:
             focused_index = self.list.GetFirstSelected()
         if focused_index < 0 and self.visible_messages:
             focused_index = 0
         self.multi_select_mode = True
+        self.set_multi_selection_layout(True)
         self._multi_selected_keys.clear()
         self.set_multi_selection_checkboxes(True)
         self._suppress_selection_event = True
@@ -1020,8 +1331,11 @@ class MailPage(wx.Panel):
         )
 
     def exit_multi_selection_mode(self, restore_single_selection: bool = True) -> None:
+        self.folder_creation_mode = False
+        self.folder_creation_sizer_item.Show(False)
         focused_index = self.focused_index()
         self.multi_select_mode = False
+        self.set_multi_selection_layout(False)
         self._multi_selected_keys.clear()
         self._control_pressed_alone = False
         if self._selection_count_announce_call is not None:
@@ -1055,6 +1369,22 @@ class MailPage(wx.Panel):
             and 0 <= focused_index < len(self.visible_messages)
         ):
             self.on_selected(self, self.visible_messages[focused_index])
+
+    def set_multi_selection_layout(self, enabled: bool) -> None:
+        """Keep selection controls reachable without the message viewer in the tab order."""
+        self.viewer_label_sizer_item.Show(not enabled)
+        self.expanded_line_preview_sizer_item.Show(False)
+        if enabled:
+            self.viewer_sizer_item.Show(False)
+            self.html_viewer_sizer_item.Show(False)
+            self.link_panel_sizer_item.Show(False)
+            self.link_panel.Hide()
+        else:
+            if self.viewer_mode == VIEWER_HTML and self._html_viewer_active:
+                self.show_html_viewer()
+            else:
+                self.show_plain_viewer()
+        self.layout_viewer_area()
 
     def move_multi_selection_focus(self, key_code: int) -> None:
         item_count = len(self.visible_messages)
@@ -1095,7 +1425,8 @@ class MailPage(wx.Panel):
         finally:
             self._suppress_selection_event = False
         self.list.EnsureVisible(target)
-        self.on_selected(self, self.visible_messages[target])
+        if not self.multi_select_mode:
+            self.on_selected(self, self.visible_messages[target])
         if target == item_count - 1:
             MailPage.notify_end_reached(self)
 
@@ -1105,6 +1436,9 @@ class MailPage(wx.Panel):
             self.announce_selection_count()
             return
         summary = self.visible_messages[index]
+        if isinstance(summary, FolderRow):
+            self.set_status("المجلد ليس رسالة. اضغط Enter لفتحه.")
+            return
         key = self.message_key(summary)
         new_state = not self.list.IsItemChecked(index)
         self._suppress_selection_event = True
@@ -1150,6 +1484,8 @@ class MailPage(wx.Panel):
 
     def _announce_scheduled_selection_count(self) -> None:
         self._selection_count_announce_call = None
+        if not self or (isinstance(self, wx.Window) and self.IsBeingDeleted()):
+            return
         if self.multi_select_mode and self.list.HasFocus():
             self.announce_selection_count()
 
@@ -1164,6 +1500,8 @@ class MailPage(wx.Panel):
 
     def _show_multi_selection_mode_notification(self, message: str) -> None:
         self._multi_mode_notification_call = None
+        if not self or (isinstance(self, wx.Window) and self.IsBeingDeleted()):
+            return
         parent = wx.GetTopLevelParent(self)
         if parent and hasattr(parent, "show_notification"):
             parent.show_notification(message)
@@ -1506,6 +1844,26 @@ class MailPage(wx.Panel):
         self.apply_viewer_colours()
         self.set_viewer_text(self.viewer_text)
 
+    def set_visual_accessibility(self, settings: object) -> None:
+        self.low_vision_font_scale = int(
+            getattr(settings, "low_vision_font_scale", 100) or 100
+        )
+        self.low_vision_high_contrast = bool(
+            getattr(settings, "low_vision_high_contrast", False)
+        )
+        self.low_vision_custom_colours = bool(
+            getattr(settings, "low_vision_custom_colours", False)
+        )
+        self.low_vision_text_colour = str(
+            getattr(settings, "low_vision_text_colour", "#FFFFFF")
+        )
+        self.low_vision_background_colour = str(
+            getattr(settings, "low_vision_background_colour", "#000000")
+        )
+        self.apply_viewer_colours()
+        self.set_expanded_viewer(self._expanded_viewer)
+        self.set_viewer_text(self.viewer_text)
+
     def set_expanded_viewer(self, expanded: bool) -> None:
         self._expanded_viewer = bool(expanded)
         self.filter_row_sizer_item.Show(not expanded)
@@ -1519,9 +1877,13 @@ class MailPage(wx.Panel):
                 bool(self.multi_select_mode and self.selection_status.GetLabel())
             )
         expanded_font = wx.Font(self._viewer_normal_font)
+        scale = max(100, getattr(self, "low_vision_font_scale", 100)) / 100
+        expanded_font.SetPointSize(
+            max(1, round(self._viewer_normal_font.GetPointSize() * scale))
+        )
         if expanded:
             expanded_font.SetPointSize(
-                max(24, self._viewer_normal_font.GetPointSize() + 10)
+                max(round(24 * scale), expanded_font.GetPointSize() + round(10 * scale))
             )
         self.viewer.SetFont(expanded_font)
         self.expanded_line_preview.Show(
@@ -1553,7 +1915,13 @@ class MailPage(wx.Panel):
         self.Layout()
 
     def apply_viewer_colours(self) -> None:
-        if self.theme == THEME_DARK:
+        if getattr(self, "low_vision_high_contrast", False):
+            background = wx.Colour("#000000")
+            foreground = wx.Colour("#FFFFFF")
+        elif getattr(self, "low_vision_custom_colours", False):
+            background = wx.Colour(self.low_vision_background_colour)
+            foreground = wx.Colour(self.low_vision_text_colour)
+        elif self.theme == THEME_DARK:
             background = wx.Colour(32, 33, 36)
             foreground = wx.Colour(245, 245, 245)
         else:
@@ -1563,6 +1931,8 @@ class MailPage(wx.Panel):
         self.viewer.SetForegroundColour(foreground)
 
     def show_html_viewer(self) -> bool:
+        if self.multi_select_mode:
+            return False
         try:
             self.html_viewer.Show(True)
             self.html_viewer_sizer_item.Show(True)
@@ -1576,6 +1946,8 @@ class MailPage(wx.Panel):
         return True
 
     def show_plain_viewer(self) -> None:
+        if self.multi_select_mode or getattr(self, "_section_locked", False):
+            return
         self.viewer.Show(True)
         self.viewer_sizer_item.Show(True)
         try:
@@ -1587,12 +1959,17 @@ class MailPage(wx.Panel):
         self.layout_viewer_area()
 
     def layout_viewer_area(self) -> None:
+        if getattr(self, "_section_locked", False):
+            self.set_section_locked(True)
         self.Layout()
         parent = self.GetParent()
         if parent:
             parent.Layout()
 
     def update_link_panel_visibility(self) -> None:
+        if self.multi_select_mode or getattr(self, "_section_locked", False):
+            self.link_panel.Hide()
+            return
         if self._expanded_viewer:
             self.link_panel.Hide()
             return
@@ -1611,6 +1988,7 @@ class MailPage(wx.Panel):
             self.deactivate_html_viewer()
             self.link_list.SetFocus()
             self.set_status("تم إظهار مستعرض العناصر.")
+            self.notify_item_viewer_opened()
         else:
             self.activate_html_viewer()
             self.set_status("تم إخفاء مستعرض العناصر.")
@@ -1646,6 +2024,11 @@ class MailPage(wx.Panel):
             self.layout_viewer_area()
         self.link_list.SetFocus()
         self.set_status("مستعرض العناصر.")
+        self.notify_item_viewer_opened()
+
+    def notify_item_viewer_opened(self) -> None:
+        if self.on_item_viewer_opened:
+            self.on_item_viewer_opened(self)
 
     def focus_message_viewer(self) -> None:
         # WebView2 gives keyboard focus to an internal Chromium child window,
@@ -1745,7 +2128,8 @@ class MailPage(wx.Panel):
             quote=True,
         )
         expanded_viewer = getattr(self, "_expanded_viewer", False)
-        font_size = 28 if expanded_viewer else 18
+        font_scale = max(100, getattr(self, "low_vision_font_scale", 100)) / 100
+        font_size = round((28 if expanded_viewer else 18) * font_scale)
         line_height = 1.8 if expanded_viewer else 1.65
         expanded_line_preview = (
             '<div id="pam-current-line" class="current-line-preview" '
@@ -1753,7 +2137,23 @@ class MailPage(wx.Panel):
             if expanded_viewer
             else ""
         )
-        if self.theme == THEME_DARK:
+        if getattr(self, "low_vision_high_contrast", False):
+            background = "#000000"
+            foreground = "#FFFFFF"
+            link_colour = "#00FFFF"
+            button_background = "#000000"
+            button_foreground = "#FFFFFF"
+            button_border = "#FFFFFF"
+        elif getattr(self, "low_vision_custom_colours", False):
+            background = self.low_vision_background_colour
+            foreground = self.low_vision_text_colour
+            colour = wx.Colour(background)
+            dark_background = colour.GetLuminance() < 0.5
+            link_colour = "#00FFFF" if dark_background else "#0000EE"
+            button_background = background
+            button_foreground = foreground
+            button_border = foreground
+        elif self.theme == THEME_DARK:
             background = "#202124"
             foreground = "#f5f5f5"
             link_colour = "#8ab4f8"
@@ -2073,8 +2473,47 @@ document.addEventListener("keyup", pamUpdateCurrentLinePreview, true);
     def open_html_external_url(self, url: str) -> None:
         external_url = safe_external_url(url)
         if external_url:
-            # Return from the native navigation callback before launching an app.
-            wx.CallAfter(webbrowser.open, external_url)
+            # Return from the native navigation callback before showing UI or
+            # launching another application.
+            wx.CallAfter(MailPage.open_confirmed_external_url, self, external_url)
+
+    def confirm_external_url(self, external_url: str) -> bool:
+        parsed = urllib.parse.urlsplit(external_url)
+        if parsed.scheme.casefold() == "mailto":
+            destination = urllib.parse.unquote(parsed.path).strip() or external_url
+        else:
+            destination = parsed.hostname or external_url
+            try:
+                port = parsed.port
+            except ValueError:
+                port = None
+            if port:
+                destination = f"{destination}:{port}"
+        answer = wx.MessageBox(
+            tr(
+                "سيتم فتح الرابط خارج البرنامج.\n\n"
+                "الوجهة: {destination}\n\n"
+                "الرابط الكامل:\n{url}\n\n"
+                "هل تريد المتابعة؟"
+            ).format(destination=destination, url=external_url),
+            tr("تأكيد فتح رابط خارجي"),
+            wx.YES_NO | wx.NO_DEFAULT | wx.ICON_WARNING,
+            self,
+        )
+        return answer == wx.YES
+
+    def open_confirmed_external_url(self, external_url: str) -> None:
+        if not self.confirm_external_url(external_url):
+            self.set_status(tr("تم إلغاء فتح الرابط."))
+            return
+        opened = webbrowser.open(external_url)
+        self.set_status(
+            tr(
+                "تم فتح الرابط في المتصفح الافتراضي."
+                if opened
+                else "تعذر فتح الرابط في المتصفح الافتراضي."
+            )
+        )
 
     def on_html_viewer_loaded(self, _event: wx.html2.WebViewEvent) -> None:
         MailPage.cancel_html_load_timeout(self)
@@ -2768,12 +3207,7 @@ document.addEventListener("keyup", pamUpdateCurrentLinePreview, true);
             return
         external_url = safe_external_url(link.url)
         if external_url:
-            opened = webbrowser.open(external_url)
-            self.set_status(
-                "تم فتح الرابط في المتصفح الافتراضي."
-                if opened
-                else "تعذر فتح الرابط في المتصفح الافتراضي."
-            )
+            self.open_confirmed_external_url(external_url)
             return
         if link.url:
             self.set_status("تم منع فتح رابط غير آمن من الرسالة.")
@@ -3389,6 +3823,9 @@ document.addEventListener("keyup", pamUpdateCurrentLinePreview, true);
         self.show_item_actions_menu(self.actions_button)
 
     def on_item_context_menu(self, event: wx.ContextMenuEvent) -> None:
+        if event.GetEventObject() is not self.link_list:
+            event.Skip()
+            return
         position = event.GetPosition()
         if position != wx.DefaultPosition:
             item_index = self.link_list.HitTest(
@@ -3400,6 +3837,21 @@ document.addEventListener("keyup", pamUpdateCurrentLinePreview, true);
 
     def on_message_context_menu(self, event: wx.ContextMenuEvent) -> None:
         source = event.GetEventObject()
+        if source not in {self.list, self.viewer, self.html_viewer}:
+            event.Skip()
+            return
+        if source is self.list and event.GetPosition() != wx.DefaultPosition:
+            hit = self.list.HitTest(self.list.ScreenToClient(event.GetPosition()))
+            index = hit[0] if isinstance(hit, tuple) else hit
+            if isinstance(index, int) and 0 <= index < len(self.visible_messages):
+                self._suppress_selection_event = True
+                try:
+                    self.list.SetItemState(
+                        index, wx.LIST_STATE_SELECTED | wx.LIST_STATE_FOCUSED,
+                        wx.LIST_STATE_SELECTED | wx.LIST_STATE_FOCUSED,
+                    )
+                finally:
+                    self._suppress_selection_event = False
         translation_enabled = (
             source in {self.viewer, self.html_viewer}
             and self.has_translatable_content()
@@ -3597,11 +4049,21 @@ document.addEventListener("keyup", pamUpdateCurrentLinePreview, true);
     def show_message_context_menu(self, control: wx.Window, translation_enabled: bool) -> None:
         if getattr(self, "_message_context_menu_open", False):
             return
+        message_list = getattr(self, "list", None)
+        if control is None or control not in {message_list, getattr(self, "viewer", None),
+                                             getattr(self, "html_viewer", None), self.actions_button}:
+            return
+        focused = getattr(self, "focused_summary", lambda: None)()
+        if control is message_list and isinstance(focused, FolderRow) and not self.multi_select_mode:
+            callback = getattr(self, "on_folder_context", None)
+            if callback:
+                callback(focused.folder_id)
+            return
         if control is self.actions_button:
             self.show_item_actions_menu(control)
             return
         selected_summaries = self.selected_summaries()
-        if self.multi_select_mode or len(selected_summaries) > 1:
+        if control is message_list and (self.multi_select_mode or len(selected_summaries) > 1):
             self.show_multi_message_context_menu(control, selected_summaries)
             return
         summary = self.selected_summary()
@@ -3619,7 +4081,7 @@ document.addEventListener("keyup", pamUpdateCurrentLinePreview, true);
         def reply_action(_event: wx.CommandEvent) -> None:
             nonlocal action_invoked
             action_invoked = True
-            self.on_reply()
+            wx.CallAfter(self.on_reply)
             wx.CallAfter(self.focus_message_list)
 
         def forward_action(_event: wx.CommandEvent) -> None:
@@ -3628,13 +4090,13 @@ document.addEventListener("keyup", pamUpdateCurrentLinePreview, true);
             if forward_callback is None:
                 return
             action_invoked = True
-            forward_callback(self)
+            wx.CallAfter(forward_callback, self)
             wx.CallAfter(self.focus_message_list)
 
         def star_action(_event: wx.CommandEvent) -> None:
             nonlocal action_invoked
             action_invoked = True
-            self.on_toggle_star(self)
+            wx.CallAfter(self.on_toggle_star, self)
             wx.CallAfter(self.focus_message_list)
 
         def read_action(_event: wx.CommandEvent) -> None:
@@ -3642,7 +4104,7 @@ document.addEventListener("keyup", pamUpdateCurrentLinePreview, true);
             if summary is None:
                 return
             action_invoked = True
-            self.on_toggle_read(self, summary)
+            wx.CallAfter(self.on_toggle_read, self, summary)
             wx.CallAfter(self.focus_message_list)
 
         def translate_action(_event: wx.CommandEvent) -> None:
@@ -3668,13 +4130,13 @@ document.addEventListener("keyup", pamUpdateCurrentLinePreview, true);
         def pin_action(_event: wx.CommandEvent) -> None:
             nonlocal action_invoked
             action_invoked = True
-            self.on_toggle_pin(self)
+            wx.CallAfter(self.on_toggle_pin, self)
             wx.CallAfter(self.focus_list_index, 0)
 
         def delete_action(_event: wx.CommandEvent) -> None:
             nonlocal action_invoked
             action_invoked = True
-            self.on_delete(self)
+            wx.CallAfter(self.on_delete, self)
             wx.CallAfter(self.focus_message_list)
 
         def archive_action(_event: wx.CommandEvent) -> None:
@@ -3682,80 +4144,93 @@ document.addEventListener("keyup", pamUpdateCurrentLinePreview, true);
             callback = getattr(self, "on_archive", None)
             if callback:
                 action_invoked = True
-                callback(self)
+                wx.CallAfter(callback, self)
+
+        def create_folder_action(_event: wx.CommandEvent) -> None:
+            nonlocal action_invoked
+            action_invoked = True
+            wx.CallAfter(self.begin_folder_creation)
+
+        def add_to_folder_action(_event: wx.CommandEvent) -> None:
+            nonlocal action_invoked
+            if summary is None:
+                return
+            action_invoked = True
+            wx.CallAfter(self.on_bulk_action, self, "add_to_folder", [summary])
+
+        def remove_from_folder_action(_event: wx.CommandEvent) -> None:
+            nonlocal action_invoked
+            if summary is None:
+                return
+            action_invoked = True
+            wx.CallAfter(self.on_bulk_action, self, "remove_from_folder", [summary])
+
+        if opened_from_viewer:
+            try:
+                for label, callback, enabled in (
+                    ("رد", reply_action, summary is not None),
+                    ("نسخ", copy_action, bool(getattr(self, "viewer_text", ""))),
+                    ("ترجمة", translate_action, summary is not None and translation_enabled),
+                    ("إعادة توجيه", forward_action, summary is not None and getattr(self, "on_forward", None) is not None),
+                ):
+                    item = menu.Append(wx.ID_ANY, tr(label))
+                    item.Enable(enabled)
+                    menu.Bind(wx.EVT_MENU, callback, item)
+                announce_context_menu(return_control)
+                self._message_context_menu_open = True
+                self.context_menu_popup_owner(control).PopupMenu(menu)
+            finally:
+                menu.Destroy()
+                self._message_context_menu_open = False
+            if translate_requested:
+                self._last_context_menu_request_at = time.monotonic()
+                wx.CallAfter(self.on_translate, self)
+            if not action_invoked:
+                self.schedule_context_focus_restore(return_control)
+            return
 
         try:
             reply_item = menu.Append(wx.ID_ANY, tr("رد"))
-            copy_item = (
-                menu.Append(wx.ID_ANY, tr("نسخ"))
-                if opened_from_viewer
-                else None
-            )
-            translate_item = (
-                menu.Append(wx.ID_ANY, tr("ترجمة"))
-                if opened_from_viewer
-                else None
-            )
-            if opened_from_viewer:
-                read_item = (
-                    menu.Append(wx.ID_ANY, tr("تعليم كمقروءة"))
-                    if summary and not summary.is_read
-                    else None
-                )
-            else:
-                read_label = (
-                    "تعليم كغير مقروءة"
-                    if summary and summary.is_read
-                    else "تعليم كمقروءة"
-                )
-                read_item = menu.Append(wx.ID_ANY, tr(read_label))
+            menu.AppendSeparator()
+            read_item = menu.Append(wx.ID_ANY, tr("تعليم كغير مقروءة" if summary and summary.is_read else "تعليم كمقروءة"))
             forward_item = menu.Append(wx.ID_ANY, tr("إعادة توجيه"))
-            star_label = "إزالة التمييز بنجمة" if summary and summary.is_starred else "تمييز بنجمة"
-            star_item = menu.Append(wx.ID_ANY, tr(star_label))
-            pin_label = "إلغاء التثبيت في الأعلى" if summary and summary.is_pinned else "التثبيت في الأعلى"
-            pin_item = (
-                None
-                if opened_from_viewer
-                else menu.Append(wx.ID_ANY, tr(pin_label))
-            )
+            menu.AppendSeparator()
+            star_item = menu.Append(wx.ID_ANY, tr("إزالة التمييز بنجمة" if summary and summary.is_starred else "تمييز بنجمة"))
+            pin_item = menu.Append(wx.ID_ANY, tr("إلغاء التثبيت في الأعلى" if summary and summary.is_pinned else "التثبيت في الأعلى"))
+            menu.AppendSeparator()
             delete_item = menu.Append(wx.ID_ANY, tr("الحذف والنقل إلى سلة المحذوفات"))
-            archive_item = (
-                menu.Append(wx.ID_ANY, tr("إعادة إلى الوارد" if self.selected_filter_key() == "archive" else "أرشفة الرسالة"))
-                if not opened_from_viewer
-                else None
+            archive_item = menu.Append(
+                wx.ID_ANY, tr("إعادة إلى الوارد" if getattr(self, "selected_filter_key", lambda: "all")() == "archive" else "أرشفة الرسالة")
             )
-            if archive_item is not None:
-                archive_item.Enable(summary is not None and getattr(self, "on_archive", None) is not None)
-                menu.Bind(wx.EVT_MENU, archive_action, archive_item)
+            menu.AppendSeparator()
+            folder_item = menu.Append(wx.ID_ANY, tr("إنشاء مجلد للرسائل"))
+            add_folder_item = menu.Append(wx.ID_ANY, tr("إضافة الرسالة إلى مجلد أو قسم"))
+            remove_folder_item = menu.Append(wx.ID_ANY, tr("إزالة الرسالة من المجلد دون حذفها"))
 
             has_message = summary is not None
             reply_item.Enable(has_message)
             forward_item.Enable(
                 has_message and getattr(self, "on_forward", None) is not None
             )
-            if read_item is not None:
-                read_item.Enable(has_message)
+            read_item.Enable(has_message)
             star_item.Enable(has_message)
-            if copy_item is not None:
-                copy_item.Enable(bool(getattr(self, "viewer_text", "")))
-            if translate_item is not None:
-                translate_item.Enable(has_message and translation_enabled)
-            if pin_item is not None:
-                pin_item.Enable(has_message)
+            pin_item.Enable(has_message)
             delete_item.Enable(has_message)
+            archive_item.Enable(has_message and getattr(self, "on_archive", None) is not None)
+            folder_item.Enable(has_message and not opened_from_viewer)
+            add_folder_item.Enable(has_message)
+            remove_folder_item.Enable(has_message and getattr(self, "is_message_folder_page", False))
 
             menu.Bind(wx.EVT_MENU, reply_action, reply_item)
-            if copy_item is not None:
-                menu.Bind(wx.EVT_MENU, copy_action, copy_item)
-            if translate_item is not None:
-                menu.Bind(wx.EVT_MENU, translate_action, translate_item)
             menu.Bind(wx.EVT_MENU, forward_action, forward_item)
-            if read_item is not None:
-                menu.Bind(wx.EVT_MENU, read_action, read_item)
+            menu.Bind(wx.EVT_MENU, read_action, read_item)
             menu.Bind(wx.EVT_MENU, star_action, star_item)
-            if pin_item is not None:
-                menu.Bind(wx.EVT_MENU, pin_action, pin_item)
+            menu.Bind(wx.EVT_MENU, pin_action, pin_item)
             menu.Bind(wx.EVT_MENU, delete_action, delete_item)
+            menu.Bind(wx.EVT_MENU, archive_action, archive_item)
+            menu.Bind(wx.EVT_MENU, create_folder_action, folder_item)
+            menu.Bind(wx.EVT_MENU, add_to_folder_action, add_folder_item)
+            menu.Bind(wx.EVT_MENU, remove_from_folder_action, remove_folder_item)
             announce_context_menu(return_control)
             self._message_context_menu_open = True
             self.context_menu_popup_owner(control).PopupMenu(menu)
@@ -3784,10 +4259,15 @@ document.addEventListener("keyup", pamUpdateCurrentLinePreview, true);
             def handler(_event: wx.CommandEvent) -> None:
                 nonlocal action_invoked
                 action_invoked = True
-                self.on_bulk_action(self, action, list(summaries))
+                wx.CallAfter(self.on_bulk_action, self, action, list(summaries))
                 wx.CallAfter(self.focus_message_list)
 
             return handler
+
+        def create_folder_action(_event: wx.CommandEvent) -> None:
+            nonlocal action_invoked
+            action_invoked = True
+            wx.CallAfter(self.on_bulk_action, self, "create_folder", list(summaries))
 
         try:
             count_item = menu.Append(
@@ -3796,16 +4276,41 @@ document.addEventListener("keyup", pamUpdateCurrentLinePreview, true);
             )
             count_item.Enable(False)
             menu.AppendSeparator()
-            read_item = menu.Append(wx.ID_ANY, tr("تعليم كمقروءة"))
-            unread_item = menu.Append(wx.ID_ANY, tr("تعليم كغير مقروءة"))
-            star_item = menu.Append(wx.ID_ANY, tr("تمييز الرسائل بنجمة"))
-            unstar_item = menu.Append(wx.ID_ANY, tr("إزالة النجمة من الرسائل"))
-            pin_item = menu.Append(wx.ID_ANY, tr("تثبيت الرسائل في الأعلى"))
-            unpin_item = menu.Append(wx.ID_ANY, tr("إلغاء تثبيت الرسائل"))
+            read_menu = wx.Menu()
+            read_item = read_menu.Append(wx.ID_ANY, tr("تعليم كمقروءة"))
+            unread_item = read_menu.Append(wx.ID_ANY, tr("تعليم كغير مقروءة"))
+            menu.AppendSubMenu(read_menu, tr("خيارات حالة قراءة الرسائل"))
+            star_menu = wx.Menu()
+            star_item = star_menu.Append(wx.ID_ANY, tr("تمييز الرسائل بنجمة"))
+            unstar_item = star_menu.Append(wx.ID_ANY, tr("إزالة النجمة من الرسائل"))
+            menu.AppendSubMenu(star_menu, tr("خيارات تمييز الرسائل بنجمة"))
+            pin_menu = wx.Menu()
+            pin_item = pin_menu.Append(wx.ID_ANY, tr("تثبيت الرسائل في الأعلى"))
+            unpin_item = pin_menu.Append(wx.ID_ANY, tr("إلغاء تثبيت الرسائل"))
+            menu.AppendSubMenu(pin_menu, tr("خيارات تثبيت الرسالة"))
+            menu.AppendSeparator()
+            folder_menu = wx.Menu()
+            folder_item = folder_menu.Append(wx.ID_ANY, tr("إنشاء مجلد للرسائل"))
+            folder_item.Enable(bool(summaries))
+            folder_menu.Bind(wx.EVT_MENU, create_folder_action, folder_item)
+            add_folder_item = folder_menu.Append(wx.ID_ANY, tr("إضافة الرسائل إلى مجلد أو قسم"))
+            add_folder_item.Enable(bool(summaries))
+            folder_menu.Bind(wx.EVT_MENU, invoke("add_to_folder"), add_folder_item)
+            remove_folder_item = folder_menu.Append(
+                wx.ID_ANY, tr("إزالة الرسائل من المجلد دون حذفها")
+            )
+            remove_folder_item.Enable(bool(summaries) and getattr(self, "is_message_folder_page", False))
+            folder_menu.Bind(wx.EVT_MENU, invoke("remove_from_folder"), remove_folder_item)
+            menu.AppendSubMenu(folder_menu, tr("خيارات المجلد"))
             menu.AppendSeparator()
             delete_item = menu.Append(
                 wx.ID_ANY,
                 tr("حذف الرسائل وإرسالها إلى سلة المحذوفات"),
+            )
+            restoring = self.selected_filter_key() == "archive"
+            archive_item = menu.Append(
+                wx.ID_ANY,
+                tr("إعادة الرسائل إلى الوارد" if restoring else "أرشفة الرسائل"),
             )
 
             has_messages = bool(summaries)
@@ -3821,28 +4326,60 @@ document.addEventListener("keyup", pamUpdateCurrentLinePreview, true);
             delete_item.Enable(
                 has_messages and self.selected_filter_key() != "trash"
             )
+            archive_item.Enable(
+                has_messages and self.selected_filter_key() != "trash"
+                and getattr(self, "on_archive", None) is not None
+            )
 
-            menu.Bind(
+            read_menu.Bind(
                 wx.EVT_MENU,
                 invoke(BULK_ACTION_MARK_READ),
                 read_item,
             )
-            menu.Bind(
+            read_menu.Bind(
                 wx.EVT_MENU,
                 invoke(BULK_ACTION_MARK_UNREAD),
                 unread_item,
             )
-            menu.Bind(wx.EVT_MENU, invoke(BULK_ACTION_STAR), star_item)
-            menu.Bind(wx.EVT_MENU, invoke(BULK_ACTION_UNSTAR), unstar_item)
-            menu.Bind(wx.EVT_MENU, invoke(BULK_ACTION_PIN), pin_item)
-            menu.Bind(wx.EVT_MENU, invoke(BULK_ACTION_UNPIN), unpin_item)
+            star_menu.Bind(wx.EVT_MENU, invoke(BULK_ACTION_STAR), star_item)
+            star_menu.Bind(wx.EVT_MENU, invoke(BULK_ACTION_UNSTAR), unstar_item)
+            pin_menu.Bind(wx.EVT_MENU, invoke(BULK_ACTION_PIN), pin_item)
+            pin_menu.Bind(wx.EVT_MENU, invoke(BULK_ACTION_UNPIN), unpin_item)
             menu.Bind(wx.EVT_MENU, invoke(BULK_ACTION_DELETE), delete_item)
+            menu.Bind(
+                wx.EVT_MENU,
+                invoke(BULK_ACTION_RESTORE_ARCHIVED if restoring else BULK_ACTION_ARCHIVE),
+                archive_item,
+            )
             announce_context_menu(return_control)
             self.context_menu_popup_owner(control).PopupMenu(menu)
         finally:
             menu.Destroy()
         if not action_invoked:
             wx.CallAfter(self.restore_context_focus, return_control)
+
+    def begin_folder_creation(self) -> None:
+        if not self.multi_select_mode:
+            self.enter_multi_selection_mode()
+        self.folder_creation_mode = True
+        self.folder_creation_sizer_item.Show(True)
+        self.Layout()
+        self.set_status(
+            "حدد الرسائل بمفتاح Space، ثم اضغط Tab للوصول إلى إنشاء المجلد أو إلغاء."
+        )
+        self.list.SetFocus()
+
+    def on_create_folder_button(self, _event: wx.Event) -> None:
+        summaries = self.selected_summaries()
+        if not summaries:
+            self.set_status("حدد رسالة واحدة على الأقل قبل إنشاء المجلد.")
+            self.list.SetFocus()
+            return
+        self.on_bulk_action(self, "create_folder", summaries)
+
+    def on_cancel_folder_button(self, _event: wx.Event) -> None:
+        self.exit_multi_selection_mode()
+        self.focus_message_list()
 
     def context_menu_popup_owner(self, control: wx.Window) -> wx.Window:
         return self if control is self.html_viewer else control

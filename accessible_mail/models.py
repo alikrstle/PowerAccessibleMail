@@ -184,6 +184,8 @@ class LinkItem:
 
     @staticmethod
     def format_size(size: int) -> str:
+        if size >= 1_000_000_000:
+            return f"{size / 1_000_000_000:.1f} GB"
         if size >= 1024 * 1024:
             return f"{size / (1024 * 1024):.1f} MB"
         if size >= 1024:
@@ -208,6 +210,8 @@ class MessageSummary:
     is_starred: bool = False
     is_pinned: bool = False
     recipient_emails: list[str] = field(default_factory=list)
+    is_promotional: bool = False
+    uid_validity: str = ""
 
     @property
     def status_label(self) -> str:

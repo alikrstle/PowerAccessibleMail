@@ -63,6 +63,11 @@ def apply_window_style(window: wx.Window) -> None:
         if settings is not None:
             break
         owner = owner.GetParent()
+    if settings is not None:
+        from .visual_accessibility import apply_visual_accessibility
+
+        apply_visual_accessibility(window, settings)
+        return
     dark = getattr(settings, "theme", "dark") == "dark"
     background, text, surface = theme_palette("dark" if dark else "light")
 
@@ -130,6 +135,15 @@ def login_background_path() -> Path | None:
                 and "خلفية" in path.stem
                 and "تسجيل" in path.stem
             ):
+                return path
+    return None
+
+
+def locked_section_background_path() -> Path | None:
+    folder = app_dir() / "backgrounds"
+    if folder.is_dir():
+        for path in sorted(folder.iterdir()):
+            if path.is_file() and "القفل" in path.stem and path.suffix.lower() in {".png", ".jpg", ".jpeg", ".bmp", ".webp"}:
                 return path
     return None
 

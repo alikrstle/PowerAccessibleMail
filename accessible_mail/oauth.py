@@ -32,6 +32,7 @@ OAUTH_PROVIDERS: dict[str, dict[str, Any]] = {
         "name": "Google / Gmail",
         "authorization_endpoint": "https://accounts.google.com/o/oauth2/v2/auth",
         "token_endpoint": "https://oauth2.googleapis.com/token",
+        "revocation_endpoint": "https://oauth2.googleapis.com/revoke",
         "jwks_uri": "https://www.googleapis.com/oauth2/v3/certs",
         "scopes": [
             "openid",
@@ -129,6 +130,65 @@ def google_provider_id() -> str:
         if provider_id.startswith("google"):
             return provider_id
     raise OAuthError("مزود Google غير متاح في هذه النسخة.")
+
+
+def supports_oauth_revocation(account: Account) -> bool:
+    """Return whether this account has a revocable token and a trusted endpoint."""
+    provider = OAUTH_PROVIDERS.get(account.oauth_provider)
+    return bool(
+        account.uses_oauth
+        and provider
+        and provider.get("revocation_endpoint")
+        and (account.oauth_refresh_token or account.oauth_access_token)
+    )
+
+
+def revoke_account_oauth_token(account: Account) -> None:
+    """Invalidate the account grant before its local credentials are removed."""
+    provider = OAUTH_PROVIDERS.get(account.oauth_provider)
+    endpoint = str((provider or {}).get("revocation_endpoint") or "")
+    token = account.oauth_refresh_token or account.oauth_access_token
+    if not account.uses_oauth or not endpoint or not token:
+        raise OAuthError("لا يدعم مزود هذا الحساب إلغاء رمز الدخول من داخل البرنامج.")
+
+    parsed_endpoint = urllib.parse.urlparse(endpoint)
+    if parsed_endpoint.scheme.lower() != "https" or not parsed_endpoint.netloc:
+        raise OAuthError("رفض البرنامج الاتصال بخدمة إلغاء OAuth غير آمنة.")
+
+    request = urllib.request.Request(
+        endpoint,
+        data=urllib.parse.urlencode({"token": token}).encode("utf-8"),
+        headers={"Content-Type": "application/x-www-form-urlencoded"},
+        method="POST",
+    )
+    try:
+        with urllib.request.urlopen(
+            request,
+            timeout=45,
+            context=trusted_https_context(),
+        ) as response:
+            final_url = urllib.parse.urlparse(str(response.geturl() or endpoint))
+            if (
+                final_url.scheme.lower() != "https"
+                or final_url.hostname != parsed_endpoint.hostname
+            ):
+                raise OAuthError("أعادت خدمة إلغاء OAuth التوجيه إلى وجهة غير موثوقة.")
+            # Google returns an empty response. Bound and consume it so an
+            # unexpected response cannot keep a connection or memory busy.
+            payload = response.read(MAX_OAUTH_RESPONSE_BYTES + 1)
+            if len(payload) > MAX_OAUTH_RESPONSE_BYTES:
+                raise OAuthError("استجابة خدمة إلغاء OAuth أكبر من الحجم المسموح.")
+    except urllib.error.HTTPError as exc:
+        # Google documents HTTP 400 for a token that is already invalid. Its
+        # security objective is already satisfied, so local removal may finish.
+        if exc.code == 400:
+            return
+        raise OAuthError("تعذر إلغاء صلاحية تسجيل الدخول لدى مزود البريد.") from exc
+    except (OSError, urllib.error.URLError) as exc:
+        friendly_error = friendly_https_error(exc)
+        raise OAuthError(
+            friendly_error or "تعذر الاتصال الآمن بخدمة إلغاء تسجيل الدخول."
+        ) from exc
 
 
 def apply_provider_settings(account: Account, provider_id: str) -> None:

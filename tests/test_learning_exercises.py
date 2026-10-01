@@ -53,10 +53,10 @@ class ExtraLearningTests(unittest.TestCase):
         for control in obj.compose_controls:
             control.Show.assert_called_once()
 
-    def test_seventeen_unique_exercises_registered(self):
-        self.assertEqual(len(EXERCISES), 17)
-        self.assertEqual(len(LESSONS), 25)
-        self.assertEqual(len({lesson[2] for lesson in LESSONS}), 25)
+    def test_twenty_three_unique_exercises_registered(self):
+        self.assertEqual(len(EXERCISES), 23)
+        self.assertEqual(len(LESSONS), 31)
+        self.assertEqual(len({lesson[2] for lesson in LESSONS}), 31)
         self.assertFalse({"compose_send", "compose_cancel", "delete_cancel", "delete_confirm"} & {lesson[2] for lesson in LESSONS})
         self.assertFalse({"filter_all", "search_empty"} & {lesson[2] for lesson in LESSONS})
         for _, _, action, _ in EXERCISES:

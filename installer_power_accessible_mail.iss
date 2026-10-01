@@ -1,5 +1,5 @@
 ﻿#define MyAppName "Power Accessible Mail"
-#define MyAppVersion "1.5.0"
+#define MyAppVersion "1.6.0"
 #define MyAppPublisher "Soljan.AlSharq."
 #define MyAppExeName "Power Accessible Mail.exe"
 #define MyAppIcon "assets\branding\power_accessible_mail.ico"
@@ -55,7 +55,7 @@ ArchitecturesInstallIn64BitMode=x64compatible
 #else
 ArchitecturesAllowed=x86compatible
 #endif
-VersionInfoVersion=1.5.0.0
+VersionInfoVersion=1.6.0.0
 VersionInfoCompany={#MyAppPublisher}
 VersionInfoDescription={#MyAppName} Installer
 VersionInfoProductName={#MyAppName}
@@ -182,6 +182,16 @@ chinesesimplified.CloseSetup=关闭
 russian.CloseSetup=Закрыть
 japanese.CloseSetup=閉じる
 german.CloseSetup=Schließen
+arabic.MuteBackgroundMusic=كتم موسيقى الخلفية
+english.MuteBackgroundMusic=Mute background music
+french.MuteBackgroundMusic=Couper la musique de fond
+spanish.MuteBackgroundMusic=Silenciar la música de fondo
+turkish.MuteBackgroundMusic=Arka plan müziğini sustur
+hindi.MuteBackgroundMusic=पृष्ठभूमि संगीत म्यूट करें
+chinesesimplified.MuteBackgroundMusic=静音背景音乐
+russian.MuteBackgroundMusic=Отключить фоновую музыку
+japanese.MuteBackgroundMusic=バックグラウンド音楽をミュート
+german.MuteBackgroundMusic=Hintergrundmusik stummschalten
 
 [Tasks]
 Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{cm:AdditionalIcons}"
@@ -204,6 +214,7 @@ Source: "installer_readme_zh-CN.txt"; DestDir: "{app}"; DestName: "README_ZH_CN.
 Source: "installer_readme_ru.txt"; DestDir: "{app}"; DestName: "README_RU.txt"; Flags: ignoreversion
 Source: "installer_readme_ja.txt"; DestDir: "{app}"; DestName: "README_JA.txt"; Flags: ignoreversion
 Source: "installer_readme_de.txt"; DestDir: "{app}"; DestName: "README_DE.txt"; Flags: ignoreversion
+Source: "sound\الخلفية الموسيقية .mp3"; DestDir: "{tmp}"; DestName: "pam-installer-background.mp3"; Flags: dontcopy
 
 [Registry]
 Root: HKCU; Subkey: "Software\Clients\Mail\PowerAccessibleMail"; ValueType: string; ValueName: ""; ValueData: "{#MyAppName}"; Flags: uninsdeletekey
@@ -253,6 +264,46 @@ var
   UpdateMessage: TNewStaticText;
   InstalledVersion: String;
   UpdateMode: Boolean;
+  MuteInstallerMusicCheck: TNewCheckBox;
+  InstallerMusicPlayer: Variant;
+  InstallerMusicPlaying: Boolean;
+
+procedure StopInstallerMusic;
+begin
+  if InstallerMusicPlaying then
+  begin
+    try
+      InstallerMusicPlayer.Controls.Stop;
+    except
+    end;
+  end;
+  InstallerMusicPlaying := False;
+end;
+
+procedure StartInstallerMusic;
+begin
+  if WizardSilent or MuteInstallerMusicCheck.Checked or InstallerMusicPlaying then
+    Exit;
+  try
+    ExtractTemporaryFile('pam-installer-background.mp3');
+    InstallerMusicPlayer := CreateOleObject('WMPlayer.OCX');
+    InstallerMusicPlayer.Settings.SetMode('loop', True);
+    InstallerMusicPlayer.Settings.Volume := 35;
+    InstallerMusicPlayer.URL := ExpandConstant('{tmp}\pam-installer-background.mp3');
+    InstallerMusicPlayer.Controls.Play;
+    InstallerMusicPlaying := True;
+  except
+    InstallerMusicPlaying := False;
+  end;
+end;
+
+procedure MuteInstallerMusicCheckClick(Sender: TObject);
+begin
+  if MuteInstallerMusicCheck.Checked then
+    StopInstallerMusic
+  else
+    StartInstallerMusic;
+end;
 
 function IsInternalUpdate: Boolean;
 begin
@@ -358,6 +409,23 @@ begin
     WizardForm.InfoBeforeMemo.Height - ScaleY(30);
   PrivacyAgreementCheck.Top := WizardForm.InfoBeforeMemo.Top +
     WizardForm.InfoBeforeMemo.Height + ScaleY(8);
+
+  MuteInstallerMusicCheck := TNewCheckBox.Create(WizardForm);
+  MuteInstallerMusicCheck.Parent := WizardForm;
+  MuteInstallerMusicCheck.Caption := CustomMessage('MuteBackgroundMusic');
+  MuteInstallerMusicCheck.Checked := False;
+  MuteInstallerMusicCheck.TabStop := True;
+  MuteInstallerMusicCheck.Left := ScaleX(12);
+  MuteInstallerMusicCheck.Top := WizardForm.NextButton.Top + ScaleY(4);
+  MuteInstallerMusicCheck.Width :=
+    WizardForm.BackButton.Left - MuteInstallerMusicCheck.Left - ScaleX(8);
+  MuteInstallerMusicCheck.OnClick := @MuteInstallerMusicCheckClick;
+  StartInstallerMusic;
+end;
+
+procedure DeinitializeSetup;
+begin
+  StopInstallerMusic;
 end;
 
 procedure CurPageChanged(CurPageID: Integer);

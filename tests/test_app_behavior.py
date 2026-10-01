@@ -37,7 +37,7 @@ from accessible_mail.app import (
     run,
     run_bulk_operations,
 )
-from accessible_mail.main_frame import QUICK_NAVIGATION_SHORTCUTS, call_after_if_open
+from accessible_mail.main_frame import ApplicationExitShortcutFilter, QUICK_NAVIGATION_SHORTCUTS, call_after_if_open
 from accessible_mail.config import (
     LANGUAGE_ENGLISH,
     MESSAGE_READ_MANUAL,
@@ -838,8 +838,7 @@ class AppBehaviorTests(unittest.TestCase):
     ) -> None:
         summary = MessageSummary(uid="1", mailbox="INBOX")
         menu = menu_class.return_value
-        items = [Mock() for _index in range(7)]
-        menu.Append.side_effect = items
+        menu.Append.side_effect = lambda *_args: Mock()
         html_viewer = object()
         popup_owner = SimpleNamespace(PopupMenu=Mock())
         page = SimpleNamespace(
@@ -914,15 +913,13 @@ class AppBehaviorTests(unittest.TestCase):
 
         labels = [call.args[1] for call in menu.Append.call_args_list]
         self.assertEqual(labels[:3], ["رد", "نسخ", "ترجمة"])
-        self.assertEqual(labels[3], "إعادة توجيه")
-        self.assertNotIn("التثبيت في الأعلى", labels)
-        self.assertNotIn("إلغاء التثبيت في الأعلى", labels)
+        self.assertEqual(labels, ["رد", "نسخ", "ترجمة", "إعادة توجيه"])
 
     @patch("accessible_mail.mail_page.tr", side_effect=lambda value: value)
     @patch("accessible_mail.mail_page.wx.CallAfter")
     @patch("accessible_mail.mail_page.announce_context_menu")
     @patch("accessible_mail.mail_page.wx.Menu")
-    def test_message_list_context_menu_hides_copy_and_translation_but_keeps_pin(
+    def test_message_list_context_menu_shows_all_options_and_disables_unavailable_ones(
         self,
         menu_class: Mock,
         _announce_menu: Mock,
@@ -1439,7 +1436,7 @@ class AppBehaviorTests(unittest.TestCase):
         event.Skip.assert_not_called()
 
     @patch("accessible_mail.main_frame.wx.Window.FindFocus")
-    def test_frame_escape_hook_does_not_capture_unrelated_controls(self, find_focus: Mock) -> None:
+    def test_frame_escape_hook_returns_unrelated_controls_to_main_commands(self, find_focus: Mock) -> None:
         page = SimpleNamespace(
             viewer=object(),
             html_viewer=object(),
@@ -1451,6 +1448,7 @@ class AppBehaviorTests(unittest.TestCase):
         frame = SimpleNamespace(
             current_page=lambda: page,
             on_escape_message_viewer=Mock(),
+            on_focus_command_list_shortcut=Mock(),
         )
         event = SimpleNamespace(
             GetKeyCode=lambda: wx.WXK_ESCAPE,
@@ -1465,7 +1463,8 @@ class AppBehaviorTests(unittest.TestCase):
         MainFrame.on_frame_char_hook(frame, event)
 
         frame.on_escape_message_viewer.assert_not_called()
-        event.Skip.assert_called_once_with()
+        frame.on_focus_command_list_shortcut.assert_called_once_with()
+        event.Skip.assert_not_called()
 
     def test_html_viewer_registers_escape_hotkey_only_while_active(self) -> None:
         page = object()
@@ -2330,8 +2329,8 @@ class AppBehaviorTests(unittest.TestCase):
 
         source = inspect.getsource(AddressBookDialog.show_context_menu)
 
-        self.assertIn("تثبيت البريد الإلكتروني بالأعلى", source)
-        self.assertIn("إلغاء تثبيت البريد الإلكتروني من الأعلى", source)
+        self.assertIn("تثبيت العنوان بالأعلى", source)
+        self.assertIn("إلغاء تثبيت العنوان من الأعلى", source)
 
     def test_address_message_matches_include_sent_and_received(self) -> None:
         received = MessageSummary(
@@ -2818,6 +2817,7 @@ class AppBehaviorTests(unittest.TestCase):
             _multi_selected_keys=set(),
             visible_messages=[summary],
             message_key=Mock(return_value=("INBOX", "1")),
+            set_multi_selection_layout=Mock(),
             set_multi_selection_checkboxes=Mock(),
             update_multi_selection_status=Mock(),
             announce_accessible=Mock(),
@@ -2828,6 +2828,7 @@ class AppBehaviorTests(unittest.TestCase):
         self.assertTrue(page.multi_select_mode)
         self.assertEqual(page._multi_selected_keys, {("INBOX", "1")})
         page.set_multi_selection_checkboxes.assert_called_once_with(True)
+        page.set_multi_selection_layout.assert_called_once_with(True)
         page.update_multi_selection_status.assert_called_once_with()
         page.announce_accessible.assert_called_once()
 
@@ -4118,12 +4119,18 @@ class AppBehaviorTests(unittest.TestCase):
 
     def test_account_change_refreshes_and_keeps_account_focus(self) -> None:
         account = Account(id="selected", email_address="selected@example.com")
+        inbox_page = SimpleNamespace(
+            filter_choice=SimpleNamespace(SetSelection=Mock()),
+            apply_filter=Mock(),
+        )
         frame = SimpleNamespace(
             selected_account=Mock(return_value=account),
             remember_selected_account=Mock(),
             begin_account_switch=Mock(),
             refresh_all=Mock(),
             account_choice=SimpleNamespace(SetFocus=Mock()),
+            notebook=SimpleNamespace(SetSelection=Mock()),
+            pages={"inbox": inbox_page},
         )
 
         MainFrame.on_account_changed(frame)
@@ -4132,6 +4139,9 @@ class AppBehaviorTests(unittest.TestCase):
         frame.begin_account_switch.assert_called_once_with(account)
         frame.refresh_all.assert_called_once_with()
         frame.account_choice.SetFocus.assert_called_once_with()
+        frame.notebook.SetSelection.assert_called_once_with(0)
+        inbox_page.filter_choice.SetSelection.assert_called_once_with(0)
+        inbox_page.apply_filter.assert_called_once_with()
 
     def test_message_search_matches_sender_address_and_subject_words(self) -> None:
         summary = MessageSummary(
@@ -4290,14 +4300,24 @@ class AppBehaviorTests(unittest.TestCase):
         guide = MainFrame.shortcuts_guide_text(SimpleNamespace())
         accelerator_source = inspect.getsource(MainFrame._create_accelerators)
 
-        self.assertEqual(list(shortcuts), ["Alt+1", "Alt+2", "Alt+3", "Alt+4"])
+        self.assertEqual(
+            list(shortcuts),
+            ["Alt+1", "Alt+2", "Alt+3", "Alt+4", "Alt+S / Alt+س", "Alt+د / Alt+]", "Alt+ج / Alt+["],
+        )
         for shortcut in (
             "Alt+1",
             "Alt+2",
             "Alt+3",
             "Alt+4",
+            "Alt+S",
+            "Alt+س",
+            "Alt+د",
+            "Alt+]",
+            "Alt+ج",
+            "Alt+[",
             "Alt+H",
             "Alt+D",
+            "Alt+A",
             "F1",
             "Ctrl+A",
             "Ctrl+N",
@@ -4310,6 +4330,15 @@ class AppBehaviorTests(unittest.TestCase):
             "Alt+Enter",
             "Ctrl+Shift+Space",
             "Shift+F10",
+            "Alt+Z",
+            "Alt+X",
+            "Alt+C",
+            "Alt+Ctrl+Z",
+            "Alt+Ctrl+X",
+            "Alt+Ctrl+C",
+            "Alt+Ctrl+Shift+Z",
+            "Alt+Ctrl+Shift+X",
+            "Alt+Ctrl+Shift+C",
         ):
             self.assertIn(shortcut, guide)
         self.assertNotIn("Alt+5", guide)
@@ -4317,9 +4346,206 @@ class AppBehaviorTests(unittest.TestCase):
         self.assertIn('ord("4"), self.accel_command_list', accelerator_source)
         self.assertNotIn('ord("5")', accelerator_source)
         self.assertIn('ord("D"), self.accel_shortcuts_guide', accelerator_source)
+        self.assertIn('ord("S"), self.accel_address_book', accelerator_source)
+        self.assertIn('ord("س"), self.accel_address_book', accelerator_source)
+        self.assertIn('ord("د"), self.accel_next_account', accelerator_source)
+        self.assertIn('ord("ج"), self.accel_previous_account', accelerator_source)
+        self.assertIn('0xDD, self.accel_next_account', accelerator_source)
+        self.assertIn('0xDB, self.accel_previous_account', accelerator_source)
+        self.assertIn('wx.ACCEL_ALT, ord("A"), self.accel_add', accelerator_source)
+        self.assertNotIn('wx.ACCEL_CTRL, ord("A"), self.accel_add', accelerator_source)
+        for command_id in (
+            "accel_create_folder", "accel_add_to_folder", "accel_delete_folder",
+            "accel_create_section", "accel_move_to_section", "accel_delete_section",
+            "accel_create_category", "accel_edit_category", "accel_delete_category",
+        ):
+            self.assertIn(f"self.{command_id}", accelerator_source)
+
+    def test_alt_f4_from_child_window_requests_application_exit(self) -> None:
+        _app = wx.GetApp() or wx.App(False)
+        frame = wx.Frame(None)
+        dialog = wx.Dialog(frame)
+        try:
+            frame.request_exit_from_shortcut = Mock()
+            frame._exit_shortcut_requested = False
+            event_filter = ApplicationExitShortcutFilter(frame)
+            key_event = SimpleNamespace(
+                GetEventType=lambda: wx.wxEVT_CHAR_HOOK,
+                GetEventObject=lambda: dialog,
+                GetKeyCode=lambda: wx.WXK_F4,
+                AltDown=lambda: True,
+            )
+            self.assertEqual(event_filter.FilterEvent(key_event), wx.EventFilter.Event_Processed)
+            frame.request_exit_from_shortcut.assert_called_once_with()
+
+            key_event.AltDown = lambda: False
+            self.assertEqual(event_filter.FilterEvent(key_event), wx.EventFilter.Event_Skip)
+            close_event = SimpleNamespace(
+                GetEventType=lambda: wx.wxEVT_CLOSE_WINDOW,
+                GetEventObject=lambda: dialog,
+            )
+            with patch("accessible_mail.main_frame.wx.GetKeyState", return_value=True):
+                self.assertEqual(event_filter.FilterEvent(close_event), wx.EventFilter.Event_Processed)
+            self.assertEqual(frame.request_exit_from_shortcut.call_count, 2)
+            frame._exit_shortcut_requested = True
+            with patch("accessible_mail.main_frame.wx.GetKeyState", return_value=True):
+                self.assertEqual(event_filter.FilterEvent(close_event), wx.EventFilter.Event_Skip)
+        finally:
+            dialog.Destroy()
+            frame.Destroy()
+
+    def test_alt_f4_exit_unwinds_modal_dialogs_before_closing_main_frame(self) -> None:
+        _app = wx.GetApp() or wx.App(False)
+        frame = wx.Frame(None)
+        frame._closing = False
+        frame._exit_shortcut_requested = False
+        frame.finish_exit_from_shortcut = Mock()
+        outer = wx.Dialog(frame)
+        inner = wx.Dialog(outer)
+        try:
+            with (
+                patch("accessible_mail.main_frame.wx.GetTopLevelWindows", return_value=[outer, inner]),
+                patch.object(outer, "IsModal", return_value=True),
+                patch.object(inner, "IsModal", return_value=True),
+                patch.object(outer, "EndModal") as end_outer,
+                patch.object(inner, "EndModal") as end_inner,
+                patch("accessible_mail.main_frame.wx.CallAfter") as call_after,
+            ):
+                MainFrame.request_exit_from_shortcut(frame)
+            self.assertTrue(frame._exit_shortcut_requested)
+            end_inner.assert_called_once_with(wx.ID_CANCEL)
+            end_outer.assert_called_once_with(wx.ID_CANCEL)
+            call_after.assert_called_once_with(frame.finish_exit_from_shortcut)
+        finally:
+            inner.Destroy()
+            outer.Destroy()
+            frame.Destroy()
+
+    def test_failed_alt_f4_close_allows_another_attempt(self) -> None:
+        frame = SimpleNamespace(_closing=False, _exit_shortcut_requested=True, Close=Mock(return_value=False))
+        MainFrame.finish_exit_from_shortcut(frame)
+        frame.Close.assert_called_once_with()
+        self.assertFalse(frame._exit_shortcut_requested)
+
+    def test_alt_f4_has_only_one_menu_accelerator_registration(self) -> None:
+        _app = wx.GetApp() or wx.App(False)
+        menu = wx.Menu()
+        try:
+            item = menu.Append(wx.ID_EXIT, "خروج\tAlt+F4")
+            accelerator = item.GetAccel()
+            self.assertIsNotNone(accelerator)
+            self.assertEqual(accelerator.GetFlags(), wx.ACCEL_ALT)
+            self.assertEqual(accelerator.GetKeyCode(), wx.WXK_F4)
+            self.assertNotIn("wx.WXK_F4", inspect.getsource(MainFrame._create_accelerators))
+        finally:
+            menu.Destroy()
+
+    def test_account_cycle_wraps_and_uses_normal_account_change_path(self) -> None:
+        choice = Mock()
+        choice.GetCount.return_value = 3
+        choice.GetSelection.side_effect = [2, 0]
+        frame = SimpleNamespace(
+            account_choice=choice,
+            on_account_changed=Mock(),
+            SetStatusText=Mock(),
+        )
+
+        MainFrame.switch_account_by_offset(frame, 1)
+        MainFrame.switch_account_by_offset(frame, -1)
+
+        self.assertEqual([item.args[0] for item in choice.SetSelection.call_args_list], [0, 2])
+        self.assertEqual(frame.on_account_changed.call_count, 2)
+
+    def test_new_shortcuts_register_in_a_valid_runtime_accelerator_table(self) -> None:
+        app = wx.GetApp()
+        owns_app = app is None
+        if owns_app:
+            app = wx.App(False)
+
+        class ShortcutFrame(wx.Frame):
+            def __getattr__(self, name: str):
+                if name.startswith(("on_", "create_")):
+                    return lambda *_args, **_kwargs: None
+                raise AttributeError(name)
+
+        frame = ShortcutFrame(None)
+        try:
+            frame.learning_menu_id = wx.NewIdRef()
+            MainFrame._create_accelerators(frame)
+            self.assertTrue(frame.GetAcceleratorTable().IsOk())
+            registered = {
+                (entry.GetFlags(), entry.GetKeyCode(), entry.GetCommand())
+                for entry in frame._accelerator_entries
+            }
+            for key_code in (ord("S"), ord("س")):
+                self.assertIn((wx.ACCEL_ALT, key_code, int(frame.accel_address_book)), registered)
+            for key_code in (ord("د"), ord("]"), 0xDD):
+                self.assertIn((wx.ACCEL_ALT, key_code, int(frame.accel_next_account)), registered)
+            for key_code in (ord("ج"), ord("["), 0xDB):
+                self.assertIn((wx.ACCEL_ALT, key_code, int(frame.accel_previous_account)), registered)
+            self.assertIn((wx.ACCEL_ALT, ord("D"), int(frame.accel_shortcuts_guide)), registered)
+        finally:
+            frame.Destroy()
+            if owns_app:
+                app.Destroy()
+
+    def test_arabic_account_shortcuts_do_not_replace_alt_d_guide(self) -> None:
+        frame = SimpleNamespace(
+            on_address_book=Mock(),
+            on_next_account=Mock(),
+            on_previous_account=Mock(),
+        )
+        event = SimpleNamespace(
+            AltDown=lambda: True,
+            ControlDown=lambda: False,
+            ShiftDown=lambda: False,
+            CmdDown=lambda: False,
+            GetKeyCode=lambda: wx.WXK_NONE,
+            GetUnicodeKey=lambda: ord("د"),
+        )
+        MainFrame.on_frame_char_hook(frame, event)
+        frame.on_next_account.assert_called_once_with()
+
+        event.GetUnicodeKey = lambda: ord("ج")
+        MainFrame.on_frame_char_hook(frame, event)
+        frame.on_previous_account.assert_called_once_with()
+
+        event.GetUnicodeKey = lambda: ord("س")
+        MainFrame.on_frame_char_hook(frame, event)
+        frame.on_address_book.assert_called_once_with()
+
+        event.GetUnicodeKey = lambda: wx.WXK_NONE
+        event.GetRawKeyCode = lambda: 0xDD
+        MainFrame.on_frame_char_hook(frame, event)
+        self.assertEqual(frame.on_next_account.call_count, 2)
+
+        event.GetRawKeyCode = lambda: 0xDB
+        MainFrame.on_frame_char_hook(frame, event)
+        self.assertEqual(frame.on_previous_account.call_count, 2)
+
+        # wxMSW can omit the translated character for Alt+Arabic keys.
+        event.GetRawKeyCode = lambda: wx.WXK_NONE
+        event.GetRawKeyFlags = lambda: 0x1B << 16
+        MainFrame.on_frame_char_hook(frame, event)
+        self.assertEqual(frame.on_next_account.call_count, 3)
+
+        event.GetRawKeyFlags = lambda: 0x1A << 16
+        MainFrame.on_frame_char_hook(frame, event)
+        self.assertEqual(frame.on_previous_account.call_count, 3)
+
+        event.GetKeyCode = lambda: ord("D")
+        event.GetRawKeyFlags = lambda: 0x20 << 16
+        event.Skip = Mock()
+        MainFrame.on_frame_char_hook(frame, event)
+        event.Skip.assert_called_once_with()
+        self.assertEqual(frame.on_next_account.call_count, 3)
+        self.assertEqual(frame.on_previous_account.call_count, 3)
 
     def test_help_menu_starts_with_learning_program_guide_then_shortcuts(self) -> None:
         source = inspect.getsource(MainFrame._create_menu)
+        self.assertNotIn('general_actions_menu.Append(wx.ID_ANY, "التصنيفات المخصصة")', source)
+        self.assertIn('"تحديث المحتوى المعروض\\tF5"', source)
+        self.assertNotIn('"تحديث\\tF5"', source)
 
         learning = source.index('"المرشد التفاعلي\\tAlt+H"')
         program_guide = source.index('"عرض دليل البرنامج\\tF1"')
@@ -4564,6 +4790,13 @@ class AppBehaviorTests(unittest.TestCase):
             begin_account_switch=Mock(side_effect=lambda _account: calls.append("switch")),
             refresh_all=Mock(side_effect=lambda: calls.append("refresh")),
             account_choice=SimpleNamespace(SetFocus=Mock()),
+            notebook=SimpleNamespace(SetSelection=Mock()),
+            pages={
+                "inbox": SimpleNamespace(
+                    filter_choice=SimpleNamespace(SetSelection=Mock()),
+                    apply_filter=Mock(),
+                )
+            },
         )
 
         MainFrame.on_account_changed(frame)

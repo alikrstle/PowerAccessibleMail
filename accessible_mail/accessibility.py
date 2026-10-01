@@ -21,6 +21,38 @@ def set_accessible(control: wx.Window, name: str, description: str = "") -> None
         control.SetToolTip(tr(description))
 
 
+class NamedChoiceAccessible(wx.Accessible):
+    """Expose the choice's own label and selected value to screen readers."""
+
+    def GetName(self, child_id: int):
+        if child_id == 0:
+            return wx.ACC_OK, self.GetWindow().GetName()
+        return wx.ACC_NOT_IMPLEMENTED, ""
+
+    def GetValue(self, child_id: int):
+        if child_id == 0:
+            return wx.ACC_OK, self.GetWindow().GetStringSelection()
+        return wx.ACC_NOT_IMPLEMENTED, ""
+
+    def GetRole(self, child_id: int):
+        if child_id == 0:
+            return wx.ACC_OK, wx.ROLE_SYSTEM_COMBOBOX
+        return wx.ACC_NOT_IMPLEMENTED, wx.ROLE_SYSTEM_CLIENT
+
+    def GetDescription(self, child_id: int):
+        if child_id == 0:
+            return wx.ACC_OK, self.GetWindow().GetToolTipText() or ""
+        return wx.ACC_NOT_IMPLEMENTED, ""
+
+
+def set_accessible_choice(control: wx.Choice, name: str, description: str = "") -> None:
+    set_accessible(control, name, description)
+    accessible = NamedChoiceAccessible(control)
+    control.SetAccessible(accessible)
+    # Keep the Python implementation alive for the native accessibility bridge.
+    control._named_choice_accessible = accessible
+
+
 def focused_control() -> wx.Window | None:
     try:
         return wx.Window.FindFocus()

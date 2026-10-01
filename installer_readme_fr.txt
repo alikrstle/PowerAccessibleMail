@@ -1,7 +1,25 @@
 ﻿Power Accessible Mail
-Version 1.5.0
+Version 1.6.0
 Développé par Soljan.AlSharq.
 Soljan.AlSharq. appartient à Ali Al-Amir
+
+Procédures importantes de la version 1.6.0
+
+Utilisez Alt+1 pour la liste des messages, Alt+2 pour la visionneuse du dernier message réellement ouvert, Alt+3 pour les sections de courrier et Alt+4 pour la liste des commandes. Alt+D ouvre le guide complet des raccourcis. L'aperçu affiché à côté de la liste ne compte pas comme un message ouvert : entrez d'abord dans la visionneuse. Si aucune visionneuse n'a été ouverte, Alt+2 vous demande d'ouvrir un message.
+
+Les paramètres proposent trois méthodes de recherche. Ctrl+F ouvre une fenêtre distincte ; le bouton de recherche ajoute les filtres d'expéditeur et de date ; le champ permanent filtre la section actuelle pendant la saisie. La recherche porte sur les messages actuellement chargés pour le compte sélectionné et compare l'expéditeur, l'adresse, l'objet, la date et l'état. Elle ne recherche ni le corps complet ni les messages encore présents uniquement sur le serveur. Chargez des messages plus anciens ou lancez la synchronisation avant de recommencer.
+
+L'archivage retire un message de la boîte de réception sans l'envoyer à la corbeille. Depuis la liste, ouvrez le menu contextuel et choisissez « Archiver le message ». Retrouvez-le dans « Messages archivés » et choisissez « Renvoyer vers la boîte de réception » si nécessaire. Les commandes d'épinglage et d'archivage se trouvent dans le menu de la liste, pas dans toutes les commandes de la visionneuse.
+
+Appuyez sur Ctrl+Entrée pour ouvrir la visionneuse des éléments. Choisissez un lien, une image ou une pièce jointe avec les flèches, puis ouvrez son menu avec la touche Applications ou Maj+F10. Vous pouvez aussi atteindre « Actions de l'élément » avec Tab. Ctrl+Entrée revient au message et Échap à la liste des messages.
+
+Dans la fenêtre de rédaction, saisissez ou collez une adresse dans « À », puis activez l'ajout au carnet d'adresses. Vous pouvez conserver l'adresse seule ou lui donner un nom. L'enregistrement vous laisse dans la fenêtre de rédaction. Plus tard, appuyez sur Flèche bas dans « À », sélectionnez le nom et validez avec Entrée ou Espace ; le champ destinataire est remplacé par l'adresse correspondante.
+
+Ctrl+T traduit un message reçu uniquement lorsque le focus est dans sa visionneuse. À la première utilisation, acceptez l'avis de confidentialité et choisissez la langue cible ; la liste commence par 20 langues courantes. Les utilisateurs ayant déjà accepté la traduction doivent également choisir une langue une fois, car les anciennes versions utilisaient automatiquement l'arabe. Cette langue est indépendante de celle de l'interface.
+
+Pour traduire avant l'envoi, ouvrez le menu contextuel dans l'objet ou le corps et choisissez la conversion vers une autre langue. Ajouter une langue l'enregistre sans lancer la traduction : rouvrez le menu et choisissez-la. Tout le champ est remplacé et Ctrl+Z permet de retrouver le texte original.
+
+Alt+H ouvre le guide interactif. Ses 31 tâches utilisent des données d'entraînement locales et n'envoient aucun courrier réel. Les nouvelles tâches portent sur la sélection multiple, les dossiers, les sections personnalisées et les catégories locales. La progression est enregistrée. Lorsqu'une mise à jour est prête, le programme ferme l'application et ouvre l'assistant d'installation normal : suivez ses pages, car l'installation n'est pas silencieuse.
 
 Rechercher dans les messages
 
@@ -13,7 +31,7 @@ Bienvenue dans votre messagerie
 
 Power Accessible Mail est conçu pour rendre la lecture l'écriture l'organisation et l'actualisation des courriels confortables au clavier
 
-La version 1.5.0 améliore la fiabilité des mises à jour en utilisant le magasin de certificats natif de Windows et fournit un message clair en cas de problème lié à l'heure de l'appareil aux mises à jour de Windows ou au logiciel de sécurité sans désactiver la vérification sécurisée
+Le programme de mise à jour utilise le magasin de certificats Windows et signale les problèmes de certificats ou d'horloge sans désactiver la vérification sécurisée.
 
 Les listes et les champs Windows natifs offrent aux lecteurs d'écran des commandes prévisibles tandis que les messages sont disposés verticalement pour rendre la navigation directe et familière
 
@@ -35,7 +53,7 @@ La connexion manuelle commence par le choix du service de messagerie
 
 Sélectionnez Google ou Microsoft et l'application remplit les paramètres IMAP et SMTP correspondants tout en laissant les champs disponibles pour vérification
 
-La connexion Google avec un mot de passe d'application est une option secondaire pour les comptes Gmail. Elle nécessite la validation en deux étapes et un mot de passe d'application créé sur la page Google officielle. Saisissez le code à 16 caractères ; l'application supprime automatiquement les espaces et le conserve avec le chiffrement Windows. Ne saisissez jamais le mot de passe habituel de votre compte Google dans ce champ
+La connexion par mot de passe d'application est l'option recommandée pour les comptes Gmail qui l'autorisent. Elle nécessite la validation en deux étapes et un mot de passe d'application créé sur la page Google officielle. Saisissez le code à 16 caractères ; l'application supprime automatiquement les espaces et le conserve avec le chiffrement Windows. Ne saisissez jamais le mot de passe habituel de votre compte Google dans ce champ
 
 Pour Microsoft la connexion par navigateur est recommandée car l'accès IMAP par mot de passe peut être limité par la politique du compte
 
@@ -101,7 +119,7 @@ Composer un courriel ouvre une fenêtre complète de rédaction
 
 Le programme d'installation enregistre Power Accessible Mail parmi les applications de messagerie proposées par Windows. Dans les paramètres de l'application choisissez Choisir PowerAccessibleMail comme application de messagerie par défaut puis confirmez votre choix dans les paramètres Windows. Sous Windows 11 Entrée peut ne pas ouvrir le sélecteur des applications associées ; appuyez sur Espace sur MAILTO pour l'ouvrir. Ensuite la sélection d'une adresse e-mail ou d'un lien mailto dans un navigateur ouvre la fenêtre de rédaction avec le destinataire l'objet et le contenu du lien automatiquement renseignés. L'application ne modifie jamais le choix par défaut de Windows sans votre autorisation
 
-Répondre Suivre Traduire Épingler en haut et déplacer vers la Corbeille du fournisseur sont disponibles dans le menu contextuel du message. La liste de la visionneuse des éléments n'a pas de menu contextuel et le bouton Actions de l'élément affiche directement les commandes des pièces jointes des images et des liens
+Le menu de la liste des messages contient les commandes de lecture, de suivi, d'épinglage, d'archivage, de suppression et d'organisation. Dans la visionneuse du message, le menu propose Répondre, Copier, Traduire et Transférer. La visionneuse des éléments possède un menu distinct pour les liens, images et pièces jointes.
 
 Utilisez Maj+F10 ou la touche Applications pour le menu contextuel du message et le bouton Actions de l'élément pour les pièces jointes les images et les liens
 
@@ -129,7 +147,7 @@ L'application vérifie GitHub Releases après le démarrage et vous pouvez lance
 
 Lorsqu'une version est disponible Mettre à jour maintenant ouvre une fenêtre interne qui indique sa version sa date de publication une barre de progression et le pourcentage
 
-Le programme d'installation approprié est téléchargé dans le dossier de mises à jour de Power Accessible Mail du profil utilisateur et son empreinte SHA-256 est vérifiée. L'application se ferme ensuite, installe automatiquement la nouvelle version sans page de langue ni étapes habituelles du programme d'installation, puis redémarre. Les demandes UAC et les avertissements de sécurité Windows restent visibles lorsque Windows les exige
+Le programme d'installation approprié est téléchargé dans le dossier de mises à jour de Power Accessible Mail du profil utilisateur et son empreinte SHA-256 est vérifiée. L'application se ferme ensuite et lance l'assistant d'installation interactif normal. Suivez ses pages pour terminer la mise à jour.
 
 Guide détaillé de la fenêtre principale
 
@@ -179,7 +197,7 @@ Cette liste séparée rassemble les liens les boutons les images et les pièces 
 
 Bouton Actions de l'élément
 
-Ce bouton affiche directement les commandes sans sous-menu : Ouvrir la pièce jointe sélectionnée Enregistrer la pièce jointe sélectionnée Enregistrer toutes les pièces jointes en une fois Ouvrir l'image Enregistrer l'image Ouvrir le lien sélectionné et Copier le lien sélectionné. Répondre Suivre Traduire Épingler et Supprimer restent dans le menu contextuel du message
+Le menu de la liste des messages contient les commandes de lecture, de suivi, d'épinglage, d'archivage, de suppression et d'organisation. Dans la visionneuse du message, le menu propose Répondre, Copier, Traduire et Transférer. La visionneuse des éléments possède un menu distinct pour les liens, images et pièces jointes.
 
 Progression de la récupération et barre d'état
 
@@ -187,9 +205,9 @@ La barre de progression indique le pourcentage de récupération ou de synchroni
 
 Marquer un message comme lu ou non lu
 
-Se déplacer sur un message ou ouvrir son contenu ne le marque pas comme lu. Dans la liste normale des messages appuyez une fois sur Espace pour basculer le message ciblé entre lu et non lu. La colonne État change immédiatement puis l'application enregistre cet état sur le serveur
+Le statut de lecture dépend du mode choisi dans les paramètres. En mode automatique, entrer dans la visionneuse marque le message comme lu ; sélectionner sa ligne ne suffit pas. En mode manuel, ouvrir la visionneuse ne change pas ce statut. Dans la liste normale, Espace alterne entre lu et non lu, puis le programme enregistre le changement sur le serveur.
 
-Lorsqu'un message est non lu vous pouvez appuyer sur la touche Applications ou Maj+F10 puis choisir Marquer comme lu. Le menu contextuel ne contient pas Marquer comme non lu; utilisez Espace dans la liste des messages pour changer l'état de lecture. En mode de sélection multiple Marquer comme lu est disponible pour le groupe sélectionné
+Ouvrez le menu contextuel avec la touche Applications ou Maj+F10. En sélection multiple, les commandes de lecture sont réunies dans un sous-menu et concernent les messages sélectionnés.
 
 Utilisez le filtre Non lus pour retrouver les messages qui demandent encore votre attention et le filtre Lus pour revoir les messages terminés
 
@@ -201,9 +219,11 @@ Appuyez sur Entrée ou Espace pour ouvrir directement l'élément. Un lien sûr 
 
 Pour obtenir des commandes explicites appuyez sur Tab pour atteindre le bouton Actions de l'élément puis sur Entrée ou Espace. Une pièce jointe propose les commandes d'ouverture et d'enregistrement une image propose Ouvrir l'image et Enregistrer l'image et un lien propose les commandes d'ouverture et de copie. Les commandes qui ne correspondent pas au type de l'élément restent désactivées afin d'éviter une activation accidentelle
 
-Appuyez sur Ctrl+Entrée pour revenir à la visionneuse de messages ou sur Échap pour revenir directement à la liste des messages. La liste des éléments n'a pas de menu contextuel. Le bouton Actions de l'élément est le seul endroit qui affiche ces commandes et les présente directement sans sous-menu
+Appuyez sur Ctrl+Entrée pour ouvrir la visionneuse des éléments. Choisissez un lien, une image ou une pièce jointe avec les flèches, puis ouvrez son menu avec la touche Applications ou Maj+F10. Vous pouvez aussi atteindre « Actions de l'élément » avec Tab. Ctrl+Entrée revient au message et Échap à la liste des messages.
 
 Gérer les pièces jointes reçues
+
+Le programme peut télécharger une pièce jointe reçue jusqu’à 5 Go (5 000 000 000 octets), si votre fournisseur de messagerie permet de la recevoir. Le téléchargement se fait par blocs sans charger tout le gros fichier en mémoire. Choisissez un disque disposant d’espace libre et prenant en charge les fichiers volumineux, puis attendez la fin. Un téléchargement échoué ne remplace pas votre fichier existant par une copie incomplète. Cette limite ne change pas celles de l’envoi ni celle de 25 Mo pour l’affichage des images, et ne concerne pas les fichiers accessibles par des liens de stockage en ligne.
 
 L'ouverture d'une pièce jointe crée une copie temporaire protégée portant un nom sûr puis demande à Windows de l'ouvrir dans l'application par défaut. Les copies temporaires créées pour la session actuelle sont supprimées à la fermeture de Power Accessible Mail
 
@@ -231,19 +251,19 @@ Appuyez sur la touche Applications ou Maj+F10 sur une adresse pour ouvrir son me
 
 Menus contextuels et touche Applications
 
-La touche Applications du clavier est parfois appelée Menu ou Menu contextuel. Elle ouvre le menu contextuel du contrôle qui possède le focus. Power Accessible Mail la prend en charge dans la liste des messages la visionneuse de messages le bouton Actions de l'élément la liste des pièces jointes sortantes et le carnet d'adresses. La liste de la visionneuse des éléments n'a pas de menu contextuel; appuyez sur Tab pour atteindre Actions de l'élément. Maj+F10 est équivalent lorsqu'un menu contextuel est disponible
+La touche Applications, parfois appelée Menu, ou Maj+F10 ouvre le menu du contrôle qui possède le focus. Les messages, dossiers, sections, visionneuses, pièces jointes sortantes et entrées du carnet possèdent des menus distincts. Placez d'abord le focus sur l'élément voulu.
 
-Le menu contextuel de la visionneuse de messages propose Répondre Marquer comme lu si nécessaire Suivre Traduire Épingler et Supprimer. Le bouton Actions de l'élément affiche directement les sept commandes des pièces jointes des images et des liens sans sous-menu. Pour les atteindre appuyez sur Ctrl+Entrée afin de passer à la visionneuse des éléments sélectionnez un élément puis appuyez sur Tab pour atteindre Actions de l'élément
+Dans la visionneuse du message, le menu propose Répondre, Copier, Traduire et Transférer. Revenez à la liste pour changer l'état de lecture, suivre, épingler, archiver ou supprimer un message. Pour un lien, une image ou une pièce jointe, ouvrez la visionneuse des éléments avec Ctrl+Entrée et utilisez son menu ou « Actions de l'élément ».
 
 Dans la liste des messages les commandes s'adaptent au message ciblé et à son état actuel. Sur le bouton Actions de l'élément elles s'adaptent au type de l'élément sélectionné. En mode de sélection multiple les commandes de message agissent sur le groupe et l'application indique le nombre de messages concernés avant la suppression
 
 Commandes clavier utiles
 
-Ctrl+A ouvre les options et la gestion des comptes
+Alt+A ouvre les options et la gestion des comptes
 Ctrl+N compose un nouveau message
 Ctrl+R répond au message ciblé
 Ctrl+T traduit le message actuel
-F5 actualise les messages
+F5: Actualiser le contenu affiché
 F1 ouvre le guide de l'application
 Échap revient à la liste des messages depuis la visionneuse de messages ou la visionneuse des éléments
 Ctrl+Entrée passe de la visionneuse de messages à la visionneuse des éléments
@@ -263,3 +283,39 @@ La suppression d'un compte depuis l'application supprime également les données
 Power Accessible Mail
 Une expérience de messagerie accessible développée par Soljan.AlSharq.
 Soljan.AlSharq. appartient à Ali Al-Amir
+
+
+Dossiers de messages et sections locales
+
+Un dossier regroupe les messages que vous choisissez. Une section personnalisée est un emplacement local pour les messages et les dossiers. Ni ne crée de dossier de serveur ni ne déplace le courrier chez votre fournisseur. Appuyez sur Alt+Z dans la liste des messages, sélectionnez les messages avec les touches fléchées et Espace, puis Tab pour créer un dossier ou Annuler. Entrez un nom ; le laisser vide utilise Nouveau dossier avec la date du jour. Un dossier apparaît parmi les messages avec son nom, son nombre de messages et sa date de création. Appuyez sur Entrée pour l'ouvrir et sur Retour arrière pour revenir. Ses messages sont masqués des listes générales lorsqu'ils sont regroupés. Le menu contextuel du dossier permet d'épingler, de mettre en vedette, de renommer, d'archiver et de restaurer. La suppression d'un dossier supprime uniquement le regroupement, pas ses messages.
+
+Alt+X ajoute les messages sélectionnés à un dossier existant. La commande contextuelle Ajouter un message au dossier ou à la section vous permet de choisir l'une ou l'autre destination. Dans un dossier, vous pouvez retirer un message du dossier sans supprimer le courrier. Alt+C supprime le dossier ciblé. Alt+Ctrl+Z crée une section ; Alt+Ctrl+X déplace l'élément ciblé vers une section localement ; Alt+Ctrl+C supprime la section personnalisée actuelle sans supprimer le courrier d'origine. Les sections intégrées ne peuvent pas être supprimées. Pour remettre un message dans sa section d'origine, choisissez « Revenir aux sections originales » dans son menu.
+
+Les catégories personnalisées sont des filtres
+
+Ouvrez le menu contextuel de la zone de catégorie et choisissez Créer une nouvelle catégorie ou appuyez sur Alt+Ctrl+Maj+Z. Choisissez un filtre avec les flèches et Entrée, puis saisissez un nom. La catégorie apparaît dans la zone de catégorie familière dans les sections de courrier et filtre les messages locaux chargés ; ce n'est pas une destination. Les filtres incluent les messages lus récemment, courriers promotionnels, les organisations, les adresses d'expéditeur spécifiées, les expéditeurs fréquents, les messages verrouillés, les dossiers de messages, les messages avec pièces jointes et les messages sans pièces jointes. Estimations de détection d'organisation à partir du domaine de l'expéditeur ; il ne vérifie pas l'identité de l'expéditeur. Pour les expéditeurs spécifiés, saisissez les adresses avant de nommer la catégorie.
+
+Ctrl+Bas permet d'accéder aux catégories personnalisées ; Ctrl+Up revient à la première catégorie intégrée. Alt+Ctrl+Shift+X modifie le filtre personnalisé actuel et Alt+Ctrl+Shift+C le supprime. La suppression d'un filtre ne supprime pas le courrier. Le filtre de messages verrouillés ne contourne pas un mot de passe.
+
+Verrouillages par mot de passe pour les dossiers et les sections
+
+Sur un dossier de messages ou une section personnalisée, ouvrez le menu contextuel et choisissez le verrouillage par mot de passe. Lisez l'avertissement, saisissez au moins huit caractères et confirmez le mot de passe. L'application masque les messages dans les listes générales et les résultats de recherche. Elle chiffre leur appartenance au groupe et leur contenu local à l'aide du mot de passe et de la protection de l'utilisateur Windows actuel. Un compte Windows local fonctionne ; un compte Microsoft n'est pas requis.
+
+Appuyez sur Entrée sur l'élément verrouillé et entrez son mot de passe pour afficher son contenu dans ce dossier ou cette section. Quitter sa portée ou changer de compte ferme la session déverrouillée. Pour supprimer définitivement la protection, choisissez Supprimer le verrouillage et saisissez le mot de passe. Il n'y a pas de récupération de mot de passe. Le courrier reste chez le fournisseur, mais l'organisation locale peut ne pas être récupérable. Les verrous ne protègent pas les copies précédemment exportées, téléchargées ou sauvegardées, ni le compte du fournisseur. Les données cryptées locales sont liées à l'utilisateur Windows et ne doivent pas être considérées comme portables vers un autre utilisateur ou ordinateur. Utilisez le cryptage du disque et sécurisez également votre session Windows.
+
+Options de sons et de basse vision
+
+Dans les paramètres, ouvrez « Personnaliser les sons de l’application ». Activez ou désactivez les événements individuellement, puis appuyez sur Entrée sur le nom d'un son ou cliquez dessus pour le prévisualiser. Remplacer accepte un fichier MP3. Confirmez à la fois la boîte de dialogue sonore et les paramètres pour enregistrer les modifications ; l’annulation n’écrase pas votre son précédemment enregistré. La musique de fond de la mise à jour et du programme d'installation est fixe, non personnalisable ici. Le programme d'installation propose une case pour couper cette musique.
+
+Dans les paramètres, « Fonctions et options pour la basse vision » se trouve après « Personnaliser les sons de l’application ». Les cases de choix et les cases à cocher natives fournissent la mise à l'échelle du texte et de l'interface, le contraste, la mise en surbrillance, un pointeur dans l'application et les couleurs du texte/arrière-plan. Utilisez la tabulation, les flèches et l'espace, confirmez la boîte de dialogue, puis enregistrez les paramètres. Ces options modifient l'apparence de l'application, pas les paramètres de votre lecteur d'écran.
+
+Autres raccourcis de navigation et de sélection
+Alt+S ouvre le carnet. Alt+] passe au compte suivant et Alt+[ au précédent ; sur un clavier arabe, ces touches correspondent à د et ج. Alt+A ouvre la gestion des comptes ; Ctrl+A sélectionne les messages visibles, pas les dossiers. Hors des champs de saisie, Retour arrière recule d'une étape. Dans un dossier de messages ou en sélection multiple, Échap quitte d'abord ce mode ; une annonce demande un second appui pour revenir à l'interface principale. Dans une visionneuse, Échap revient à la liste des messages. Dans ce guide, 1 passe au titre suivant et 2 au précédent. Alt+D ouvre le guide des raccourcis.
+
+Verrouiller les dossiers du carnet d’adresses
+
+Alt+S ouvre le carnet d'adresses. Choisissez « Créer un dossier » dans les options de dossier, sélectionnez les adresses avec les flèches et Espace, puis atteignez le bouton de création avec Tab et donnez un nom. Les dossiers apparaissent dans la liste et leurs adresses ne sont pas répétées à l'extérieur. Entrée ouvre un dossier et Retour arrière revient à la liste. Son menu permet l'épinglage, le renommage, le verrouillage et la suppression sans supprimer les adresses ; il n'y a ni archivage ni suivi par étoile. Dans un dossier, les options permettent de retirer une adresse sans la supprimer. Une nouvelle adresse enregistrée reste dans la liste actuelle et est ajoutée au dossier ouvert.
+
+Dans le carnet d’adresses, ouvrez le menu contextuel d’un dossier et choisissez le verrouillage par mot de passe. Il protège les noms, les adresses et leur état d’épinglage, mais pas leurs messages. Ouvrez le dossier avec Entrée et son mot de passe. Ses adresses restent absentes des listes générales de destinataires, même pendant son ouverture. Vous pouvez les ajouter, modifier, épingler ou supprimer dans le dossier. Retirer une adresse du dossier sans la supprimer la rend de nouveau publique ; supprimer le verrouillage rend ses adresses disponibles dans les listes de destinataires, sans les retirer du dossier.
+
+Supprimez les verrouillages des dossiers du carnet avant de retirer le compte de messagerie du programme. Une adresse présente dans un dossier de conversations d’un autre compte doit en être retirée avant d’être verrouillée. Les mots de passe oubliés ne sont pas récupérables et les copies enregistrées hors du programme ne sont pas protégées.

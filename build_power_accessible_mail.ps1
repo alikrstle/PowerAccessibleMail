@@ -157,6 +157,12 @@ if (Test-Path -LiteralPath (Join-Path $PSScriptRoot "backgrounds")) {
         ((Join-Path $PSScriptRoot "backgrounds") + ";backgrounds")
     )
 }
+if (Test-Path -LiteralPath (Join-Path $PSScriptRoot "sound")) {
+    $dataArgs += @(
+        "--add-data",
+        ((Join-Path $PSScriptRoot "sound") + ";sound")
+    )
+}
 $dataArgs += @("--add-data", ($AppIcon + ";assets\branding"))
 $dataArgs += @("--add-data", ($LoginLogo + ";assets\branding"))
 $dataArgs += @(
@@ -237,11 +243,22 @@ if ($bundledNvdaHash -ne $ExpectedNvdaHashes[$Architecture]) {
     throw "The bundled NVDA Controller Client does not match $Architecture."
 }
 
+Push-Location $PSScriptRoot
+try {
+    & $PythonPath -m accessible_mail.release_validation $AppDistDir
+    if ($LASTEXITCODE -ne 0) {
+        throw "The application payload contains private data or unsafe reparse points."
+    }
+}
+finally {
+    Pop-Location
+}
+
 New-Item -ItemType Directory -Path $ReleaseDir,$PackageDir -Force | Out-Null
 Copy-Item -LiteralPath $AppDistDir -Destination $ReleaseDir -Recurse -Force
 Copy-Item -LiteralPath $AppDistDir -Destination $PackageDir -Recurse -Force
 
-$forbidden = @("accounts.json", "messages.sqlite3", ".mail_store")
+$forbidden = @("accounts.json", "settings.json", "address_book.json", "folders.db", "messages.sqlite3", ".mail_store")
 foreach ($directory in @($ReleaseDir, $PackageDir)) {
     foreach ($name in $forbidden) {
         $matches = Get-ChildItem -LiteralPath $directory -Recurse -Force -ErrorAction SilentlyContinue |

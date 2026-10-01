@@ -6,7 +6,7 @@ from pathlib import Path
 
 import wx
 
-from .accessibility import announce_context_menu, announce_to_screen_reader, set_accessible
+from .accessibility import announce_context_menu, announce_to_screen_reader, set_accessible, set_accessible_choice
 from .address_book import add_address, load_address_book, normalize_email_address
 from .address_book_dialog import AddressPickerDialog, request_custom_address_name
 from .config import ProgramSettings, THEME_DARK, THEME_LIGHT
@@ -16,6 +16,7 @@ from .notification_preferences import (
     EVENT_COMPOSE_ATTACHMENTS,
     EVENTS_BY_ID,
     SPOKEN_NOTIFICATION_GROUPS,
+    SPOKEN_NOTIFICATION_EVENT_COUNT,
     NOTIFICATION_LEVEL_CUSTOM,
     normalize_event_ids,
     preset_event_ids,
@@ -32,6 +33,36 @@ from .ui_constants import (
 from .ui_helpers import apply_layout_direction, localize_window
 from .update_checker import UpdateCheckResult
 from .compose_translation import ComposeTranslationMixin
+from .visual_accessibility import CURSOR_SIZES, FONT_SCALES
+from .program_sounds import (
+    PROGRAM_SOUNDS,
+    normalize_custom_sound_files,
+    normalize_sound_event_ids,
+    play_program_sound,
+    replace_program_sound,
+)
+
+
+def set_scrollable_dialog_content(
+    dialog: wx.Dialog,
+    content_sizer: wx.Sizer,
+) -> wx.ScrolledWindow:
+    """Keep enlarged dialog controls reachable on smaller displays."""
+    scroller = wx.ScrolledWindow(
+        dialog,
+        style=wx.HSCROLL | wx.VSCROLL | wx.TAB_TRAVERSAL,
+    )
+    for child in list(dialog.GetChildren()):
+        if child is not scroller:
+            child.Reparent(scroller)
+    scroller.SetSizer(content_sizer)
+    scroll_step = scroller.FromDIP(20)
+    scroller.SetScrollRate(scroll_step, scroll_step)
+    scroller.FitInside()
+    outer = wx.BoxSizer(wx.VERTICAL)
+    outer.Add(scroller, 1, wx.EXPAND)
+    dialog.SetSizer(outer)
+    return scroller
 
 
 class MessageTranslationLanguageDialog(wx.Dialog):
@@ -495,6 +526,13 @@ class SpokenNotificationsDialog(wx.Dialog):
     def __init__(self, parent: wx.Window, selected_event_ids: set[str]) -> None:
         super().__init__(parent, title=tr("الإشعارات التي سينطقها البرنامج"), size=(840, 620))
         root = wx.BoxSizer(wx.VERTICAL)
+        inventory = wx.StaticText(
+            self,
+            label=tr("تتضمن القائمة {count} نوعاً من إشعارات البرنامج.").format(
+                count=SPOKEN_NOTIFICATION_EVENT_COUNT
+            ),
+        )
+        root.Add(inventory, 0, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.TOP, 12)
         content = wx.BoxSizer(wx.HORIZONTAL)
 
         self.category_event_ids = tuple(
@@ -610,6 +648,291 @@ class SpokenNotificationsDialog(wx.Dialog):
         }
 
 
+class ProgramSoundsDialog(wx.Dialog):
+    def __init__(
+        self,
+        parent: wx.Window,
+        settings: ProgramSettings,
+        selected_event_ids: set[str],
+    ) -> None:
+        super().__init__(parent, title=tr("تخصيص أصوات البرنامج"), size=(620, 560))
+        self.settings = replace(settings)
+        self.sound_files = normalize_custom_sound_files(
+            self.settings.program_sound_files
+        )
+        self.sound_checkboxes: dict[str, wx.CheckBox] = {}
+        root = wx.BoxSizer(wx.VERTICAL)
+        description = wx.StaticText(
+            self,
+            label=tr(
+                "حدد الأصوات التي تريد سماعها. انتقل إلى اسم الصوت واضغط Enter "
+                "لتشغيله، أو انقر على اسمه بزر الفأرة."
+            ),
+        )
+        description.Wrap(570)
+        root.Add(description, 0, wx.EXPAND | wx.ALL, 12)
+        sound_grid = wx.FlexGridSizer(rows=len(PROGRAM_SOUNDS), cols=3, vgap=8, hgap=8)
+        sound_grid.AddGrowableCol(1, 1)
+        for sound in PROGRAM_SOUNDS:
+            enabled_box = wx.CheckBox(self, label=tr("تشغيل"))
+            enabled_box.SetValue(sound.event_id in selected_event_ids)
+            set_accessible(
+                enabled_box,
+                tr("تشغيل الصوت: {name}").format(name=tr(sound.label)),
+                tr("اضغط Space لتفعيل هذا الصوت أو تعطيله."),
+            )
+            self.sound_checkboxes[sound.event_id] = enabled_box
+            sound_grid.Add(enabled_box, 0, wx.ALIGN_CENTER_VERTICAL)
+
+            sound_button = wx.Button(self, label=tr(sound.label))
+            sound_button.Bind(
+                wx.EVT_BUTTON,
+                lambda _event, event_id=sound.event_id: self.play_sound(event_id),
+            )
+            set_accessible(
+                sound_button,
+                sound.label,
+                "اضغط Enter لتشغيل الصوت.",
+            )
+            sound_grid.Add(sound_button, 1, wx.EXPAND)
+
+            replace_button = wx.Button(self, label=tr("استبدال"))
+            replace_button.Bind(
+                wx.EVT_BUTTON,
+                lambda _event, event_id=sound.event_id: self.on_replace(event_id),
+            )
+            set_accessible(
+                replace_button,
+                tr("استبدال الصوت: {name}").format(name=tr(sound.label)),
+            )
+            sound_grid.Add(replace_button, 0, wx.ALIGN_CENTER_VERTICAL)
+        root.Add(sound_grid, 1, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM, 12)
+        buttons = self.CreateSeparatedButtonSizer(wx.OK | wx.CANCEL)
+        if buttons:
+            root.Add(buttons, 0, wx.EXPAND | wx.ALL, 12)
+        self.scroller = set_scrollable_dialog_content(self, root)
+        localize_window(self)
+        self.scroller.FitInside()
+        if PROGRAM_SOUNDS:
+            wx.CallAfter(
+                self.sound_checkboxes[PROGRAM_SOUNDS[0].event_id].SetFocus
+            )
+
+    def selected_event_ids(self) -> set[str]:
+        return {
+            event_id
+            for event_id, checkbox in self.sound_checkboxes.items()
+            if checkbox.GetValue()
+        }
+
+    def selected_sound_files(self) -> dict[str, str]:
+        return dict(self.sound_files)
+
+    def play_sound(self, event_id: str) -> None:
+        self.settings.program_sound_files = dict(self.sound_files)
+        play_program_sound(event_id, self.settings, force=True)
+
+    def on_replace(self, event_id: str) -> None:
+        dialog = wx.FileDialog(
+            self,
+            message=tr("اختر ملف MP3 لاستبدال الصوت"),
+            wildcard=tr("ملفات MP3 (*.mp3)|*.mp3"),
+            style=wx.FD_OPEN | wx.FD_FILE_MUST_EXIST,
+        )
+        try:
+            if dialog.ShowModal() != wx.ID_OK:
+                return
+            destination = replace_program_sound(event_id, Path(dialog.GetPath()))
+        except (OSError, ValueError) as exc:
+            wx.MessageBox(
+                tr("تعذر استبدال الصوت.\n\n{error}").format(error=exc),
+                tr("استبدال الصوت"),
+                wx.OK | wx.ICON_ERROR,
+                self,
+            )
+            return
+        finally:
+            dialog.Destroy()
+        self.sound_files[event_id] = str(destination)
+        self.settings.program_sound_files = dict(self.sound_files)
+        sound = next(item for item in PROGRAM_SOUNDS if item.event_id == event_id)
+        announce_to_screen_reader(
+            self,
+            tr("تم استبدال صوت {name}.").format(name=tr(sound.label)),
+        )
+        self.play_sound(event_id)
+
+
+class LowVisionOptionsDialog(wx.Dialog):
+    def __init__(self, parent: wx.Window, settings: ProgramSettings) -> None:
+        super().__init__(
+            parent,
+            title=tr("ميزات وخيارات ضعاف البصر"),
+            size=(640, 680),
+        )
+        self.settings = replace(settings)
+        root = wx.BoxSizer(wx.VERTICAL)
+
+        intro = wx.StaticText(
+            self,
+            label=tr(
+                "يمكنك تكبير عناصر البرنامج وزيادة وضوحها. تطبق الخيارات داخل "
+                "Power Accessible Mail فقط ولا تغيّر إعدادات Windows."
+            ),
+        )
+        intro.Wrap(590)
+        root.Add(intro, 0, wx.EXPAND | wx.ALL, 12)
+
+        root.Add(wx.StaticText(self, label=tr("حجم الخط وعناصر الواجهة:")), 0, wx.LEFT | wx.RIGHT | wx.TOP, 12)
+        self.font_scale_box = wx.Choice(
+            self,
+            choices=[tr(f"{value}%") for value in FONT_SCALES],
+        )
+        self.font_scale_box.SetSelection(FONT_SCALES.index(self.settings.low_vision_font_scale))
+        set_accessible_choice(
+            self.font_scale_box,
+            "حجم الخط وعناصر الواجهة",
+            "اختر نسبة التكبير التي تناسب قدرتك على الرؤية.",
+        )
+        root.Add(self.font_scale_box, 0, wx.EXPAND | wx.ALL, 12)
+
+        root.Add(wx.StaticText(self, label=tr("حجم المؤشر داخل البرنامج:")), 0, wx.LEFT | wx.RIGHT | wx.TOP, 12)
+        cursor_labels = ("عادي", "كبير", "كبير جداً")
+        self.cursor_size_box = wx.Choice(
+            self,
+            choices=[tr(label) for label in cursor_labels],
+        )
+        self.cursor_size_box.SetSelection(CURSOR_SIZES.index(self.settings.low_vision_cursor_size))
+        set_accessible_choice(
+            self.cursor_size_box,
+            "حجم المؤشر داخل البرنامج",
+            "يكبّر مؤشر الفأرة ومؤشر الكتابة داخل نوافذ البرنامج.",
+        )
+        root.Add(self.cursor_size_box, 0, wx.EXPAND | wx.ALL, 12)
+
+        root.Add(wx.StaticText(self, label=tr("خيارات العرض:")), 0, wx.LEFT | wx.RIGHT | wx.TOP, 12)
+        self.visual_option_list = wx.ListCtrl(self, style=wx.LC_REPORT | wx.LC_SINGLE_SEL)
+        self.visual_option_list.InsertColumn(0, tr("خيارات العرض"), width=540)
+        self.visual_option_list.EnableCheckBoxes(True)
+        self.visual_option_list.SetMinSize((-1, self.FromDIP(190)))
+        self.visual_option_labels = (
+            "استخدام تباين عالٍ",
+            "تمييز العنصر الذي عليه التركيز",
+            "استخدام ألوان مخصصة",
+        )
+        for index, label in enumerate(self.visual_option_labels):
+            self.visual_option_list.InsertItem(index, tr(label))
+        for index, checked in enumerate((
+            self.settings.low_vision_high_contrast,
+            self.settings.low_vision_focus_highlight,
+            self.settings.low_vision_custom_colours,
+        )):
+            self.visual_option_list.CheckItem(index, checked)
+        self.visual_option_list.SetItemState(
+            0, wx.LIST_STATE_SELECTED | wx.LIST_STATE_FOCUSED,
+            wx.LIST_STATE_SELECTED | wx.LIST_STATE_FOCUSED,
+        )
+        set_accessible(
+            self.visual_option_list,
+            "خيارات العرض",
+            "استخدم الأسهم للتنقل وSpace لتفعيل الخيار أو إيقافه. اضغط Tab للانتقال إلى الألوان أو أزرار الحفظ.",
+        )
+        self.visual_option_list.Bind(wx.EVT_CHAR_HOOK, self.on_visual_option_key)
+        self.visual_option_list.Bind(wx.EVT_LIST_ITEM_CHECKED, self.on_colour_mode_changed)
+        self.visual_option_list.Bind(wx.EVT_LIST_ITEM_UNCHECKED, self.on_colour_mode_changed)
+        root.Add(self.visual_option_list, 0, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM, 12)
+
+        self.colour_mode_note = wx.StaticText(self, label="")
+        set_accessible(self.colour_mode_note, "حالة الألوان المخصصة")
+        root.Add(self.colour_mode_note, 0, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM, 12)
+
+        colours = wx.FlexGridSizer(rows=2, cols=2, vgap=10, hgap=12)
+        colours.AddGrowableCol(1, 1)
+        colours.Add(wx.StaticText(self, label=tr("لون النص:")), 0, wx.ALIGN_CENTER_VERTICAL)
+        self.text_colour_picker = wx.ColourPickerCtrl(
+            self,
+            colour=wx.Colour(self.settings.low_vision_text_colour),
+        )
+        set_accessible(self.text_colour_picker, "اختيار لون النص")
+        self.text_colour_picker.Bind(wx.EVT_COLOURPICKER_CHANGED, self.on_colour_picker_changed)
+        colours.Add(self.text_colour_picker, 1, wx.EXPAND)
+        colours.Add(wx.StaticText(self, label=tr("لون الخلفية:")), 0, wx.ALIGN_CENTER_VERTICAL)
+        self.background_colour_picker = wx.ColourPickerCtrl(
+            self,
+            colour=wx.Colour(self.settings.low_vision_background_colour),
+        )
+        set_accessible(self.background_colour_picker, "اختيار لون الخلفية")
+        self.background_colour_picker.Bind(wx.EVT_COLOURPICKER_CHANGED, self.on_colour_picker_changed)
+        colours.Add(self.background_colour_picker, 1, wx.EXPAND)
+        root.Add(colours, 0, wx.EXPAND | wx.ALL, 12)
+
+        buttons = self.CreateSeparatedButtonSizer(wx.OK | wx.CANCEL)
+        if buttons:
+            root.Add(buttons, 0, wx.EXPAND | wx.ALL, 12)
+        self.scroller = set_scrollable_dialog_content(self, root)
+        self.on_colour_mode_changed(None)
+        localize_window(self)
+        self.update_colour_picker_names()
+        self.scroller.FitInside()
+        wx.CallAfter(self.font_scale_box.SetFocus)
+
+    def on_colour_mode_changed(self, _event: wx.Event | None) -> None:
+        enabled = (
+            self.visual_option_list.IsItemChecked(2)
+            and not self.visual_option_list.IsItemChecked(0)
+        )
+        self.text_colour_picker.Enable(enabled)
+        self.background_colour_picker.Enable(enabled)
+        self.colour_mode_note.SetLabel(
+            tr("الألوان المخصصة لا تُطبّق أثناء تشغيل التباين العالي.")
+            if self.visual_option_list.IsItemChecked(0) and self.visual_option_list.IsItemChecked(2)
+            else ""
+        )
+        if hasattr(self, "scroller"):
+            self.scroller.Layout()
+
+    def on_colour_picker_changed(self, _event: wx.Event) -> None:
+        self.update_colour_picker_names()
+
+    def update_colour_picker_names(self) -> None:
+        for picker, label in (
+            (self.text_colour_picker, "اختيار لون النص"),
+            (self.background_colour_picker, "اختيار لون الخلفية"),
+        ):
+            colour = picker.GetColour().GetAsString(wx.C2S_HTML_SYNTAX)
+            picker.SetName(f"{tr(label)}: {colour}")
+            picker.SetToolTip(f"{tr(label)}: {colour}")
+
+    def on_visual_option_key(self, event: wx.KeyEvent) -> None:
+        key = event.GetKeyCode()
+        if key == wx.WXK_SPACE and not (event.ControlDown() or event.AltDown() or event.ShiftDown()):
+            index = self.visual_option_list.GetFocusedItem()
+            if index >= 0:
+                self.visual_option_list.CheckItem(index, not self.visual_option_list.IsItemChecked(index))
+            return
+        if key == wx.WXK_TAB and not event.ControlDown() and not event.AltDown():
+            if event.ShiftDown():
+                self.cursor_size_box.SetFocus()
+            else:
+                target = self.text_colour_picker if self.text_colour_picker.IsEnabled() else self.FindWindow(wx.ID_OK)
+                if target is not None:
+                    target.SetFocus()
+            return
+        event.Skip()
+
+    def selected_settings(self) -> ProgramSettings:
+        return replace(
+            self.settings,
+            low_vision_font_scale=FONT_SCALES[self.font_scale_box.GetSelection()],
+            low_vision_high_contrast=self.visual_option_list.IsItemChecked(0),
+            low_vision_cursor_size=CURSOR_SIZES[self.cursor_size_box.GetSelection()],
+            low_vision_focus_highlight=self.visual_option_list.IsItemChecked(1),
+            low_vision_custom_colours=self.visual_option_list.IsItemChecked(2),
+            low_vision_text_colour=self.text_colour_picker.GetColour().GetAsString(wx.C2S_HTML_SYNTAX),
+            low_vision_background_colour=self.background_colour_picker.GetColour().GetAsString(wx.C2S_HTML_SYNTAX),
+        )
+
+
 class SettingsDialog(wx.Dialog):
     def __init__(self, parent: wx.Window, settings: ProgramSettings) -> None:
         super().__init__(parent, title="الإعدادات", size=(680, 700))
@@ -619,25 +942,28 @@ class SettingsDialog(wx.Dialog):
             if settings.spoken_notification_events is not None
             else preset_event_ids(settings.spoken_notification_level)
         )
+        self.sound_event_ids = set(
+            normalize_sound_event_ids(settings.program_sound_events)
+        )
+        self.sound_files = normalize_custom_sound_files(
+            settings.program_sound_files
+        )
         self._build()
 
     def _build(self) -> None:
         apply_layout_direction(self)
         root = wx.BoxSizer(wx.VERTICAL)
 
-        self.focus_intro = wx.TextCtrl(
-            self,
-            value=tr("لغة البرنامج:"),
-            style=wx.TE_READONLY | wx.BORDER_NONE,
-        )
-        set_accessible(self.focus_intro, "لغة البرنامج")
-        root.Add(self.focus_intro, 0, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.TOP, 10)
+        self.language_intro = wx.TextCtrl(self, value=tr("لغة البرنامج:"),
+                                         style=wx.TE_READONLY | wx.BORDER_NONE)
+        set_accessible(self.language_intro, "لغة البرنامج")
+        root.Add(self.language_intro, 0, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.TOP, 10)
         self.language_box = wx.Choice(
             self,
             choices=[tr(label) for label in LANGUAGE_CHOICES],
         )
         self.language_box.SetSelection(self.index_for_value(LANGUAGE_CHOICES, self.settings.language))
-        set_accessible(self.language_box, "لغة البرنامج")
+        set_accessible_choice(self.language_box, "لغة البرنامج")
         root.Add(self.language_box, 0, wx.EXPAND | wx.ALL, 10)
 
         root.Add(wx.StaticText(self, label="مستعرض الرسائل:"), 0, wx.LEFT | wx.RIGHT | wx.TOP, 10)
@@ -646,7 +972,7 @@ class SettingsDialog(wx.Dialog):
             choices=[tr(label) for label in VIEWER_CHOICES],
         )
         self.viewer_box.SetSelection(self.index_for_value(VIEWER_CHOICES, self.settings.message_viewer))
-        set_accessible(
+        set_accessible_choice(
             self.viewer_box,
             "نوع مستعرض الرسائل",
             "مستعرض HTML يعطي الروابط والأزرار كعناصر صفحة، والمستعرض السهل يعرض الرسالة كنص عادي.",
@@ -669,7 +995,7 @@ class SettingsDialog(wx.Dialog):
                 self.settings.message_read_mode,
             )
         )
-        set_accessible(
+        set_accessible_choice(
             self.message_read_mode_box,
             "طريقة قراءة الرسائل",
             (
@@ -692,7 +1018,7 @@ class SettingsDialog(wx.Dialog):
         self.search_mode_box.SetSelection(
             self.index_for_value(SEARCH_MODE_CHOICES, self.settings.search_mode)
         )
-        set_accessible(
+        set_accessible_choice(
             self.search_mode_box,
             "طريقة البحث في الرسائل",
             (
@@ -710,7 +1036,7 @@ class SettingsDialog(wx.Dialog):
         self.translation_mode_box.SetSelection(
             self.index_for_value(TRANSLATION_MODE_CHOICES, self.settings.translation_mode)
         )
-        set_accessible(self.translation_mode_box, "نمط الترجمة")
+        set_accessible_choice(self.translation_mode_box, "نمط الترجمة")
         root.Add(self.translation_mode_box, 0, wx.EXPAND | wx.ALL, 10)
         from .translation_languages import message_language_codes, language_name
         self.message_language_codes = message_language_codes()
@@ -724,7 +1050,7 @@ class SettingsDialog(wx.Dialog):
             self.message_language_codes.index(selected_language)
             if selected_language in self.message_language_codes else 0
         )
-        set_accessible(self.message_translation_language_box, translation_label)
+        set_accessible_choice(self.message_translation_language_box, translation_label)
         root.Add(self.message_translation_language_box, 0, wx.EXPAND | wx.ALL, 10)
 
         root.Add(
@@ -744,7 +1070,7 @@ class SettingsDialog(wx.Dialog):
                 self.settings.spoken_notification_level,
             )
         )
-        set_accessible(
+        set_accessible_choice(
             self.notification_level_box,
             "مستوى نطق إجراءات البرنامج",
             "اختر مستوى جاهزًا، ثم استخدم زر عرض الإشعارات لتخصيصه.",
@@ -775,6 +1101,48 @@ class SettingsDialog(wx.Dialog):
         )
         root.Add(notification_row, 0, wx.EXPAND)
 
+        sound_row = wx.BoxSizer(wx.HORIZONTAL)
+        self.program_sounds_box = wx.CheckBox(
+            self,
+            label=tr("تشغيل أصوات البرنامج"),
+        )
+        self.program_sounds_box.SetValue(self.settings.program_sounds_enabled)
+        set_accessible(
+            self.program_sounds_box,
+            "تشغيل أصوات البرنامج",
+            "يشغّل أصواتاً قصيرة عند تنفيذ أحداث محددة في البرنامج.",
+        )
+        sound_row.Add(self.program_sounds_box, 1, wx.ALIGN_CENTER_VERTICAL | wx.ALL, 10)
+        self.customize_sounds_button = wx.Button(
+            self,
+            label=tr("تخصيص أصوات البرنامج"),
+        )
+        self.customize_sounds_button.Bind(wx.EVT_BUTTON, self.on_customize_sounds)
+        set_accessible(
+            self.customize_sounds_button,
+            "تخصيص أصوات البرنامج",
+            "يفتح قائمة الأصوات مع إمكانية تشغيل كل صوت للتجربة.",
+        )
+        sound_row.Add(self.customize_sounds_button, 0, wx.ALIGN_CENTER_VERTICAL | wx.ALL, 10)
+        root.Add(sound_row, 0, wx.EXPAND)
+
+        self.low_vision_options_button = wx.Button(
+            self,
+            label=tr("ميزات وخيارات ضعاف البصر"),
+        )
+        set_accessible(
+            self.low_vision_options_button,
+            "ميزات وخيارات ضعاف البصر",
+            "يفتح خيارات تكبير الخط والتباين والمؤشر وتمييز التركيز والألوان.",
+        )
+        self.low_vision_options_button.Bind(wx.EVT_BUTTON, self.on_low_vision_options)
+        root.Add(
+            self.low_vision_options_button,
+            0,
+            wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM,
+            10,
+        )
+
         self.default_mail_button = wx.Button(
             self,
             label="اختيار PowerAccessibleMail كتطبيق البريد الافتراضي",
@@ -790,17 +1158,6 @@ class SettingsDialog(wx.Dialog):
         )
         self.default_mail_button.Bind(wx.EVT_BUTTON, self.on_default_mail)
         root.Add(self.default_mail_button, 0, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM, 10)
-
-        self.theme_box = wx.RadioBox(
-            self,
-            label="الوضع الشكلي",
-            choices=[tr(label) for label in THEME_CHOICES],
-            majorDimension=1,
-            style=wx.RA_SPECIFY_ROWS,
-        )
-        self.theme_box.SetSelection(1 if self.settings.theme == THEME_DARK else 0)
-        set_accessible(self.theme_box, "الوضع الشكلي")
-        root.Add(self.theme_box, 0, wx.EXPAND | wx.ALL, 10)
 
         self.restore_defaults_button = wx.Button(
             self,
@@ -819,12 +1176,24 @@ class SettingsDialog(wx.Dialog):
             10,
         )
 
+        self.theme_box = wx.RadioBox(
+            self,
+            label="الوضع الشكلي",
+            choices=[tr(label) for label in THEME_CHOICES],
+            majorDimension=1,
+            style=wx.RA_SPECIFY_ROWS,
+        )
+        self.theme_box.SetSelection(1 if self.settings.theme == THEME_DARK else 0)
+        set_accessible(self.theme_box, "الوضع الشكلي")
+        root.Add(self.theme_box, 0, wx.EXPAND | wx.ALL, 10)
+
         buttons = self.CreateSeparatedButtonSizer(wx.OK | wx.CANCEL)
         if buttons:
             root.Add(buttons, 0, wx.EXPAND | wx.ALL, 10)
-        self.SetSizer(root)
+        self.scroller = set_scrollable_dialog_content(self, root)
         localize_window(self)
-        wx.CallAfter(self.focus_intro.SetFocus)
+        self.scroller.FitInside()
+        wx.CallAfter(self.language_intro.SetFocus)
 
     def selected_message_translation_language(self) -> str:
         selection = self.message_translation_language_box.GetSelection()
@@ -866,7 +1235,48 @@ class SettingsDialog(wx.Dialog):
             spoken_notification_events=selected_events or [],
             last_selected_account_id=self.settings.last_selected_account_id,
             compose_translation_languages=list(self.settings.compose_translation_languages),
+            low_vision_font_scale=self.settings.low_vision_font_scale,
+            low_vision_high_contrast=self.settings.low_vision_high_contrast,
+            low_vision_cursor_size=self.settings.low_vision_cursor_size,
+            low_vision_focus_highlight=self.settings.low_vision_focus_highlight,
+            low_vision_custom_colours=self.settings.low_vision_custom_colours,
+            low_vision_text_colour=self.settings.low_vision_text_colour,
+            low_vision_background_colour=self.settings.low_vision_background_colour,
+            program_sounds_enabled=(
+                self.program_sounds_box.GetValue()
+                if hasattr(self, "program_sounds_box")
+                else self.settings.program_sounds_enabled
+            ),
+            program_sound_events=normalize_sound_event_ids(
+                getattr(self, "sound_event_ids", self.settings.program_sound_events)
+            ),
+            program_sound_files=normalize_custom_sound_files(
+                getattr(self, "sound_files", self.settings.program_sound_files)
+            ),
         )
+
+    def on_customize_sounds(self, _event: wx.Event) -> None:
+        sound_settings = replace(
+            self.settings,
+            program_sound_files=dict(self.sound_files),
+        )
+        dialog = ProgramSoundsDialog(self, sound_settings, self.sound_event_ids)
+        try:
+            if dialog.ShowModal() == wx.ID_OK:
+                self.sound_event_ids = dialog.selected_event_ids()
+                self.sound_files = dialog.selected_sound_files()
+        finally:
+            dialog.Destroy()
+        self.customize_sounds_button.SetFocus()
+
+    def on_low_vision_options(self, _event: wx.Event) -> None:
+        dialog = LowVisionOptionsDialog(self, self.settings)
+        try:
+            if dialog.ShowModal() == wx.ID_OK:
+                self.settings = dialog.selected_settings()
+        finally:
+            dialog.Destroy()
+        self.low_vision_options_button.SetFocus()
 
     def on_notification_level_changed(self, _event: wx.Event) -> None:
         level = self.value_for_index(
@@ -954,7 +1364,20 @@ class SettingsDialog(wx.Dialog):
         self.notification_event_ids = preset_event_ids(
             defaults.spoken_notification_level
         )
+        if hasattr(self, "program_sounds_box"):
+            self.program_sounds_box.SetValue(defaults.program_sounds_enabled)
+        self.sound_event_ids = set(
+            normalize_sound_event_ids(defaults.program_sound_events)
+        )
+        self.sound_files = {}
         self.theme_box.SetSelection(1 if defaults.theme == THEME_DARK else 0)
+        self.settings.low_vision_font_scale = defaults.low_vision_font_scale
+        self.settings.low_vision_high_contrast = defaults.low_vision_high_contrast
+        self.settings.low_vision_cursor_size = defaults.low_vision_cursor_size
+        self.settings.low_vision_focus_highlight = defaults.low_vision_focus_highlight
+        self.settings.low_vision_custom_colours = defaults.low_vision_custom_colours
+        self.settings.low_vision_text_colour = defaults.low_vision_text_colour
+        self.settings.low_vision_background_colour = defaults.low_vision_background_colour
         self.settings.translation_data_notice_accepted = (
             defaults.translation_data_notice_accepted
         )

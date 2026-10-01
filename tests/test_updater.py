@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import subprocess
 import ssl
 import tempfile
 import threading
@@ -13,6 +14,8 @@ from accessible_mail.update_checker import UpdateCheckResult, current_architectu
 from accessible_mail.updater import (
     UpdateDownloadCancelled,
     UpdateInstallError,
+    _system_powershell_path,
+    authenticode_signature_status,
     can_install_update,
     default_update_root,
     download_update_installer,
@@ -45,6 +48,48 @@ class DownloadResponse:
 
 
 class InternalUpdaterTests(unittest.TestCase):
+    @patch("accessible_mail.updater.ctypes.windll")
+    @patch("accessible_mail.updater.Path.is_file", return_value=True)
+    def test_signature_helper_uses_windows_system_directory(self, _is_file, windll) -> None:
+        def system_directory(buffer, _length):
+            buffer.value = r"C:\Windows\System32"
+            return len(buffer.value)
+
+        windll.kernel32.GetSystemDirectoryW.side_effect = system_directory
+        with patch.dict("accessible_mail.updater.os.environ", {"PATH": r"C:\untrusted"}):
+            self.assertEqual(
+                _system_powershell_path(),
+                Path(r"C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe"),
+            )
+
+    @patch("accessible_mail.updater._system_powershell_path", return_value=Path(r"C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe"))
+    @patch("accessible_mail.updater.subprocess.run")
+    def test_signature_path_is_data_not_powershell_code(self, run, powershell) -> None:
+        run.return_value = subprocess.CompletedProcess([], 0, "Valid\n")
+        target = Path(r"C:\synthetic folder\المثبت '$(); & name.exe")
+        self.assertEqual(authenticode_signature_status(target), "Valid")
+        arguments = run.call_args.args[0]
+        self.assertEqual(arguments[0], str(powershell.return_value))
+        self.assertNotIn(str(target), arguments)
+        self.assertNotIn(target.name, arguments[-1])
+        self.assertEqual(run.call_args.kwargs["env"]["PAM_SIGNATURE_PATH"], str(target.resolve()))
+        self.assertIn("-LiteralPath $env:PAM_SIGNATURE_PATH", arguments[-1])
+        self.assertIn('Import-Module "$PSHOME\\Modules\\Microsoft.PowerShell.Security\\Microsoft.PowerShell.Security.psd1"', arguments[-1])
+        self.assertFalse(run.call_args.kwargs.get("shell", False))
+
+    @patch("accessible_mail.updater._system_powershell_path", return_value=None)
+    @patch("accessible_mail.updater.subprocess.run")
+    def test_signature_check_never_falls_back_to_path(self, run, _powershell) -> None:
+        self.assertEqual(authenticode_signature_status(Path("setup.exe")), "Unavailable")
+        run.assert_not_called()
+
+    @patch("accessible_mail.updater.ctypes.windll")
+    def test_missing_system_directory_fails_closed(self, windll) -> None:
+        for length in (0, 4096, 5000):
+            with self.subTest(length=length):
+                windll.kernel32.GetSystemDirectoryW.return_value = length
+                self.assertIsNone(_system_powershell_path())
+
     def update_result(self, payload: bytes) -> UpdateCheckResult:
         architecture = current_architecture()
         return UpdateCheckResult(

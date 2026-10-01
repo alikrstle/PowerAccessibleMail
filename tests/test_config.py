@@ -320,7 +320,7 @@ class OAuthClientConfigTests(unittest.TestCase):
         self.assertIn("pefile.PE(sys.argv[1]", app_build)
         self.assertIn("-c $appMachineScript $AppDistExe", app_build)
 
-    def test_public_release_requires_authenticode_signing(self) -> None:
+    def test_unsigned_release_requires_explicit_approval_and_clear_labeling(self) -> None:
         project_root = Path(__file__).resolve().parents[1]
         release_build = (
             project_root / "build_release_power_accessible_mail.ps1"
@@ -328,18 +328,17 @@ class OAuthClientConfigTests(unittest.TestCase):
         readme = (project_root / "README.md").read_text(encoding="utf-8")
 
         self.assertIn("[switch]$AllowUnsigned", release_build)
-        self.assertIn("Public releases must be Authenticode-signed", release_build)
-        self.assertIn("tester-only GitHub pre-release", release_build)
-        self.assertIn("Never publish an unsigned build as a stable release", release_build)
+        self.assertIn("explicit maintainer approval", release_build)
+        self.assertIn('"-UNSIGNED"', release_build)
+        self.assertIn("SHA-256 manifests", release_build)
         self.assertIn('@(".exe", ".dll", ".pyd")', release_build)
         self.assertIn("PE signature verification failed", release_build)
         self.assertIn("Portable PE signature verification failed", release_build)
         self.assertIn("Push-Location $ProjectRoot", release_build)
         self.assertIn("[System.IO.Path]::IsPathRooted($PythonPath)", release_build)
-        self.assertIn("Pre-release", readme)
-        self.assertIn(
-            f"PowerAccessibleMailSetup-{__version__}-win-x64-UNSIGNED.exe", readme
-        )
+        self.assertIn("يعتمد مسؤول المشروع النشر غير الموقع صراحة", readme)
+        self.assertIn("PowerAccessibleMailSetup-", readme)
+        self.assertIn("-win-x64-UNSIGNED.exe", readme)
 
     def test_release_pipeline_avoids_opaque_update_behavior(self) -> None:
         project_root = Path(__file__).resolve().parents[1]

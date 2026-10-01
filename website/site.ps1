@@ -29,7 +29,7 @@ switch ($Action) {
     'deploy' {
         & $npm run check
         if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-        & $node $wrangler pages deploy dist --project-name $ProjectName
+        & $node $wrangler pages deploy dist --project-name $ProjectName --branch main
     }
 }
 

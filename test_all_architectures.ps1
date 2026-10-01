@@ -117,6 +117,11 @@ print(json.dumps({
         throw "$Architecture dependency check failed."
     }
     $previousPycachePrefix = $env:PYTHONPYCACHEPREFIX
+    $previousAppData = $env:APPDATA
+    $previousLocalAppData = $env:LOCALAPPDATA
+    $testProfileRoot = Join-Path $env:TEMP ("pam-tests-$Architecture-" + [guid]::NewGuid().ToString('N'))
+    $env:APPDATA = Join-Path $testProfileRoot "Roaming"
+    $env:LOCALAPPDATA = Join-Path $testProfileRoot "Local"
     $env:PYTHONPYCACHEPREFIX = Join-Path $env:TEMP "power-accessible-mail-pycache-$Architecture"
     try {
         & $PythonPath -m compileall -q `
@@ -132,6 +137,8 @@ print(json.dumps({
     }
     finally {
         $env:PYTHONPYCACHEPREFIX = $previousPycachePrefix
+        $env:APPDATA = $previousAppData
+        $env:LOCALAPPDATA = $previousLocalAppData
     }
 
     Write-Output (

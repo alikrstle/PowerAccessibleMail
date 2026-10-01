@@ -1,8 +1,21 @@
 # Power Accessible Mail Release Checklist
 
-- No `accounts.json` in the release folder.
-- No `messages.sqlite3` in the release folder.
-- No `.mail_store` in the release folder.
+## User documentation and release notes
+
+- Identify the previous stable release tag and compare its source tree with the exact commit being released. Compare trees rather than relying on commit history when release and website branches have different ancestry.
+- Verify every feature described as new against that comparison. Distinguish new features from improvements to existing features; do not present existing address-book or multiple-selection functionality as newly added.
+- Write release notes for someone upgrading from the previous stable version. Explain the benefit and where to find the feature. Do not include training sample names, internal task splits, implementation history, or development-test details.
+- Check the program guide against the shipping interface: exact labels, focus order, shortcut scope, search scope, translation prompts, and installer behavior. Distinguish training steps from real-mail actions.
+- Review the localized guides for the same changes. An Arabic guide rewrite does not by itself update the other languages.
+- For 1.6.0, retain DOCUMENTATION_REVIEW_1.6.0_AR.md and run tests.test_documentation_consistency on both architectures. Check the bundled files, not only fallback guide strings.
+- Keep Controlled Folder Access coverage separate from antivirus status and encrypted locks. Review WINDOWS_PROTECTION_REVIEW_1.6.0_AR.md; protection-policy changes require separate authorization and compatibility checks.
+- Review the release body shown by the updater, website information, and bundled guide together. Editing source documentation does not update already published installers or portable packages. Publish bundled changes with a new version; do not silently replace an existing stable release's binaries.
+
+## Packaging and verification
+
+- Run `python -m accessible_mail.release_validation <payload-directory>` before packaging. The build runs this check on the PyInstaller payload and stops on a violation.
+- No user `accounts.json`, `settings.json`, `address_book.json`, `folders.db`, or `messages.sqlite3`, including backups, temporary variants and SQLite journals, anywhere in the release payload.
+- No `.mail_store`, `logs`, or user `custom-sounds` directory, and no symlinks/junctions that can pull unrelated private files into a release.
 - Browser OAuth file `oauth_clients.json` is included for sign-in.
 - x64 build uses 64-bit Python and a PE32+ PyInstaller bootloader; x86 uses 32-bit Python and a PE32 bootloader.
 - `test_all_architectures.ps1` passes against the unified source tree and locked dependencies.

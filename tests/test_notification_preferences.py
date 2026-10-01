@@ -12,6 +12,8 @@ from accessible_mail.notification_preferences import (
     EVENT_CONTEXT_MENUS,
     EVENT_FOCUS_NAVIGATION,
     EVENT_ITEM_DETAILS,
+    EVENT_INTERACTIVE_GUIDE,
+    EVENT_MESSAGE_ARCHIVE,
     EVENT_MESSAGE_LOADING,
     EVENT_MESSAGE_PIN,
     EVENT_MESSAGE_READ,
@@ -25,6 +27,8 @@ from accessible_mail.notification_preferences import (
     EVENT_SEARCH_NO_RESULTS,
     EVENT_SEARCH_RESULTS,
     EVENT_SEARCH_STARTED,
+    EVENT_SETTINGS,
+    EVENT_COMPOSE_OPEN,
     EVENT_SEND,
     EVENT_SYNC,
     EVENT_TRANSLATION,
@@ -38,6 +42,7 @@ from accessible_mail.notification_preferences import (
     NOTIFICATION_LEVEL_NONE,
     NOTIFICATION_LEVEL_SOME,
     SPOKEN_NOTIFICATION_GROUPS,
+    SPOKEN_NOTIFICATION_EVENT_COUNT,
     configure_spoken_notifications,
     event_is_enabled,
     notification_event_for_message,
@@ -78,6 +83,7 @@ class NotificationPreferenceTests(unittest.TestCase):
 
         self.assertEqual(set(grouped_event_ids), set(ALL_EVENT_IDS))
         self.assertEqual(len(grouped_event_ids), len(set(grouped_event_ids)))
+        self.assertEqual(SPOKEN_NOTIFICATION_EVENT_COUNT, 42)
 
     def test_explicit_checklist_selection_overrides_the_level_preset(self) -> None:
         configure_spoken_notifications(
@@ -112,6 +118,11 @@ class NotificationPreferenceTests(unittest.TestCase):
             "تم فتح نافذة البحث في الرسائل.": EVENT_SEARCH_STARTED,
             "عدد نتائج البحث: 4.": EVENT_SEARCH_RESULTS,
             "لم يتم العثور على نتائج للبحث.": EVENT_SEARCH_NO_RESULTS,
+            "تمت أرشفة الرسالة.": EVENT_MESSAGE_ARCHIVE,
+            "تمت إعادة الرسالة إلى الوارد.": EVENT_MESSAGE_ARCHIVE,
+            "تم حفظ الإعدادات.": EVENT_SETTINGS,
+            "تم فتح نافذة إنشاء الرسالة.": EVENT_COMPOSE_OPEN,
+            "أحسنت، أكملت التدريب مع المرشد التفاعلي.": EVENT_INTERACTIVE_GUIDE,
         }
 
         for message, event_id in expected.items():
